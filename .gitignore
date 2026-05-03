@@ -2,7 +2,7 @@
 .superpowers/
 
 # build output
-build/
+build/bin/
 dist/
 node_modules/
 frontend/dist/
