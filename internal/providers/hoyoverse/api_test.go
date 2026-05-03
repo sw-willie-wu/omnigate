@@ -40,3 +40,32 @@ func TestFetchBasicInfo_ParsesBackgrounds(t *testing.T) {
 	}
 	_ = json.Marshal // silence unused import if test grows
 }
+
+func TestFetchGameIcon_FindsByBiz(t *testing.T) {
+	body := `{"retcode":0,"message":"OK","data":{"games":[{"biz":"hk4e_global","display":{"name":"Genshin Impact","icon":{"url":"https://cdn/icon-genshin.png"}}},{"biz":"hkrpg_global","display":{"name":"Star Rail","icon":{"url":"https://cdn/icon-rail.png"}}}]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := newAPIClient(srv.URL, http.DefaultClient)
+	got, err := c.fetchGameIcon(context.Background(), "hk4e_global", "zh-tw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://cdn/icon-genshin.png" {
+		t.Errorf("icon = %s", got)
+	}
+}
+
+func TestFetchGameIcon_NotFound(t *testing.T) {
+	body := `{"retcode":0,"data":{"games":[]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := newAPIClient(srv.URL, http.DefaultClient)
+	_, err := c.fetchGameIcon(context.Background(), "missing_biz", "en")
+	if err == nil {
+		t.Errorf("expected error, got nil")
+	}
+}

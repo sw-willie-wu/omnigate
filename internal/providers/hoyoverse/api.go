@@ -94,3 +94,47 @@ func (c *apiClient) fetchBasicInfo(ctx context.Context, apiGameID, lang string) 
 	}
 	return out, nil
 }
+
+type rawGames struct {
+	Games []struct {
+		Biz     string `json:"biz"`
+		Display struct {
+			Name string `json:"name"`
+			Icon struct{ URL string `json:"url"` } `json:"icon"`
+		} `json:"display"`
+	} `json:"games"`
+}
+
+func (c *apiClient) fetchGameIcon(ctx context.Context, biz, lang string) (string, error) {
+	q := url.Values{}
+	q.Set("launcher_id", LauncherID)
+	q.Set("language", lang)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.base+"/getGames?"+q.Encode(), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var env apiEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		return "", err
+	}
+	var raw rawGames
+	if err := json.Unmarshal(env.Data, &raw); err != nil {
+		return "", err
+	}
+	for _, g := range raw.Games {
+		if g.Biz == biz {
+			return g.Display.Icon.URL, nil
+		}
+	}
+	return "", fmt.Errorf("biz %q not in /getGames response", biz)
+}
