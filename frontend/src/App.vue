@@ -1,21 +1,43 @@
-<script lang="ts" setup>
-import HelloWorld from './components/HelloWorld.vue'</script>
+<script setup lang="ts">
+import { onMounted, computed } from 'vue';
+import { useGamesStore } from './stores/games';
+import { useViewStore } from './stores/view';
+import BgLayer from './components/BgLayer.vue';
+import Topbar from './components/Topbar.vue';
+import Sidebar from './components/Sidebar.vue';
+import DetailView from './components/DetailView.vue';
+import GridView from './components/GridView.vue';
+import BottomBar from './components/BottomBar.vue';
+import Footbar from './components/Footbar.vue';
+
+const games = useGamesStore();
+const view = useViewStore();
+
+const appClass = computed(() => ({
+  collapsed: view.sidebarCollapsed,
+  'grid-mode': view.viewMode === 'grid',
+}));
+
+onMounted(async () => {
+  await games.load();
+  await games.refreshVersions();
+  await games.loadAssets();
+});
+</script>
 
 <template>
-  <img id="logo" alt="Wails logo" src="./assets/images/logo-universal.png"/>
-  <HelloWorld/>
+  <div class="app-wrap">
+    <BgLayer />
+    <div class="top-fade"></div>
+    <div class="app" :class="appClass">
+      <Sidebar />
+      <Topbar />
+      <main class="main">
+        <DetailView v-if="view.viewMode === 'detail'" />
+        <GridView v-else />
+      </main>
+      <Footbar />
+      <BottomBar v-if="view.viewMode === 'detail'" />
+    </div>
+  </div>
 </template>
-
-<style>
-#logo {
-  display: block;
-  width: 50%;
-  height: 50%;
-  margin: auto;
-  padding: 10% 0 0;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  background-origin: content-box;
-}
-</style>
