@@ -2,7 +2,7 @@
 .superpowers/
 
 # build output
-build/
+build/bin/
 dist/
 node_modules/
 frontend/dist/
@@ -10,6 +10,7 @@ frontend/node_modules/
 
 # Wails generated bindings (regenerated on build)
 frontend/wailsjs/
+frontend/package.json.md5
 
 # Go build artefacts
 *.exe
