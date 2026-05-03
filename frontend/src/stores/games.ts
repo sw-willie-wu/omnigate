@@ -45,8 +45,11 @@ export const useGamesStore = defineStore('games', {
           if (!g.icon_url) g.icon_url = await GetIcon(g.id);
           const bgs = await GetBackgrounds(g.id);
           if (bgs.length) {
-            g.background_url = bgs[0].ImageURL;
-            g.background_video = bgs[0].VideoURL;
+            // Prefer the first background with a video; fall back to the first bg's image otherwise.
+            const withVideo = bgs.find((b) => b.VideoURL);
+            const pick = withVideo ?? bgs[0];
+            g.background_url = pick.ImageURL;
+            g.background_video = pick.VideoURL;
           }
         } catch (e) {
           console.warn('assets failed', g.id, e);

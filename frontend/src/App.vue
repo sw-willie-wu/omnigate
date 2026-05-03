@@ -29,15 +29,16 @@ onMounted(async () => {
   <div class="app-wrap">
     <BgLayer />
     <div class="top-fade"></div>
+    <div class="bottom-fade"></div>
     <div class="app" :class="appClass">
       <Sidebar />
       <Topbar />
       <main class="main">
         <DetailView v-if="view.viewMode === 'detail'" />
         <GridView v-else />
+        <BottomBar v-if="view.viewMode === 'detail'" />
       </main>
       <Footbar />
-      <BottomBar v-if="view.viewMode === 'detail'" />
     </div>
   </div>
 </template>
