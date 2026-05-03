@@ -232,4 +232,4 @@
   .footbar > span { display: inline-flex; gap: 8px; align-items: center; }
   .footbar .ok { color: var(--ok); font-size: 8px; }
   .footbar .bl { animation: blink 2s steps(2) infinite; }
-  @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+  @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0.2; } }
