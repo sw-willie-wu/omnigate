@@ -1,0 +1,37 @@
+# brainstorming companion (mockups + state, not production)
+.superpowers/
+
+# build output
+build/
+dist/
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# Wails generated bindings (regenerated on build)
+frontend/wailsjs/
+
+# Go build artefacts
+*.exe
+*.dll
+
+# runtime state (portable mode)
+downloads/
+logs/
+state.toml
+*.log
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# tooling
+.claude/
+.playwright-mcp/
+
+# secrets / local
+.env
+.env.local
+settings.toml
