@@ -1,0 +1,33 @@
+{
+  "publishers": {
+    "hoyoverse": "米哈遊",
+    "kurogames": "庫洛",
+    "hypergryph": "鷹角",
+    "perfectworld": "完美世界"
+  },
+  "buttons": {
+    "play": "開始遊戲",
+    "play_short": "開始",
+    "update": "更新",
+    "pause": "暫停"
+  },
+  "status": {
+    "ready": "就緒",
+    "update": "更新可用",
+    "predownload": "預下載",
+    "downloading": "下載中",
+    "applying": "套用中",
+    "error": "錯誤"
+  },
+  "labels": {
+    "last_run": "上次啟動",
+    "checked": "檢查於",
+    "minutes_ago": "{n} 分鐘前",
+    "days_ago": "{n} 天前",
+    "ready_pill": "就緒"
+  },
+  "footer": {
+    "summary": "{backends} 個後端 · {games} 款遊戲",
+    "synced": "已同步"
+  }
+}

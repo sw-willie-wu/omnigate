@@ -1,0 +1,33 @@
+{
+  "publishers": {
+    "hoyoverse": "HoYoverse",
+    "kurogames": "Kuro Games",
+    "hypergryph": "Hypergryph",
+    "perfectworld": "Perfect World"
+  },
+  "buttons": {
+    "play": "PLAY",
+    "play_short": "PLAY",
+    "update": "UPDATE",
+    "pause": "PAUSE"
+  },
+  "status": {
+    "ready": "READY",
+    "update": "UPDATE",
+    "predownload": "PRE-DL",
+    "downloading": "DOWNLOADING",
+    "applying": "APPLYING",
+    "error": "ERROR"
+  },
+  "labels": {
+    "last_run": "LAST RUN",
+    "checked": "CHECKED",
+    "minutes_ago": "{n} MIN AGO",
+    "days_ago": "{n} DAYS AGO",
+    "ready_pill": "READY"
+  },
+  "footer": {
+    "summary": "{backends} BACKENDS · {games} GAMES",
+    "synced": "SYNCED"
+  }
+}

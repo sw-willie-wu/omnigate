@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import {reactive} from 'vue'
-import {Greet} from '../../wailsjs/go/main/App'
+import {ListGames} from '../../wailsjs/go/app/App'
 
 const data = reactive({
   name: "",
@@ -8,8 +8,8 @@ const data = reactive({
 })
 
 function greet() {
-  Greet(data.name).then(result => {
-    data.resultText = result
+  ListGames().then((result: any) => {
+    data.resultText = `Found ${result.length} games`
   })
 }
 
