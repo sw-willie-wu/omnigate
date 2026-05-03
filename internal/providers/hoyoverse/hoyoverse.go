@@ -80,7 +80,7 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	if g == nil {
 		return core.VersionInfo{}, fmt.Errorf("unknown game %q", gid)
 	}
-	return p.api.fetchVersion(ctx, g.Biz, "")
+	return p.api.fetchVersion(ctx, g.APIGameID, "")
 }
 
 func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {

@@ -13,7 +13,10 @@ import (
 
 type rawGamePackages struct {
 	GamePackages []struct {
-		Game struct{ Biz string `json:"biz"` } `json:"game"`
+		Game struct {
+			ID  string `json:"id"`
+			Biz string `json:"biz"`
+		} `json:"game"`
 		Main struct {
 			Major struct{ Version string `json:"version"` } `json:"major"`
 		} `json:"main"`
@@ -23,15 +26,13 @@ type rawGamePackages struct {
 	} `json:"game_packages"`
 }
 
-// fetchVersion returns version info for one biz id. currentLocal is the
-// caller-side detected version (or "" if unknown).
-func (c *apiClient) fetchVersion(ctx context.Context, biz, currentLocal string) (core.VersionInfo, error) {
-	q := url.Values{}
-	q.Set("launcher_id", LauncherID)
-	q.Add("game_ids[]", "")
-	// hoyoverse expects game_ids[]= for each; we use single
-	// (NOTE: param key is biz id mapped via gameMeta — caller passes biz)
-	qs := q.Encode() + "&game_ids[]=" + biz
+// fetchVersion returns version info for one game (looked up by API game id).
+// currentLocal is the caller-side detected version (or "" if unknown).
+func (c *apiClient) fetchVersion(ctx context.Context, apiGameID, currentLocal string) (core.VersionInfo, error) {
+	// HoYoverse expects literal "game_ids[]=<id>" — url.Values.Encode()
+	// percent-encodes the brackets which the API rejects. The value must be
+	// the API game id (e.g. "gopR6Cufr3"), NOT the biz code.
+	qs := "launcher_id=" + url.QueryEscape(LauncherID) + "&game_ids[]=" + url.QueryEscape(apiGameID)
 	req, err := http.NewRequestWithContext(ctx, "GET", c.base+"/getGamePackages?"+qs, nil)
 	if err != nil {
 		return core.VersionInfo{}, err
@@ -52,7 +53,7 @@ func (c *apiClient) fetchVersion(ctx context.Context, biz, currentLocal string) 
 		return core.VersionInfo{}, err
 	}
 	for _, p := range raw.GamePackages {
-		if p.Game.Biz != biz {
+		if p.Game.ID != apiGameID {
 			continue
 		}
 		info := core.VersionInfo{
@@ -67,5 +68,5 @@ func (c *apiClient) fetchVersion(ctx context.Context, biz, currentLocal string) 
 		}
 		return info, nil
 	}
-	return core.VersionInfo{}, fmt.Errorf("biz %q not in response", biz)
+	return core.VersionInfo{}, fmt.Errorf("game id %q not in response", apiGameID)
 }

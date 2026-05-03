@@ -8,14 +8,14 @@ import (
 )
 
 func TestCheckVersion_ParsesMainAndPredownload(t *testing.T) {
-	body := `{"retcode":0,"data":{"game_packages":[{"game":{"biz":"hk4e_global"},"main":{"major":{"version":"5.5.0"},"patches":[]},"pre_download":{"major":{"version":"5.6.0"},"patches":[]}}]}}`
+	body := `{"retcode":0,"data":{"game_packages":[{"game":{"id":"gopR6Cufr3","biz":"hk4e_global"},"main":{"major":{"version":"5.5.0"},"patches":[]},"pre_download":{"major":{"version":"5.6.0"},"patches":[]}}]}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(body))
 	}))
 	defer srv.Close()
 
 	c := newAPIClient(srv.URL, http.DefaultClient)
-	got, err := c.fetchVersion(context.Background(), "hk4e_global", "5.5.0")
+	got, err := c.fetchVersion(context.Background(), "gopR6Cufr3", "5.5.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,13 +31,13 @@ func TestCheckVersion_ParsesMainAndPredownload(t *testing.T) {
 }
 
 func TestCheckVersion_NoPredownload(t *testing.T) {
-	body := `{"retcode":0,"data":{"game_packages":[{"game":{"biz":"hk4e_global"},"main":{"major":{"version":"5.5.0"}}}]}}`
+	body := `{"retcode":0,"data":{"game_packages":[{"game":{"id":"gopR6Cufr3","biz":"hk4e_global"},"main":{"major":{"version":"5.5.0"}}}]}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(body))
 	}))
 	defer srv.Close()
 	c := newAPIClient(srv.URL, http.DefaultClient)
-	got, err := c.fetchVersion(context.Background(), "hk4e_global", "5.5.0")
+	got, err := c.fetchVersion(context.Background(), "gopR6Cufr3", "5.5.0")
 	if err != nil {
 		t.Fatal(err)
 	}
