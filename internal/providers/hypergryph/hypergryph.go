@@ -1,43 +1,33 @@
-package hoyoverse
+package hypergryph
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"time"
 
 	"launcher-collection-tmp/internal/core"
 )
 
 type Settings struct {
-	Path   string // launcher install root, e.g. C:\Program Files\HoYoPlay
-	Region string // "global" or "cn" — only "global" supported in M2
+	Path string
 }
 
 type Provider struct {
-	api      *apiClient
 	settings Settings
 	logger   *slog.Logger
 }
 
-// New returns a new HoYoverse Provider. logger may be nil; falls back to
-// slog.Default().
 func New(settings Settings, logger *slog.Logger) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Provider{
-		api:      newAPIClient(APIBase, &http.Client{Timeout: 30 * time.Second}),
-		settings: settings,
-		logger:   logger,
-	}
+	return &Provider{settings: settings, logger: logger}
 }
 
 func (p *Provider) ID() core.BackendID { return BackendID }
 
 func (p *Provider) DisplayName() core.LocalizedString {
-	return core.LocalizedString{"zh-TW": "米哈遊", "en": "HoYoverse"}
+	return core.LocalizedString{"zh-TW": "鷹角", "zh-CN": "鹰角", "en": "Hypergryph"}
 }
 
 func (p *Provider) Games() []core.GameDescriptor {
@@ -56,10 +46,11 @@ func (p *Provider) Games() []core.GameDescriptor {
 func (p *Provider) SettingsSchema() []core.SettingField {
 	return []core.SettingField{
 		{Key: "path", Kind: core.SettingPath,
-			Label: core.LocalizedString{"zh-TW": "HoYoPlay 安裝資料夾", "en": "HoYoPlay install folder"}},
-		{Key: "region", Kind: core.SettingSelectKind,
-			Label:   core.LocalizedString{"zh-TW": "區域", "en": "Region"},
-			Options: []string{"global"}},
+			Label: core.LocalizedString{
+				"zh-TW": "GRYPHLINK 安裝資料夾",
+				"zh-CN": "GRYPHLINK 安装文件夹",
+				"en":    "GRYPHLINK launcher folder",
+			}},
 	}
 }
 
@@ -67,12 +58,13 @@ func (p *Provider) DetectInstall(ctx context.Context) ([]core.InstalledGame, err
 	return DetectInstall(ctx, p.settings.Path)
 }
 
-func (p *Provider) GetIcon(ctx context.Context, gid core.GameID) (string, error) {
+func (p *Provider) GetIcon(_ context.Context, gid core.GameID) (string, error) {
 	g := findByID(gid)
 	if g == nil {
 		return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
-	return p.api.fetchGameIcon(ctx, g.Biz, "zh-tw")
+	_, suffix, _ := core.ParseGameID(gid)
+	return fmt.Sprintf("/_asset/%s/icon/%s", p.ID(), suffix), nil
 }
 
 func (p *Provider) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.Background, error) {
@@ -80,15 +72,27 @@ func (p *Provider) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.
 	if g == nil {
 		return nil, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
-	return p.api.fetchBasicInfo(ctx, g.APIGameID, "zh-tw")
+	_ = g // future: per-game URL routing
+	return []core.Background{
+		{
+			ImageURL: CurrentBgURL(ctx, p.logger),
+			VideoURL: "",
+			Type:     core.BackgroundImage,
+		},
+	}, nil
 }
 
 func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error) {
-	g := findByID(gid)
-	if g == nil {
-		return core.VersionInfo{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+	installs, err := p.DetectInstall(ctx)
+	if err != nil {
+		return core.VersionInfo{}, err
 	}
-	return p.api.fetchVersion(ctx, g.APIGameID, "")
+	for _, ig := range installs {
+		if ig.GameID == gid {
+			return fetchVersion(ctx, ig.InstallPath, gid)
+		}
+	}
+	return core.VersionInfo{}, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 }
 
 func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
@@ -104,11 +108,18 @@ func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.Launch
 	return 0, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 }
 
-// PrimaryPath implements core.PathProvider.
 func (p *Provider) PrimaryPath() string { return p.settings.Path }
 
-// compile-time check
+func (p *Provider) ExeName(gid core.GameID) (string, bool) {
+	g := findByID(gid)
+	if g == nil {
+		return "", false
+	}
+	return g.ExeName, true
+}
+
 var (
 	_ core.Provider     = (*Provider)(nil)
 	_ core.PathProvider = (*Provider)(nil)
+	_ core.ExeNamer     = (*Provider)(nil)
 )

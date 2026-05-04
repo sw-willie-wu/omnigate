@@ -191,9 +191,9 @@
   .hero-stats-line .v { color: var(--text); letter-spacing: 0.05em; }
   .hero-stats-line .lbl { color: rgba(255,255,255,0.45); letter-spacing: 0.18em; }
 
-  .launch-area { flex-shrink: 0; }
+  .launch-area { flex-shrink: 0; margin-right: 32px; }
 
-  .launch-btn { background: var(--accent); color: var(--bg); border: 0; padding: 0 44px; cursor: pointer; font-family: 'JetBrains Mono', 'Noto Sans TC', monospace; font-size: 17px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; height: 56px; min-width: 200px; transition: transform 0.12s, box-shadow 0.12s; }
+  .launch-btn { background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 0 44px; cursor: pointer; font-family: 'JetBrains Mono', 'Noto Sans TC', monospace; font-size: 17px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; height: 56px; min-width: 200px; transition: transform 0.12s, box-shadow 0.12s; }
   .launch-btn:hover { transform: translate(-3px, -3px); box-shadow: 6px 6px 0 var(--accent-dim); }
   .launch-btn .play-tri { display: inline-block; width: 0; height: 0; border-left: 9px solid var(--bg); border-top: 6px solid transparent; border-bottom: 6px solid transparent; margin-right: 12px; vertical-align: middle; }
 

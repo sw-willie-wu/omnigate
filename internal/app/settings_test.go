@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -12,35 +13,120 @@ func TestSettings_LoadDefaultsWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if s.Version != 1 {
+		t.Errorf("default Version = %d, want 1", s.Version)
+	}
 	if s.App.Language != "zh-TW" {
 		t.Errorf("default lang = %s, want zh-TW", s.App.Language)
 	}
-	if s.App.BannerAnimationPref != "video-when-available" {
-		t.Errorf("default bannerPref = %s", s.App.BannerAnimationPref)
+	if s.Backends.Hoyoverse.Path != `C:\Program Files\HoYoPlay` {
+		t.Errorf("default hoyoverse path = %q", s.Backends.Hoyoverse.Path)
 	}
-	if s.Backends.Hoyoverse.HoYoplayPath != `C:\Program Files\HoYoPlay` {
-		t.Errorf("default HoYoPlay path = %s", s.Backends.Hoyoverse.HoYoplayPath)
+	if s.Backends.Kurogames.Path != `C:\Program Files\Wuthering Waves` {
+		t.Errorf("default kurogames path = %q", s.Backends.Kurogames.Path)
+	}
+	if s.Backends.Hypergryph.Path != `C:\Program Files\GRYPHLINK` {
+		t.Errorf("default hypergryph path = %q", s.Backends.Hypergryph.Path)
 	}
 }
 
-func TestSettings_RoundTrip(t *testing.T) {
+func TestSettings_RoundTripWritesVersion1(t *testing.T) {
 	tmp := t.TempDir()
 	p := filepath.Join(tmp, "settings.toml")
 	s := defaultSettings()
 	s.App.Language = "en"
-	s.Backends.Hoyoverse.HoYoplayPath = "D:/HoYoPlay"
 	if err := SaveSettings(p, s); err != nil {
 		t.Fatal(err)
 	}
-	got, err := LoadSettings(p)
+	raw, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.App.Language != "en" || got.Backends.Hoyoverse.HoYoplayPath != "D:/HoYoPlay" {
-		t.Errorf("round-trip mismatch: %+v", got)
+	if !strings.Contains(string(raw), "version = 1") {
+		t.Errorf("written file missing 'version = 1':\n%s", raw)
 	}
-	// Confirm file exists on disk
-	if _, err := os.Stat(p); err != nil {
-		t.Errorf("file not written: %v", err)
+	if !strings.Contains(string(raw), `path = "C:\\Program Files\\HoYoPlay"`) &&
+		!strings.Contains(string(raw), `path = 'C:\Program Files\HoYoPlay'`) {
+		t.Errorf("written file missing canonical 'path' key for hoyoverse:\n%s", raw)
+	}
+	if strings.Contains(string(raw), "hoyoplay_path") {
+		t.Errorf("written file should not contain legacy hoyoplay_path:\n%s", raw)
+	}
+}
+
+func TestSettings_MigrateLegacyHoyoplayPath(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "settings.toml")
+	// Write an M1-format settings file with hoyoplay_path
+	m1 := `[app]
+language = "zh-TW"
+banner_animation_pref = "video-when-available"
+show_technical_info = false
+
+[backends.hoyoverse]
+hoyoplay_path = "D:\\HoYoPlay"
+region = "global"
+`
+	if err := os.WriteFile(p, []byte(m1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Backends.Hoyoverse.Path != `D:\HoYoPlay` {
+		t.Errorf("migrated Path = %q, want D:\\HoYoPlay", s.Backends.Hoyoverse.Path)
+	}
+	// On save, canonical schema is written
+	if err := SaveSettings(p, s); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(p)
+	if strings.Contains(string(raw), "hoyoplay_path") {
+		t.Errorf("save still contains hoyoplay_path; migration incomplete:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "version = 1") {
+		t.Errorf("save missing version = 1:\n%s", raw)
+	}
+}
+
+func TestSettings_MalformedTOMLReturnsDefaults(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "settings.toml")
+	if err := os.WriteFile(p, []byte("this is not valid toml ====="), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSettings(p)
+	if err == nil {
+		t.Errorf("expected error from LoadSettings on malformed TOML")
+	}
+	// Even on error, the returned struct should be safe (defaults).
+	if s.Version != 1 {
+		t.Errorf("returned Version on malformed = %d, want 1", s.Version)
+	}
+}
+
+func TestSettings_FreshInstallSavesVersion1(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "settings.toml")
+	// LoadSettings on missing file returns defaults silently
+	s, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Save it back
+	if err := SaveSettings(p, s); err != nil {
+		t.Fatal(err)
+	}
+	// Re-load — should NOT trigger migration (Path already populated, Version=1)
+	s2, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s2.Version != 1 {
+		t.Errorf("re-loaded Version = %d, want 1", s2.Version)
+	}
+	if s2.Backends.Hoyoverse.Path != `C:\Program Files\HoYoPlay` {
+		t.Errorf("re-loaded hoyoverse Path = %q", s2.Backends.Hoyoverse.Path)
 	}
 }

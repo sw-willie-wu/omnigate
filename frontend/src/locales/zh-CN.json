@@ -1,0 +1,33 @@
+{
+  "publishers": {
+    "hoyoverse": "米哈游",
+    "kurogames": "库洛",
+    "hypergryph": "鹰角",
+    "perfectworld": "完美世界"
+  },
+  "buttons": {
+    "play": "开始游戏",
+    "play_short": "开始",
+    "update": "更新",
+    "pause": "暂停"
+  },
+  "status": {
+    "ready": "就绪",
+    "update": "更新可用",
+    "predownload": "预下载",
+    "downloading": "下载中",
+    "applying": "应用中",
+    "error": "错误"
+  },
+  "labels": {
+    "last_run": "上次启动",
+    "checked": "检查于",
+    "minutes_ago": "{n} 分钟前",
+    "days_ago": "{n} 天前",
+    "ready_pill": "就绪"
+  },
+  "footer": {
+    "summary": "{backends} 个后端 · {games} 款游戏",
+    "synced": "已同步"
+  }
+}
