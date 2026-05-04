@@ -1,8 +1,12 @@
 import { defineStore } from 'pinia';
 import { ListBackends } from '../../wailsjs/go/app/App';
-import { app } from '../../wailsjs/go/models';
 
-export type BackendStatus = app.BackendStatus;
+export type BackendStatus = {
+  backend_id: string;
+  display_name: Record<string, string>;
+  status: 'ok' | 'path_unset' | 'launcher_missing' | 'empty' | 'error';
+  detail?: string;
+};
 
 export const useBackendsStore = defineStore('backends', {
   state: () => ({
@@ -10,7 +14,9 @@ export const useBackendsStore = defineStore('backends', {
   }),
   actions: {
     async load() {
-      this.backends = await ListBackends();
+      // Go's BackendStatus.Status is `string` — the cast narrows to the
+      // literal union since the App layer only emits these five values.
+      this.backends = (await ListBackends()) as BackendStatus[];
     },
   },
 });
