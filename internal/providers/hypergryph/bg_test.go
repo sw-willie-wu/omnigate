@@ -1,8 +1,12 @@
 package hypergryph
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -10,58 +14,73 @@ import (
 func TestCurrentBgURL_FallsBackToDefaultWhenNoCache(t *testing.T) {
 	// On Windows os.UserCacheDir reads %LOCALAPPDATA%; redirect it.
 	t.Setenv("LOCALAPPDATA", t.TempDir())
-	got := CurrentBgURL(nil)
+	got := CurrentBgURL(context.Background(), nil)
 	if got != defaultBgURL {
 		t.Errorf("CurrentBgURL on empty FS = %q, want defaultBgURL", got)
 	}
 }
 
-func TestFindCachedBgURL_PicksLastMatchInNewestFile(t *testing.T) {
+func TestScanCachedWebpURLs_PicksWebpFromEndfieldFolder(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("LOCALAPPDATA", tmp)
-	// %LOCALAPPDATA%\Games\<hash>\cache\Cache\data_N
 	base := filepath.Join(tmp, "Games", "deadbeef", "cache", "Cache")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// data_2 is older with one match.
-	older := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	if err := os.WriteFile(filepath.Join(base, "data_2"),
-		[]byte(`prefix https://gl-utils-public.hg-cdn.com/hg-utils/prod/AAAA/YDUTE5gscDZ229CW/aa/bb/00000000000000000000000000000001.webp suffix`),
-		0o644); err != nil {
+	// Mix: 1 Endfield .webp (should match); 1 Endfield .jpg (rejected by webp-only regex);
+	// 1 POPUCOM .webp (rejected by game-folder regex).
+	body := `prefix ` +
+		`https://gl-utils-public.hg-cdn.com/hg-utils/prod/AAAA/YDUTE5gscDZ229CW/aa/bb/00000000000000000000000000000001.webp tail1 ` +
+		`https://gl-utils-public.hg-cdn.com/hg-utils/prod/AAAA/YDUTE5gscDZ229CW/cc/dd/00000000000000000000000000000002.jpg tail2 ` +
+		`https://gl-utils-public.hg-cdn.com/hg-utils/prod/AAAA/FtQqkyFLX4Z0bg8G/ee/ff/00000000000000000000000000000003.webp tail3`
+	if err := os.WriteFile(filepath.Join(base, "data_1"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(filepath.Join(base, "data_2"), older, older); err != nil {
-		t.Fatal(err)
+	got := scanCachedWebpURLs()
+	if len(got) != 1 {
+		t.Fatalf("got %d candidates, want 1: %q", len(got), got)
 	}
-	// data_1 is newer with two matches; last match should win.
-	if err := os.WriteFile(filepath.Join(base, "data_1"),
-		[]byte(`A https://gl-utils-public.hg-cdn.com/hg-utils/prod/AAAA/YDUTE5gscDZ229CW/cc/dd/00000000000000000000000000000002.png middle `+
-			`https://gl-utils-public.hg-cdn.com/hg-utils/prod/BBBB/YDUTE5gscDZ229CW/ee/ff/abababababababababababababababab.webp tail`),
-		0o644); err != nil {
-		t.Fatal(err)
-	}
-	got := findCachedBgURL(nil)
-	want := "https://gl-utils-public.hg-cdn.com/hg-utils/prod/BBBB/YDUTE5gscDZ229CW/ee/ff/abababababababababababababababab.webp"
-	if got != want {
-		t.Errorf("findCachedBgURL = %q, want %q", got, want)
+	want := "https://gl-utils-public.hg-cdn.com/hg-utils/prod/AAAA/YDUTE5gscDZ229CW/aa/bb/00000000000000000000000000000001.webp"
+	if got[0] != want {
+		t.Errorf("got %q, want %q", got[0], want)
 	}
 }
 
-func TestFindCachedBgURL_IgnoresOtherGameFolders(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("LOCALAPPDATA", tmp)
-	base := filepath.Join(tmp, "Games", "x", "cache", "Cache")
-	if err := os.MkdirAll(base, 0o755); err != nil {
-		t.Fatal(err)
+func TestPickLargestRecent_FiltersBySizeAndPrefersNewerLastModified(t *testing.T) {
+	mux := http.NewServeMux()
+	addEntry := func(path string, contentLength int, lastMod time.Time) {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", strconv.Itoa(contentLength))
+			w.Header().Set("Last-Modified", lastMod.Format(http.TimeFormat))
+			w.WriteHeader(http.StatusOK)
+		})
 	}
-	// POPUCOM's game-folder URL — should NOT match.
-	if err := os.WriteFile(filepath.Join(base, "data_1"),
-		[]byte(`https://gl-utils-public.hg-cdn.com/hg-utils/prod/AAAA/FtQqkyFLX4Z0bg8G/ab/cd/0000000000000000000000000000000c.webp`),
-		0o644); err != nil {
-		t.Fatal(err)
+	addEntry("/small", 500_000, time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC))     // <1MiB → rejected
+	addEntry("/old-big", 3_000_000, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) // passes size, older
+	addEntry("/new-big", 3_500_000, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)) // winner
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	urls := []string{srv.URL + "/small", srv.URL + "/old-big", srv.URL + "/new-big"}
+	got := pickLargestRecent(context.Background(), urls, nil)
+	want := srv.URL + "/new-big"
+	if got != want {
+		t.Errorf("pickLargestRecent = %q, want %q", got, want)
 	}
-	if got := findCachedBgURL(nil); got != "" {
-		t.Errorf("findCachedBgURL matched non-Endfield URL: %q", got)
+}
+
+func TestPickLargestRecent_ReturnsEmptyWhenAllUndersize(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tiny", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	got := pickLargestRecent(context.Background(), []string{srv.URL + "/tiny"}, nil)
+	if got != "" {
+		t.Errorf("pickLargestRecent = %q, want empty", got)
 	}
 }

@@ -67,7 +67,7 @@ func (p *Provider) GetIcon(_ context.Context, gid core.GameID) (string, error) {
 	return fmt.Sprintf("/_asset/%s/icon/%s", p.ID(), suffix), nil
 }
 
-func (p *Provider) GetBackgrounds(_ context.Context, gid core.GameID) ([]core.Background, error) {
+func (p *Provider) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.Background, error) {
 	g := findByID(gid)
 	if g == nil {
 		return nil, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
@@ -75,7 +75,7 @@ func (p *Provider) GetBackgrounds(_ context.Context, gid core.GameID) ([]core.Ba
 	_ = g // future: per-game URL routing
 	return []core.Background{
 		{
-			ImageURL: CurrentBgURL(p.logger),
+			ImageURL: CurrentBgURL(ctx, p.logger),
 			VideoURL: "",
 			Type:     core.BackgroundImage,
 		},
