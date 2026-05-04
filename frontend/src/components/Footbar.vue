@@ -5,7 +5,10 @@ import { useI18n } from 'vue-i18n';
 
 const games = useGamesStore();
 const { t } = useI18n();
-const summary = computed(() => t('footer.summary', { backends: 1, games: games.games.length }));
+const summary = computed(() => {
+  const backends = new Set(games.games.map((g) => g.backend)).size;
+  return t('footer.summary', { backends, games: games.games.length });
+});
 </script>
 
 <template>
