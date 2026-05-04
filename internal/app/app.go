@@ -11,6 +11,7 @@ import (
 
 	"launcher-collection-tmp/internal/core"
 	"launcher-collection-tmp/internal/providers/hoyoverse"
+	"launcher-collection-tmp/internal/providers/kurogames"
 )
 
 type detectEntry struct {
@@ -69,7 +70,14 @@ func (a *App) constructProviders() error {
 	if err := a.registerProvider(hoyo); err != nil {
 		return err
 	}
-	// Task 8 inserts kurogames here; Task 9 inserts hypergryph here.
+	kuro := kurogames.New(
+		kurogames.Settings{Path: a.settings.Backends.Kurogames.Path},
+		a.logger.With("backend", "kurogames"),
+	)
+	if err := a.registerProvider(kuro); err != nil {
+		return err
+	}
+	// Task 9 inserts hypergryph here.
 	return nil
 }
 
