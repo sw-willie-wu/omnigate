@@ -59,12 +59,12 @@ func New(settingsPath string, logger *slog.Logger) *App {
 // later task). Re-called by UpdateSettings.
 func (a *App) constructProviders() error {
 	a.providers = nil
-	// TODO: Task 6 will add logger argument to hoyoverse.New
 	hoyo := hoyoverse.New(
 		hoyoverse.Settings{
-			HoYoplayPath: a.settings.Backends.Hoyoverse.Path,
-			Region:       a.settings.Backends.Hoyoverse.Region,
+			Path:   a.settings.Backends.Hoyoverse.Path,
+			Region: a.settings.Backends.Hoyoverse.Region,
 		},
+		a.logger.With("backend", "hoyoverse"),
 	)
 	if err := a.registerProvider(hoyo); err != nil {
 		return err
