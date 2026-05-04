@@ -16,6 +16,9 @@ frontend/package.json.md5
 *.exe
 *.dll
 
+# Exceptions for test fixtures
+!internal/providers/iconext/testdata/*.exe
+
 # runtime state (portable mode)
 downloads/
 logs/
