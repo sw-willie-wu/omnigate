@@ -62,7 +62,7 @@ func (a *App) constructProviders() error {
 	// TODO: Task 6 will add logger argument to hoyoverse.New
 	hoyo := hoyoverse.New(
 		hoyoverse.Settings{
-			HoYoplayPath: a.settings.Backends.Hoyoverse.HoYoplayPath,
+			HoYoplayPath: a.settings.Backends.Hoyoverse.Path,
 			Region:       a.settings.Backends.Hoyoverse.Region,
 		},
 	)
