@@ -185,6 +185,8 @@ No UI for `temp_dir`; power-user override via `settings.toml` only. Defaults han
 
 **Backward-compat note**: existing `settings.toml` files with `version = 1` and no `temp_dir` field load cleanly (Go zero-value `""` triggers the runtime default). **No schema version bump needed**. Plan-writer should NOT add a settings migration task.
 
+**Filesystem requirement**: TempDir MUST be on an NTFS volume (or any filesystem with sub-second mtime resolution). FAT32 / exFAT have 2-second mtime resolution which breaks the exact-equality semantics in §5.1. RunUpdate entry validates via `windows.GetVolumeInformation` for filesystem name; non-NTFS → `unsupported_filesystem` error (see §6.1). Default `os.TempDir()` is on the system drive (always NTFS in modern Windows).
+
 ---
 
 ## 2. Update lifecycle / state machine
@@ -243,7 +245,7 @@ On app start, scan `<TempDir>/*/`:
 
 | Sidecar present | Action |
 |---|---|
-| Only `progress.json` | Set `LastError = {Code: "interrupted_resume", Params: {phase: "download", wasPredl: false}, Retryable: true}`. UI prompts "上次更新中斷，繼續？" → on resume: re-fetch manifest header → compare ETag; mismatch → drop temp + emit `manifest_changed`; match → resume from progress (re-verify each `complete` entry's hash before skipping when `apply.wal` was found in same scan; otherwise trust mtime+size unless `--force-rehash` flag set). |
+| Only `progress.json` | Set `LastError = {Code: "interrupted_resume", Params: {phase: "download", wasPredl: false}, Retryable: true}`. UI prompts "上次更新中斷，繼續？" → on resume: re-fetch manifest header → compare ETag; mismatch → drop temp + emit `manifest_changed`; match → resume from progress (trust mtime+size exact-equality unless `--force-rehash` flag set; see §5.1). |
 | Only `apply.wal` | Set `LastError = {Code: "interrupted_resume", Params: {phase: "apply", wasPredl: <bool>}, Retryable: true}`. UI prompts "上次套用中斷，重新嘗試？" → on resume: re-hash WAL-listed files only (not whole game dir), re-apply differing ones. |
 | Only `predl_ready.json` | Parse → set `state.PredlReady`. No prompt. |
 | Both `apply.wal` + `progress.json` | apply.wal wins; delete progress.json silently; treat as apply-resume case. |
@@ -440,19 +442,30 @@ Frontend resolves error display via `t(\`update.errors.${code}\`, params)`. Go s
 
 ### 3.8 Post-update asset / version refresh
 
-When frontend's `update:changed` push event reports a terminal state with `kind == "update"` and no `LastError` (i.e., update completed successfully), the `useGamesStore` MUST refresh that game:
+`useUpdatesStore` is the single owner of the `update:changed` listener (§3.3). After the rAF batch applies its patch, it imports `useGamesStore` and calls the refresh APIs when a terminal-success transition is detected:
 
 ```ts
-EventsOn('update:changed', (gameID, snap) => {
-  // ... existing rAF batching ...
-  if (snap.in_flight === null && snap.last_error === null && wasJustCompleted(prev, snap)) {
-    games.refreshVersionFor(gameID);   // re-pulls VersionInfo
-    games.loadAssetsFor(gameID);       // re-pulls icon + bg URLs (kuro hybrid bg may have new entries cached)
-  }
-});
+// inside useUpdatesStore.bind()'s rAF batch handler:
+const prev = this.byGame[gameID];                      // read BEFORE applying patch
+this.byGame[gameID] = snap;                             // apply patch
+if (justCompletedUpdate(prev, snap)) {
+  const games = useGamesStore();
+  games.refreshVersionFor(gameID);
+  games.loadAssetsFor(gameID);
+}
+
+// Helper (defined in updates.ts):
+function justCompletedUpdate(prev, snap): boolean {
+  return prev?.in_flight?.kind === 'update'
+      && prev.in_flight.phase === 'apply'
+      && snap.in_flight === null
+      && snap.last_error === null;
+}
 ```
 
-Predownload completion does NOT trigger this (current version unchanged). Apply-of-predl DOES trigger.
+Predownload completion (`prev.in_flight.kind === 'predownload'`) does NOT trigger refresh — current_version is unchanged. Apply-of-predl (`kind === 'update'` for ApplyPredownload's InFlightOp) DOES trigger.
+
+**Single-listener rule**: only `useUpdatesStore.bind()` registers `EventsOn('update:changed', ...)`. `useGamesStore` does NOT subscribe. This keeps event-handler ownership unambiguous.
 
 ---
 
@@ -725,6 +738,7 @@ CancelInFlight(gameID):
 | `interrupted_resume` | App load detects sidecar but no InFlight | true | `Params.phase: "download" \| "apply"`, `Params.wasPredl: bool` |
 | `disk_full` | statfs precheck fails / mid-run ENOSPC | false | |
 | `cross_volume_temp` | TempDir vs gameDir different volume | false | M3.B+ may add copy+delete fallback |
+| `unsupported_filesystem` | TempDir is on FAT32 / exFAT (sub-second mtime resolution missing) — see §1.3 | false | Plan-writer adds matching i18n key `update.errors.unsupported_filesystem` |
 | `cross_volume_midrun` | RunUpdate entry passed; apply phase detects volume change | false | |
 | `corrupt` | 2 retries, hash still mismatch | true | |
 | `apply_partial` | Apply phase fs operation failure (rename / WAL write) | true | WAL preserved for retry |
@@ -876,6 +890,7 @@ No stack traces. No full headers.
 | `corrupt` | `update_download_test.go: TestHashRetriesThenFails` |
 | `apply_partial` | `update_apply_test.go: TestApply_RenameFails` |
 | `unrecoverable` | `update_state_test.go: TestRecoveryScan_CorruptWal` |
+| `unsupported_filesystem` | `update_state_test.go: TestPrecheck_NonNtfsTempDir` |
 | `internal` | `update_handler_test.go: TestRunUpdate_PanicRecovers` |
 
 ### 7.3 Integration tests
@@ -895,6 +910,7 @@ Acceleration: retry backoff via injected `fakeClock` (microsecond advances); `ht
 - `TestCancel_DuringDownload`: barrier release → cancel mid-stream → temp + progress cleared, `InFlight = nil`, emit terminal.
 - `TestCancel_DuringApply`: enter apply phase → cancel → apply continues to completion (ctx no-op); UI assertion is in frontend.
 - `TestCancel_BeforeStart`: cancel() *before* barrier release → goroutine exits immediately, clears InFlight, emits terminal.
+- `TestRapidStartCancelStart_NoInterleave`: Start, immediately Cancel, immediately Start again under `-race`. Asserts second StartUpdate observes `InFlight == nil` only after first goroutine's defer fully completes (worker temp-cleanup happened-before second Start). Validates §2.1 invariant.
 
 ### 7.5 Resume tests
 
@@ -902,6 +918,7 @@ Acceleration: retry backoff via injected `fakeClock` (microsecond advances); `ht
 - `TestResume_PredlInvalidate`: predl_ready.json v2.0 + new manifest v2.1 → invalidate flow (clean temp, restart).
 - `TestResume_ApplyWalReplay`: apply.wal residual marking 50% applied → re-hash WAL-listed unrenamed files → complete apply.
 - `TestResume_BothSidecars`: progress.json + apply.wal coexist → apply.wal wins, progress.json deleted.
+- `TestRefresh_PhantomPredlSilentInvalidate`: predl_ready.json on disk + Refresh returns `current_version == PredlReady.Plan.Version` (e.g., user reinstalled via KRLauncher to that version) → assert sidecar + temp dir deleted, NO ConfirmDialog event emitted, `state.PredlReady = nil`. Validates §2.4 phantom-predl rule.
 - **Property-based** (recommended, optional): 8 sidecar-presence × {valid, corrupt, stale} combinations → assert recovery matches §6.3 truth table.
 
 ### 7.6 Concurrency / race
