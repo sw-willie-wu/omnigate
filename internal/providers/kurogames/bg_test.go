@@ -7,16 +7,19 @@ import (
 	"time"
 )
 
-func TestCurrentBgURL_FallsBackToDefaultWhenNoCache(t *testing.T) {
+func TestCurrentBg_FallsBackToDefaultsWhenNoCache(t *testing.T) {
 	// Point UserConfigDir to an empty temp dir so the cache scan finds nothing.
 	t.Setenv("APPDATA", t.TempDir())
-	got := CurrentBgURL(nil)
-	if got != defaultBgURL {
-		t.Errorf("CurrentBgURL on empty FS = %q, want defaultBgURL", got)
+	img, vid := CurrentBg(nil)
+	if img != defaultBgURL {
+		t.Errorf("image = %q, want defaultBgURL", img)
+	}
+	if vid != defaultBgVideoURL {
+		t.Errorf("video = %q, want defaultBgVideoURL", vid)
 	}
 }
 
-func TestFindCachedBgURL_PicksLastMatchInNewestFile(t *testing.T) {
+func TestFindCachedBgPair_PicksLastPairInNewestFile(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("APPDATA", tmp)
 	base := filepath.Join(tmp, "KRLauncher", "G153", "C50004",
@@ -24,28 +27,30 @@ func TestFindCachedBgURL_PicksLastMatchInNewestFile(t *testing.T) {
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// data_2 is older with one match; data_1 is newer with two matches.
+	// data_2 is older with one pair.
 	if err := os.WriteFile(filepath.Join(base, "data_2"),
-		[]byte(`prefix "firstFrameImage":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/OLD123.webp" suffix`),
+		[]byte(`prefix "backgroundFile":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/OLDVID.mp4","backgroundFileType":2,"firstFrameImage":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/OLDIMG.webp" suffix`),
 		0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Force older mtime on data_2.
-	old := os.Getenv("TMP") // not used; just to stretch the file write earlier
-	_ = old
-	// Sleep-free: rewrite data_2 with an explicit older mtime via os.Chtimes.
 	older := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	if err := os.Chtimes(filepath.Join(base, "data_2"), older, older); err != nil {
 		t.Fatal(err)
 	}
+	// data_1 is newer with two pairs; the last one should win.
 	if err := os.WriteFile(filepath.Join(base, "data_1"),
-		[]byte(`A "firstFrameImage":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/MID999.webp" middle "firstFrameImage":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/NEWEST_X.webp" tail`),
+		[]byte(`A "backgroundFile":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/MIDVID.mp4","backgroundFileType":2,"firstFrameImage":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/MIDIMG.webp" middle `+
+			`"backgroundFile":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/NEWVID.mp4","backgroundFileType":2,"firstFrameImage":"https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/NEWIMG.webp" tail`),
 		0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := findCachedBgURL(nil)
-	want := "https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/NEWEST_X.webp"
-	if got != want {
-		t.Errorf("findCachedBgURL = %q, want %q", got, want)
+	gotImg, gotVid := findCachedBgPair(nil)
+	wantImg := "https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/NEWIMG.webp"
+	wantVid := "https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/NEWVID.mp4"
+	if gotImg != wantImg {
+		t.Errorf("image = %q, want %q", gotImg, wantImg)
+	}
+	if gotVid != wantVid {
+		t.Errorf("video = %q, want %q", gotVid, wantVid)
 	}
 }

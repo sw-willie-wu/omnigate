@@ -8,52 +8,61 @@ import (
 	"regexp"
 )
 
-// Background source: A-hybrid (hard-coded URL + WebView2 cache rescan).
+// Background source: A-hybrid (hard-coded URLs + WebView2 cache rescan).
 //
 // Per spec §2.8 / Task 8.11 research (2026-05-04). The official KRLauncher
 // fetches its banner via:
 //
 //   GET https://prod-alicdn-gamestarter.kurogame.com/launcher/{accountID}/{gameID}/background/{configHash}/{lang}.json
-//   → JSON.firstFrameImage = https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/<hash>.webp
+//   → JSON.backgroundFile     = https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/<hash>.mp4    (looping video)
+//   → JSON.firstFrameImage    = https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/<hash>.webp   (still preview)
 //
 // `accountID` and `configHash` are per-machine + rotated by Kuro, so we
 // cannot construct the URL without their values. As an M2 trade-off this
 // file ships:
 //
-//   1. A hard-coded `defaultBgURL` (current as of research date).
-//   2. `findCachedBgURL` — best-effort regex scan of the launcher's WebView2
-//      disk cache (data_0..data_3). When the user has opened the official
-//      launcher recently, it surfaces the most-recently-cached firstFrameImage
-//      so the banner auto-tracks Kuro's events.
+//   1. Hard-coded `defaultBgURL` + `defaultBgVideoURL` (current as of
+//      research date; verified to be a matched pair).
+//   2. `findCachedBgPair` — best-effort regex scan of the launcher's
+//      WebView2 disk cache (data_0..data_3). When the user has opened the
+//      official launcher recently, it surfaces the most-recently-cached
+//      pair so the banner auto-tracks Kuro's events. Field order in the
+//      cached JSON response is stable: `backgroundFile`, then
+//      `backgroundFileType`, then `firstFrameImage`. A single regex
+//      captures both URLs in one shot.
 //
 // Failures in the cache scan are non-fatal: the caller silently falls back
-// to (1). M3 will likely replace this with a fully runtime-derived URL once
-// the launcher's bootstrap protocol is reverse-engineered.
+// to (1). M3 will likely replace this with a fully runtime-derived URL
+// once the launcher's bootstrap protocol is reverse-engineered.
 
-const defaultBgURL = "https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/8P8Q67P6OPHZHJFK.webp"
+const (
+	defaultBgURL      = "https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/8P8Q67P6OPHZHJFK.webp"
+	defaultBgVideoURL = "https://hw-pcdownload-qcloud.aki-game.net/launcher/clientUpload/LA6F54614JP6ELEF.mp4"
+)
 
-// firstFrameRe matches the JSON literal inside the cached bg-config response
-// body. Verified during research that data_1 of the cache contains JSON
-// fragments with this exact key.
-var firstFrameRe = regexp.MustCompile(`"firstFrameImage"\s*:\s*"(https://hw-pcdownload-[a-z]+\.aki-game\.net/launcher/clientUpload/[A-Za-z0-9_./-]+\.webp)"`)
+// pairRe matches the JSON literal pair inside the cached bg-config response.
+// Captures: [1] = video URL (.mp4/.webm), [2] = still image URL.
+var pairRe = regexp.MustCompile(
+	`"backgroundFile"\s*:\s*"(https://hw-pcdownload-[a-z]+\.aki-game\.net/launcher/clientUpload/[A-Za-z0-9_./-]+\.(?:mp4|webm))"\s*,\s*"backgroundFileType":\d+\s*,\s*"firstFrameImage"\s*:\s*"(https://hw-pcdownload-[a-z]+\.aki-game\.net/launcher/clientUpload/[A-Za-z0-9_./-]+\.(?:webp|png|jpe?g))"`,
+)
 
-// CurrentBgURL returns the best-known WuWa banner URL — the most recent
-// entry in the launcher's WebView2 cache if available, else the hard-coded
-// `defaultBgURL`. logger may be nil.
-func CurrentBgURL(logger *slog.Logger) string {
-	if u := findCachedBgURL(logger); u != "" {
-		return u
+// CurrentBg returns the best-known WuWa banner pair: still image + looping
+// video. Both are non-empty when the cache scan succeeds; falls back to
+// hard-coded defaults otherwise. logger may be nil.
+func CurrentBg(logger *slog.Logger) (imageURL, videoURL string) {
+	if img, vid := findCachedBgPair(logger); img != "" {
+		return img, vid
 	}
-	return defaultBgURL
+	return defaultBgURL, defaultBgVideoURL
 }
 
-// findCachedBgURL scans the official launcher's WebView2 disk cache for the
-// latest `firstFrameImage` JSON pair. Returns "" on any failure — never an
-// error to the caller; this is best-effort.
-func findCachedBgURL(logger *slog.Logger) string {
+// findCachedBgPair scans the launcher's WebView2 disk cache for the latest
+// (firstFrameImage, backgroundFile) pair. Returns ("", "") on any failure —
+// best-effort, never an error.
+func findCachedBgPair(logger *slog.Logger) (imageURL, videoURL string) {
 	roaming, err := os.UserConfigDir()
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	base := filepath.Join(roaming,
 		"KRLauncher", "G153", "C50004",
@@ -64,7 +73,8 @@ func findCachedBgURL(logger *slog.Logger) string {
 	const maxRead = 64 * 1024 * 1024
 
 	var (
-		bestURL   string
+		bestImg   string
+		bestVid   string
 		bestMtime int64
 	)
 
@@ -83,22 +93,23 @@ func findCachedBgURL(logger *slog.Logger) string {
 		if err != nil {
 			continue
 		}
-		matches := firstFrameRe.FindAllSubmatch(b, -1)
+		matches := pairRe.FindAllSubmatch(b, -1)
 		if len(matches) == 0 {
 			continue
 		}
 		// Last match in the file is heuristically the most recently written
 		// entry; combined with file mtime we pick across the four data files.
-		last := matches[len(matches)-1][1]
+		last := matches[len(matches)-1]
 		mtime := info.ModTime().Unix()
 		if mtime > bestMtime {
-			bestURL = string(last)
+			bestVid = string(last[1])
+			bestImg = string(last[2])
 			bestMtime = mtime
 		}
 	}
 
-	if bestURL != "" && logger != nil {
-		logger.Debug("kurogames bg URL resolved from WebView2 cache", "url", bestURL)
+	if bestImg != "" && logger != nil {
+		logger.Debug("kurogames bg pair resolved from WebView2 cache", "image", bestImg, "video", bestVid)
 	}
-	return bestURL
+	return bestImg, bestVid
 }

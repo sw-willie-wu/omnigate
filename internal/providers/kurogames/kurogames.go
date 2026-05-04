@@ -77,10 +77,11 @@ func (p *Provider) GetBackgrounds(_ context.Context, gid core.GameID) ([]core.Ba
 		return nil, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
 	_ = g // future: per-game URL routing
+	img, vid := CurrentBg(p.logger)
 	return []core.Background{
 		{
-			ImageURL: CurrentBgURL(p.logger),
-			VideoURL: "",
+			ImageURL: img,
+			VideoURL: vid,
 			Type:     core.BackgroundImage,
 		},
 	}, nil
