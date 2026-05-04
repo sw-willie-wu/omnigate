@@ -2435,6 +2435,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2683,30 +2685,18 @@ func TestDownload_ResumeSkipsCompleted(t *testing.T) {
 	}
 }
 
-// slogTest returns a no-op slog Logger for tests.
-func slogTest(t *testing.T) interface {
-	Debug(msg string, args ...any)
-	Error(msg string, args ...any)
-	Warn(msg string, args ...any)
-	Info(msg string, args ...any)
-} {
-	return &slogTestLogger{t: t}
+// slogTest returns a real *slog.Logger that discards output. `downloader.logger`
+// is typed as `*slog.Logger` (concrete type, not interface), so we MUST return
+// a concrete logger here — not an interface mock. Using io.Discard keeps test
+// output clean; tests that need to assert log content should use a bytes.Buffer
+// handler instead.
+func slogTest(t *testing.T) *slog.Logger {
+	t.Helper()
+	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
-
-type slogTestLogger struct{ t *testing.T }
-
-func (l *slogTestLogger) Debug(msg string, args ...any) { l.t.Logf("DEBUG %s %v", msg, args) }
-func (l *slogTestLogger) Info(msg string, args ...any)  { l.t.Logf("INFO %s %v", msg, args) }
-func (l *slogTestLogger) Warn(msg string, args ...any)  { l.t.Logf("WARN %s %v", msg, args) }
-func (l *slogTestLogger) Error(msg string, args ...any) { l.t.Logf("ERROR %s %v", msg, args) }
 ```
 
-Note: `slogTest` returns an interface that matches `*slog.Logger`'s method shape — but since `downloader.logger` is typed as `*slog.Logger`, the test must use a real `slog.Logger`. Adjust as:
-
-```go
-import "log/slog"
-...
-slogTest := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+Add `"io"` and `"log/slog"` to the test file's import block (currently missing both).
 ```
 
 (Replace the `slogTestLogger` shim with the real slog.Logger constructor; revise tests to pass `slogTest` directly to `downloader.logger`.)
@@ -3701,6 +3691,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -3825,10 +3816,12 @@ func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Upd
 
 	err := upd.RunUpdate(ctx, plan, onEvent)
 
-	// Terminal: clear InFlight, set LastError if non-cancel
+	// Terminal: clear InFlight, set LastError if non-cancel.
+	// Use errors.Is (NOT ==) because cancel-induced panics get wrapped into
+	// *core.UpdateError by RunUpdate's defer; equality check would miss those.
 	state.mu.Lock()
 	state.InFlight = nil
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		state.LastError = asUpdateError(err)
 	} else if err == nil {
 		// Success: clear AvailableUpdate or set PredlReady
@@ -3918,18 +3911,29 @@ func (a *App) ApplyPredownload(gameID string) error {
 	return nil
 }
 
-// RemovePredownload deletes predl_ready.json + temp files for gameID.
+// RemovePredownload deletes predl_ready.json + temp files for gameID's
+// PredlReady version only. Capturing predlVersion BEFORE clearing the
+// PredlReady pointer is required: deleting `<gameID-flat>/` (without the
+// version segment) would nuke any concurrent in-flight progress sidecar
+// for an unrelated version of the same game.
 func (a *App) RemovePredownload(gameID string) error {
 	gid := core.GameID(gameID)
 	state := a.updateRegistry.Get(gid)
 	state.mu.Lock()
+	var predlVersion string
+	if state.PredlReady != nil {
+		predlVersion = state.PredlReady.Version
+	}
 	state.PredlReady = nil
 	state.mu.Unlock()
 
-	tempDir := a.kurogamesTempDir(gid)
-	versionDir := filepath.Join(tempDir, strings.ReplaceAll(string(gid), "/", "-"))
-	// Best-effort cleanup; ignore errors
-	_ = removeAll(versionDir)
+	if predlVersion != "" {
+		tempDir := a.kurogamesTempDir(gid)
+		gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
+		versionDir := filepath.Join(tempDir, gameIDFlat, predlVersion)
+		// Best-effort cleanup; ignore errors
+		_ = removeAll(versionDir)
+	}
 	a.updateRegistry.EmitTerminal(gid)
 	return nil
 }
@@ -4286,13 +4290,24 @@ type App struct {
 }
 ```
 
+Add to `internal/app/app.go` import block:
+
+```go
+import (
+	// ... existing imports ...
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+```
+
 In `New()`, after providers are constructed but before return:
 
 ```go
-// Construct update state registry; emitter writes to Wails event bus
+// Construct update state registry; emitter writes to Wails event bus.
+// Uses the wruntime alias to disambiguate from `runtime` stdlib package
+// that might be imported elsewhere.
 emit := func(name string, args ...any) {
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, name, args...)
+		wruntime.EventsEmit(a.ctx, name, args...)
 	}
 }
 a.updateRegistry = NewUpdateStateRegistry(emit, realClock{})
@@ -4303,8 +4318,6 @@ a.updateRegistry = NewUpdateStateRegistry(emit, realClock{})
 // so the UI's resume-prompt flow (spec §3.5 row 4) can fire on next render.
 a.scanForRecovery()
 ```
-
-(Assuming `runtime.EventsEmit` is the Wails v2 API; adjust import as `import wruntime "github.com/wailsapp/wails/v2/pkg/runtime"`.)
 
 Append `scanForRecovery` to `internal/app/update_handler.go`:
 
@@ -4426,18 +4439,25 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 }
 ```
 
-Add `osReadDir` shim to the platform files (`update_handler_windows.go` and `update_handler_other.go`):
+Note: `osReadDir` is already declared in `update_handler_windows.go` and `update_handler_other.go` further down in this same task (Step 1's platform-shim files). Do NOT add it again — duplicate symbol per platform would fail compile.
 
-```go
-// in update_handler_windows.go AND update_handler_other.go (identical body):
-func osReadDir(path string) ([]os.DirEntry, error) { return os.ReadDir(path) }
-```
-
-(Required imports for `update_handler.go`: `os`, `path/filepath`, `strings`, plus existing `core` and `kurogames` packages.)
+Required imports for `update_handler.go`: `context`, `errors`, `fmt`, `os`, `path/filepath`, `strings`, plus `launcher-collection-tmp/internal/core` and `launcher-collection-tmp/internal/providers/kurogames`. The `errors` import is needed for `errors.Is(err, context.Canceled)` in `runUpdateWorker` (see iter-2 fix #6).
 
 - [ ] **Step 2b: Enhance App.RefreshVersion with phantom-predl invalidation**
 
-Per spec §2.4: when Refresh detects `current_version == PredlReady.Plan.Version`, silently invalidate the predl (delete sidecar + temp; no UI prompt — this is housekeeping). Modify `internal/app/app.go`:
+Per spec §2.4: when Refresh detects `current_version == PredlReady.Plan.Version`, silently invalidate the predl (delete sidecar + temp; no UI prompt — this is housekeeping).
+
+First, add to `internal/app/app.go` import block (verify each is not already present):
+
+```go
+import (
+	// ... existing imports ...
+	"path/filepath" // may already be present from M2
+	"strings"        // may already be present from M2
+)
+```
+
+Then modify `internal/app/app.go`:
 
 ```go
 func (a *App) RefreshVersion(gameID string) (core.VersionInfo, error) {
@@ -4656,7 +4676,11 @@ func TestRunUpdate_PanicRecovers(t *testing.T) {
 	state.InFlight = &InFlightOp{Plan: core.UpdatePlan{GameID: gid, Version: "1"}}
 	state.mu.Unlock()
 
-	// runUpdateWorker invokes upd.RunUpdate. Inject panicky impl via wrapper.
+	// Synchronous (test-only) invocation: production calls `go a.runUpdateWorker(...)`,
+	// but here we want the panic to propagate through runUpdateWorker's defer
+	// and complete state mutation BEFORE we read it. The defer's recover()
+	// turns the panic into nil-return, so this synchronous call still returns
+	// normally. Awaiting `panicked` is belt-and-suspenders for ordering.
 	a.runUpdateWorker(context.Background(), gid, &panickyUpdater{base: panicker, fn: panickyRunUpdate}, core.UpdatePlan{GameID: gid})
 
 	<-panicked
@@ -5795,9 +5819,18 @@ import (
 )
 
 // TestErrcodeCoverage walks the manifest of error codes (spec §7.2) and
-// asserts each has at least one referencing test file under
-// internal/providers/kurogames/ or internal/app/. Catches drift when a
-// new error code lands without coverage.
+// asserts each has at least one referencing .go file under
+// internal/providers/kurogames/ or internal/app/. Scans BOTH production
+// and test files: a code that ships in production code but lacks an
+// "Exercising test" (per spec §7.2) is a coverage gap that a deeper
+// suite (manual review or integration) catches; this test only catches
+// the harder failure of "code defined in enum but never referenced".
+//
+// (Iter-2 review note: per-code exercising tests like TestStartUpdate_PredlStale,
+// TestPrecheck_NonNtfsTempDir, etc. are listed in spec §7.2 but most are
+// deferred to integration phase — Task 16 ships the literal-string check
+// here as a coarse gate; sub-task to add the per-code exercising tests
+// is tracked in M3.A.v2 follow-ups.)
 func TestErrcodeCoverage(t *testing.T) {
 	codes := []string{
 		"process_blocked", "manifest_changed", "manifest_not_found",
@@ -5806,22 +5839,22 @@ func TestErrcodeCoverage(t *testing.T) {
 		"corrupt", "apply_partial", "unrecoverable",
 		"unsupported_filesystem", "internal",
 	}
-	content := allTestFilesContent(t)
+	content := allGoFilesContent(t)
 	for _, code := range codes {
 		needle := `"` + code + `"`
 		if !strings.Contains(content, needle) {
-			t.Errorf("error code %q has no test reference; add a test that mentions it (literal string match required)", code)
+			t.Errorf("error code %q has no source reference; either add it to a code path (production) or remove from the catalog", code)
 		}
 	}
 }
 
-// allTestFilesContent concatenates the body of every *_test.go file under
+// allGoFilesContent concatenates every *.go file (production + test) under
 // internal/providers/kurogames/ and internal/app/. Used by TestErrcodeCoverage
 // to do a coarse string search for each error code literal.
 //
 // Path resolution: tests run with `pwd = internal/providers/kurogames/`, so
 // `../../app` and `.` are the two roots.
-func allTestFilesContent(t *testing.T) string {
+func allGoFilesContent(t *testing.T) string {
 	t.Helper()
 	roots := []string{".", "../../app"}
 	var sb strings.Builder
@@ -5833,7 +5866,7 @@ func allTestFilesContent(t *testing.T) string {
 			if info.IsDir() {
 				return nil
 			}
-			if !strings.HasSuffix(info.Name(), "_test.go") {
+			if !strings.HasSuffix(info.Name(), ".go") {
 				return nil
 			}
 			body, rerr := os.ReadFile(path)
@@ -5891,14 +5924,15 @@ func TestRefresh_PhantomPredlSilentInvalidate(t *testing.T) {
 	a := &App{
 		updateRegistry: NewUpdateStateRegistry(emit, realClock{}),
 		settings: Settings{Backends: BackendsSettings{Kurogames: KurogamesSettings{TempDir: tempRoot}}},
+		detect:   map[core.BackendID]detectEntry{},
 	}
 	defer a.updateRegistry.emitter.Stop()
 
-	// Wire fake provider via a.providers map (assumed structure; adapt to
-	// actual App internals — registerProvider helper, etc.).
-	a.providers = map[core.BackendID]core.Provider{
-		"kurogames": &phantomPredlFakeProvider{currentVersion: "3.4.0", gid: gid},
-	}
+	// `App.providers` is `[]core.Provider` (verified at internal/app/app.go:28),
+	// not a map. `provider(gid)` does a linear scan matching by `p.ID()`.
+	// Append directly here; phantomPredlFakeProvider.ID() returns "kurogames"
+	// to match the gid prefix.
+	a.providers = []core.Provider{&phantomPredlFakeProvider{currentVersion: "3.4.0", gid: gid}}
 
 	// Seed PredlReady on disk + in registry
 	gameIDFlat := "kurogames-wuwa"
