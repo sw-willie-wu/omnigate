@@ -365,8 +365,14 @@ export const useUpdatesStore = defineStore('updates', {
         this.pendingPatches[gameID] = snap;
         if (this.pendingFrame == null) {
           this.pendingFrame = requestAnimationFrame(() => {
+            const games = useGamesStore();
             for (const [id, s] of Object.entries(this.pendingPatches)) {
-              this.byGame[id] = s;
+              const prev = this.byGame[id];                  // read BEFORE patch
+              this.byGame[id] = s;                            // apply patch
+              if (justCompletedUpdate(prev, s)) {            // see §3.8
+                games.refreshVersionFor(id);
+                games.loadAssetsFor(id);
+              }
             }
             this.pendingPatches = {};
             this.pendingFrame = null;
@@ -423,6 +429,7 @@ export const useUpdatesStore = defineStore('updates', {
     "disk_full": "磁碟空間不足（需要 {need}，剩餘 {have}）",
     "cross_volume_temp": "暫存目錄與遊戲位於不同磁碟（M3.A 不支援）",
     "cross_volume_midrun": "套用中偵測磁碟變更，無法繼續",
+    "unsupported_filesystem": "暫存目錄需位於 NTFS 磁碟（FAT32/exFAT 不支援）",
     "network": "網路錯誤：{detail}",
     "corrupt": "下載檔案損毀，請重試",
     "apply_partial": "套用過程中失敗，請重試",
