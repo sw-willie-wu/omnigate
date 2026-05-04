@@ -2696,10 +2696,7 @@ func slogTest(t *testing.T) *slog.Logger {
 }
 ```
 
-Add `"io"` and `"log/slog"` to the test file's import block (currently missing both).
-```
-
-(Replace the `slogTestLogger` shim with the real slog.Logger constructor; revise tests to pass `slogTest` directly to `downloader.logger`.)
+Add `"io"` and `"log/slog"` to the test file's import block (currently missing both). Tests pass `slogTest(t)` directly to `downloader.logger`.
 
 - [ ] **Step 3: Run, verify PASS**
 
@@ -3237,9 +3234,18 @@ Spec sources: §1.1 layout (kurogames.go is integration glue), §5.2 StartUpdate
 
 **MVP-minus reminder** (per spec §1.2.3): if Task 1 escalated to MVP-minus, this task's RunUpdate skips patch-apply branch (full-replace only).
 
-- [ ] **Step 1: Add Provider field for HTTP client + Clock**
+- [ ] **Step 1: Extend kurogames.Settings + Provider for HTTP client, Clock, and TempDir**
 
-In `internal/providers/kurogames/kurogames.go`, modify the `Provider` struct:
+In `internal/providers/kurogames/kurogames.go`, modify the `Settings` struct to add `TempDir` (mirrors `app.KurogamesSettings.TempDir` from Task 3 — propagated through the constructor below):
+
+```go
+type Settings struct {
+	Path    string // launcher install root
+	TempDir string // optional override; empty → app layer's kurogamesTempDir() default
+}
+```
+
+Then modify the `Provider` struct:
 
 ```go
 type Provider struct {
@@ -3250,7 +3256,7 @@ type Provider struct {
 }
 ```
 
-Update `New` to accept these. Old M2 callers pass `nil` for httpClient/clock → falls back to defaults:
+Update `New` to default httpClient/clock; `Settings` is passed through unchanged:
 
 ```go
 func New(settings Settings, logger *slog.Logger) *Provider {
@@ -3267,6 +3273,18 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 ```
 
 (Keep M2 signature stable; for tests with custom clock/client, set fields after `New`.)
+
+**Caller update (also in this task):** `internal/app/app.go` `constructProviders()` currently passes only `Path` (`kurogames.Settings{Path: a.settings.Backends.Kurogames.Path}` at app.go:74-77). Extend to forward TempDir so the provider's RunUpdate path (`p.settings.TempDir` at Step 3 below) actually receives the user's setting:
+
+```go
+kuro := kurogames.New(
+	kurogames.Settings{
+		Path:    a.settings.Backends.Kurogames.Path,
+		TempDir: a.settings.Backends.Kurogames.TempDir,
+	},
+	a.logger.With("backend", "kurogames"),
+)
+```
 
 - [ ] **Step 2: Add CheckForUpdate method**
 
@@ -5923,7 +5941,7 @@ func TestRefresh_PhantomPredlSilentInvalidate(t *testing.T) {
 	// — same as PredlReady.Version — to trigger the phantom case.
 	a := &App{
 		updateRegistry: NewUpdateStateRegistry(emit, realClock{}),
-		settings: Settings{Backends: BackendsSettings{Kurogames: KurogamesSettings{TempDir: tempRoot}}},
+		settings: Settings{Backends: BackendSettings{Kurogames: KurogamesSettings{TempDir: tempRoot}}},
 		detect:   map[core.BackendID]detectEntry{},
 	}
 	defer a.updateRegistry.emitter.Stop()
@@ -5996,7 +6014,6 @@ func (p *phantomPredlFakeProvider) Launch(_ context.Context, _ core.GameID, _ co
 }
 ```
 
-(NB: this test depends on `App.providers` map structure. If actual M2 app.go uses a different field name or accessor, adjust the test wiring accordingly. Field name confirmation requires reading `internal/app/app.go` at implementation time.)
 
 - [ ] **Step 4: Sanitize URL fuzz test**
 
