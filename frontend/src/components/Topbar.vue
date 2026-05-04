@@ -8,11 +8,9 @@ import { Refresh } from '../../wailsjs/go/app/App';
 const view = useViewStore();
 const games = useGamesStore();
 
-// 3-way cycle: zh-TW → zh-CN → en → zh-TW
+// 2-way toggle: zh-TW ↔ en. zh-CN locale exists but isn't in the toggle.
 const cycleLang = () => {
-  const cur = i18n.global.locale.value;
-  const next = cur === 'zh-TW' ? 'zh-CN' : cur === 'zh-CN' ? 'en' : 'zh-TW';
-  setLang(next);
+  setLang(i18n.global.locale.value === 'zh-TW' ? 'en' : 'zh-TW');
 };
 
 const onRefresh = async () => {

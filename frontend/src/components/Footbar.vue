@@ -15,6 +15,6 @@ const summary = computed(() => {
   <div class="footbar">
     <span><span class="ok">●</span> {{ summary }}</span>
     <span class="bl">{{ t('footer.synced') }}</span>
-    <span style="margin-left: auto">v0.1.0 · AGPL-3.0</span>
+    <span style="margin-left: auto">v0.1.0</span>
   </div>
 </template>
