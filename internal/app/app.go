@@ -11,6 +11,7 @@ import (
 
 	"launcher-collection-tmp/internal/core"
 	"launcher-collection-tmp/internal/providers/hoyoverse"
+	"launcher-collection-tmp/internal/providers/hypergryph"
 	"launcher-collection-tmp/internal/providers/kurogames"
 )
 
@@ -77,7 +78,13 @@ func (a *App) constructProviders() error {
 	if err := a.registerProvider(kuro); err != nil {
 		return err
 	}
-	// Task 9 inserts hypergryph here.
+	gryph := hypergryph.New(
+		hypergryph.Settings{Path: a.settings.Backends.Hypergryph.Path},
+		a.logger.With("backend", "hypergryph"),
+	)
+	if err := a.registerProvider(gryph); err != nil {
+		return err
+	}
 	return nil
 }
 
