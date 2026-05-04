@@ -115,8 +115,11 @@ func newAssetHandler(getApp func() *App) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         // 1. parse path → backendID, kind, key (validate kind allowlist, reject ".." in key)
         // 2. get provider by backendID
-        // 3. type-assert provider into core.AssetServer (optional interface)
-        // 4. call ServeAsset; write bytes + mime; or 404
+        // 3. dispatch (see §2.7 wiring decision):
+        //      kind == "icon" → uniform impl: detection cache + iconext.Extract
+        //      kind == "bg"   → type-assert provider into core.AssetServer; call ServeAsset
+        // 4. write bytes + mime + Cache-Control: max-age=3600 (icons / bgs change rarely;
+        //    WebView re-requests on tab switches will hit the in-WebView cache)
     })
 }
 ```
@@ -163,8 +166,8 @@ func (a *App) cachedDetect(ctx context.Context, p core.Provider) ([]core.Install
 
 **Invalidation: event-based, NOT TTL.**
 - `UpdateSettings` clears the entire cache (providers may be reconstructed too).
-- A new Wails-bound command `Refresh()` clears the cache; UI gets a manual refresh hook.
-- (Optional, implementer's call) hook the Wails `WindowFocus` event and invalidate on regaining focus — catches "user installed Genshin via HoYoPlay while our app was alt-tabbed" without polling.
+- A Wails-bound command `Refresh()` clears the cache. **UI must surface a manual refresh button** — Topbar gets a `refresh` Material Symbols icon button (in Task 10). This is the documented escape hatch for "user installed something while app was focused, never alt-tabbed".
+- (Optional, implementer's call) hook the Wails `WindowFocus` event and invalidate on regaining focus — catches alt-tab cases automatically.
 
 `atomic.Pointer[detectEntry]` would be a finer choice than mutex for read-mostly access, but the mutex is simpler and the workload (a few commands per second worst case) makes lock contention irrelevant.
 
@@ -236,7 +239,7 @@ Windows impl steps:
 4. `image.NewRGBA` + `png.Encode` → []byte
 5. `DestroyIcon`
 
-**Caching**: in-memory `lru.Cache[string, cacheEntry]` keyed by `exePath`, with a hard byte cap (32 MB). Cache entry stores `(mtime, bytes)` and re-extracts when mtime changes (icon changed across game updates).
+**Caching**: package-level singleton `lru.Cache[string, cacheEntry]` inside `iconext`, keyed by `exePath`, with a hard byte cap (32 MB). Cache entry stores `(mtime, bytes)` and re-extracts when mtime changes (icon changed across game updates). Cache is package-level (not per-Provider) because PE icon extraction is a uniform operation across all publishers; one cache amortizes hits.
 
 Each provider's `GetIcon` is pure:
 
@@ -249,28 +252,43 @@ func (p *Provider) GetIcon(_ context.Context, gid core.GameID) (string, error) {
 }
 ```
 
-The actual PE extraction happens lazily inside `ServeAsset` when the WebView requests the URL. Pseudocode (illustrative; actual wiring of "how does Provider reach the App-level detection cache" is a plan-level detail — candidates: constructor-injected `InstallLookup` interface satisfied by `*App`; or middleware resolves the install upfront and passes it to a per-publisher helper; or App's middleware handles `kind == "icon"` uniformly across all providers and only delegates `kind == "bg"` to per-publisher logic):
+**Wiring decision (locked)**: the AssetServer middleware handles `kind == "icon"` UNIFORMLY across all providers (icon extraction is publisher-agnostic — same `iconext.Extract(<exePath>)`). Per-publisher `ServeAsset` only handles `kind == "bg"` (publisher-specific scrape paths). This means `Provider` does NOT need a back-reference to App's detection cache for icons; the middleware reaches into the cache directly.
 
 ```go
-// Conceptual shape — wiring TBD in plan
-func (p *Provider) ServeAsset(ctx context.Context, kind, key string) ([]byte, string, error) {
-    if kind != "icon" && kind != "bg" {
-        return nil, "", core.ErrAssetNotAvailable
-    }
-    inst, ok := p.lookupInstall(ctx, key)  // <-- plan decides the wiring
-    if !ok { return nil, "", core.ErrGameNotInstalled }
+// Middleware (in internal/app/asset_handler.go)
+func (h *assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    backendID, kind, key := parsePath(r.URL.Path)  // validates kind ∈ {icon, bg}, rejects ".." in key
+    p := h.app.byID(backendID)
+    if p == nil { http.NotFound(w, r); return }
 
     switch kind {
     case "icon":
-        // exeNameFor(key) returns the configured ExeName for that game from this
-        // provider's gameMeta — small per-provider helper, ~5 LOC.
-        bytes, err := iconext.Extract(filepath.Join(inst.InstallPath, exeNameFor(key)))
-        return bytes, "image/png", err
+        // uniform across publishers
+        installs, _ := h.app.cachedDetect(r.Context(), p)
+        gid := core.GameID(string(backendID) + "/" + key)
+        inst, ok := findInstall(installs, gid)
+        if !ok { http.NotFound(w, r); return }
+        exeName, ok := p.(core.ExeNamer).ExeName(gid)  // tiny optional iface
+        if !ok { http.NotFound(w, r); return }
+        bytes, err := iconext.Extract(filepath.Join(inst.InstallPath, exeName))
+        // serve bytes + Content-Type + Cache-Control (see §2.3 caching)
+
     case "bg":
-        return p.serveBg(ctx, inst, key)  // per-publisher impl in bg.go
+        // delegate to per-publisher impl
+        as, ok := p.(core.AssetServer)
+        if !ok { http.NotFound(w, r); return }
+        bytes, mime, err := as.ServeAsset(r.Context(), "bg", key)
+        // serve bytes + mime + Cache-Control
     }
 }
+
+// internal/core/exenamer.go — small optional interface
+type ExeNamer interface {
+    ExeName(gid GameID) (string, bool)  // returns ExeName from gameMeta; false if gid unknown
+}
 ```
+
+`core.AssetServer` thus only ever sees `kind == "bg"` calls. Each provider implements it just for backgrounds; `kurogames.Provider.ServeAsset` and `hypergryph.Provider.ServeAsset` each have a single `case "bg"` body. Hoyoverse doesn't implement `core.AssetServer` at all (CDN URLs).
 
 ### 2.8 Background art per-publisher
 
@@ -347,11 +365,13 @@ type KurogamesSettings  struct { Path string `toml:"path"` }
 type HypergryphSettings struct { Path string `toml:"path"` }
 ```
 
+**Defaults**: `defaultSettings()` MUST set `Version: 1` and the canonical default `Path` for each backend. Otherwise a fresh install (no settings.toml) writes a `version=0` file on first save, which on next load looks like an M1 file and re-triggers migration logic against an empty `HoyoplayPath`.
+
 **Migration from M1**:
 - A separate `hoyoverseRawTOML struct { Path, HoYoplayPath string }` is unmarshalled from the raw TOML in `LoadSettings`.
-- If `Path == ""` and `HoYoplayPath != ""`, project the legacy field into `Path` and `slog.Warn("migrated legacy hoyoplay_path → path")`.
-- `Version == 0` (absent) is treated as M1 format and triggers the migration.
-- On `SaveSettings`, the canonical schema is written — `hoyoplay_path` is dropped. Legacy field is read-only and never persisted on the in-memory `HoyoverseSettings`.
+- If `Version == 0` (absent) AND `Path == ""` AND `HoYoplayPath != ""`, project the legacy field into `Path` and `slog.Warn("migrated legacy hoyoplay_path → path")`.
+- `Version == 0` (absent) without legacy path is treated as fresh-install (just upgrade to `Version=1` silently on next save).
+- On `SaveSettings`, the canonical schema is written — `Version=1` always, `hoyoplay_path` dropped. Legacy field is read-only and never persisted on the in-memory `HoyoverseSettings`.
 
 **Malformed TOML** (parse error): return `defaultSettings()` and `slog.Error("settings TOML malformed, using defaults", "err", ...)`. M1's `s, _ := LoadSettings(...)` was silent — fix it.
 
@@ -408,16 +428,17 @@ return 0, fmt.Errorf("%w: %s not found in %s", core.ErrGameNotInstalled, gid, pa
 
 ### 2.13 LocalizedString locale fallback chain
 
-Endfield (Hypergryph) is a CN-origin title; the official zh-CN name uses simplified characters. Extend `LocalizedString.Get(locale)` to fall through:
+Endfield (Hypergryph) is a CN-origin title; the official zh-CN name uses simplified characters that diverge from zh-TW (e.g. 终末地 vs 終末地). HoYoverse games similarly differ (崩坏 vs 崩壞). With user on zh-CN, falling through to zh-TW would mix simplified and traditional characters in one sidebar — visually jarring.
+
+Fallback chain prefers English over wrong-script:
 
 ```
-zh-CN → zh-TW → en → first non-empty entry → ""
+zh-CN → en → zh-TW → first non-empty entry → ""
 zh-TW → en → first non-empty → ""
 en    → first non-empty → ""
 ```
 
-`hoyoverse` games stay populated with zh-TW + en only — Get("zh-CN") falls through to zh-TW automatically.
-Endfield is populated with all three keys — zh-CN explicitly distinct from zh-TW.
+`hoyoverse` games stay populated with zh-TW + en only — Get("zh-CN") falls through to en (`Genshin Impact`), avoiding mixed-script display. Endfield is populated with all three keys explicitly. If a future provider ships zh-CN-only content, Get("zh-TW") falls to en first then to whatever is non-empty.
 
 ### 2.14 Frontend changes (minimal)
 
@@ -427,6 +448,8 @@ Endfield is populated with all three keys — zh-CN explicitly distinct from zh-
 | `frontend/src/stores/games.ts` | No structural change — `loadAssets` already iterates; ` GetIcon` / `GetBackgrounds` still return strings |
 | `frontend/src/stores/backends.ts` (NEW) | Pinia store calling `ListBackends`; M2 wires it up (consumed by Footbar's count and an optional debug overlay), even if sidebar grouping doesn't yet visualize status pills |
 | `frontend/src/components/Sidebar.vue` | No structural change — grouping by backend already supports N publishers |
+| `frontend/src/components/Topbar.vue` | Add a `refresh` Material Symbols icon button bound to `App.Refresh()`; clears App's detection cache and re-runs `games.load()` + `games.loadAssets()` |
+| `frontend/src/i18n.ts` | **Locale switching is runtime, not boot-only.** vue-i18n's `i18n.global.locale.value = 'zh-CN'` is reactive — sidebar / topbar / footbar all re-render when `setLang()` flips the value. Task 11 smoke item explicitly verifies live re-rendering across zh-TW ↔ zh-CN ↔ en |
 
 ## 3. Per-publisher integration table (locked)
 
@@ -434,7 +457,9 @@ Endfield is populated with all three keys — zh-CN explicitly distinct from zh-
 |---|---|---|---|---|---|---|
 | HoYoverse | `hoyoverse` | `C:\Program Files\HoYoPlay` | `<path>\games\<g.FolderName>\` | `<path>\games\<g.FolderName>\<g.ExeName>` | M1 API | M1 API |
 | Kuro | `kurogames` | `C:\Program Files\Wuthering Waves` | `<path>\Wuthering Waves Game\Wuthering Waves.exe` exists | `<path>\Wuthering Waves Game\Wuthering Waves.exe` | `<path>\Wuthering Waves Game\launcherDownloadConfig.json` `.version` | TBD (impl task) |
-| Hypergryph | `hypergryph` | `C:\Program Files\GRYPHLINK` | `<path>\games\EndField Game\Endfield.exe` exists | `<path>\games\EndField Game\Endfield.exe` | (none — display "就緒" without version) | TBD (impl task) |
+| Hypergryph | `hypergryph` | `C:\Program Files\GRYPHLINK` | `<path>\games\EndField Game\Endfield.exe` exists | `<path>\games\EndField Game\Endfield.exe` | (none confirmed — display "就緒" without version) | TBD (impl task) |
+
+> **Hypergryph version-source risk note for plan-writer**: spec accepts "no version". If during impl smoke a clean source surfaces (Endfield_Data/StreamingAssets/aa/settings.json Addressables build version, registry under `HKCU\Software\Hypergryph\Endfield`, GRYPHLINK launcher's local API), wire it then; do NOT block on research.
 
 `gameMeta` for each (in respective `meta.go`):
 
@@ -480,23 +505,29 @@ Task 4   App refactor: providers []core.Provider; provider() helper; cachedDetec
               layer; ListBackends; ErrorCode/ErrorMessage binds; Refresh command
 Task 5   Settings: extend BackendSettings; legacy hoyoplay_path migration; malformed-TOML
               recovery; version=1 schema; tests
-Task 6   M1 hoyoverse adapter changes: add logger field; no ServeAsset (CDN URLs);
-              path key migrated to `path`; PathProvider implementation
-Task 7   kurogames provider: meta.go, detect.go, version.go (json read),
+Task 6   M1 hoyoverse adapter changes: add logger field; implement PathProvider
+              (`PrimaryPath() string { return p.settings.Path }`); migrate path TOML key
+              from `hoyoplay_path` to `path`; do NOT implement core.AssetServer (CDN URLs)
+Task 7   AssetServer middleware skeleton on the existing Wails AssetServer.Handler:
+              path parsing, kind allowlist, byID lookup, uniform `kind == "icon"` impl
+              calling iconext, `kind == "bg"` delegating to per-publisher core.AssetServer
+              type-assertion. Returns 404 for unknown backends and unknown kinds. Lands
+              before kurogames so kurogames assets work the moment the provider lands.
+Task 8   kurogames provider: meta.go, detect.go, version.go (json read),
               launch_windows.go, kurogames.go (Provider impl); BG research → A or B → impl;
-              ServeAsset for icon (always) + bg (if B) + tests
-Task 8   AssetServer middleware on the existing Wails AssetServer.Handler — placed AFTER
-              Task 7 so the contract is validated against a real consumer (kurogames),
-              not designed in a vacuum
+              ExeNamer + AssetServer (bg only) implementations + tests
 Task 9   hypergryph provider: same shape; version returns ""; BG research → A or B → impl;
-              ServeAsset for icon + bg (if B) + tests
-Task 10  Frontend: Footbar count fix; backends.ts store; locale chain test
+              ExeNamer + AssetServer (bg only) + tests
+Task 10  Frontend: Footbar count fix; backends.ts store; manual Refresh button wired
+              to App.Refresh(); locale chain test
 Task 11  Manual smoke (see §6)
 Task 12  Tag v0.2.0-m2; merge to main with --no-ff
 ```
 
-12 tasks total. Strict serial — kurogames discovers any abstraction issues with Tasks 4-6's
-work before hypergryph copies the pattern. Don't fan out.
+12 tasks total. Strict serial — middleware skeleton (Task 7) lands first so each
+publisher (Tasks 8 / 9) has a real plumbed-through asset path the moment its provider
+lands; iterate the middleware against each publisher's real content if needed. Don't
+fan out.
 
 ## 5. Testing strategy
 
@@ -556,7 +587,7 @@ These are M2-acceptable and deferred to M3:
 5. **No video backgrounds for Kuro / Hypergryph** — M2 ships static images only. HoYoverse keeps its existing video support.
 6. **NTE / Perfect World deferred** — direct exe launch breaks login (auth not in argv; Perfect World likely uses env vars, named pipes, or parent-process check). Reverse-engineering risk high. Revisit alongside M3+ download/apply work.
 7. **`backends.ts` Pinia store is wired in M2 but UI usage is minimal** — Sidebar group label rendering doesn't yet show status pills. M3 can add visualization.
-8. **Frontend localization toggle** — zh-CN added but switching at runtime is best-effort (the i18n locale is set at app boot). M2 ships with a topbar toggle that calls `setLang` and re-renders; runtime audit confirmed in Task 11 smoke.
+8. ~~Frontend localization toggle "best-effort"~~ — promoted to a hard requirement in §2.14: vue-i18n's reactive `locale.value` makes runtime switching trivial; smoke item verifies it.
 
 ## 8. Cross-references
 
