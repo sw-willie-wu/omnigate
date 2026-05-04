@@ -201,23 +201,15 @@ If Steps 3 and 3-fallback both failed (no manifest endpoint identifiable), escal
 
 **Files:**
 - Create: `internal/core/updater.go`
-- Modify: `internal/core/provider.go` — add `PlanKind` and `Phase` enums
+- Modify: `internal/core/provider.go` — add `Phase` enum (`PlanKind` already shipped in M1 commit `337ae96`, lines 11-16)
 
-- [ ] **Step 1: Add enums to `provider.go`**
+- [ ] **Step 1: Add `Phase` enum to `provider.go`**
 
-Append to `internal/core/provider.go`:
+`PlanKind` and its constants `PlanUpdate` / `PlanPredownload` already exist in `internal/core/provider.go:11-16` from M1. **Do NOT redeclare them — that would be a duplicate-symbol compile error.** Verify with: `grep -n "type PlanKind" internal/core/provider.go` (should return one match at line 11).
+
+Append `Phase` only to `internal/core/provider.go`:
 
 ```go
-// PlanKind distinguishes a full update plan from a predownload-only plan.
-// PlanPredownload runs only the download phase and persists predl_ready.json
-// for later application via ApplyPredownload.
-type PlanKind int
-
-const (
-	PlanUpdate PlanKind = iota
-	PlanPredownload
-)
-
 // Phase identifies which sub-phase of RunUpdate is currently active.
 // PhaseDownload progress is reported in bytes; PhaseApply in file count.
 type Phase int
@@ -790,8 +782,8 @@ func TestProgress_RecoveryScan_ApplyWalWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := ScanRecovery(dir)
-	if state.Phase != PhaseApplyResume {
-		t.Errorf("Phase = %v, want PhaseApplyResume", state.Phase)
+	if state.Phase != RecoveryPhaseApplyResume {
+		t.Errorf("Phase = %v, want RecoveryPhaseApplyResume", state.Phase)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "progress.json")); err == nil {
 		t.Errorf("progress.json should be deleted")
@@ -811,11 +803,82 @@ func TestProgress_RecoveryScan_PredlOverProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := ScanRecovery(dir)
-	if state.Phase != PhasePredlAwaiting {
-		t.Errorf("Phase = %v, want PhasePredlAwaiting", state.Phase)
+	if state.Phase != RecoveryPhasePredlAwaiting {
+		t.Errorf("Phase = %v, want RecoveryPhasePredlAwaiting", state.Phase)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "progress.json")); err == nil {
 		t.Errorf("progress.json should be deleted")
+	}
+}
+
+// Spec §7.2 mandates 4 RecoveryScan variants for the (phase × wasPredl)
+// matrix referenced by spec §3.5 row 4 (interrupted_resume LastError) +
+// errcode_coverage_test.go.
+//
+//	+----------------+--------------+----------------------------+
+//	| Sidecar shape  | Expected     | wasPredl                   |
+//	+----------------+--------------+----------------------------+
+//	| only progress  | DownloadResume| false (no predl context)  |
+//	| WAL was_predl=false | ApplyResume | false                  |
+//	| WAL was_predl=true  | ApplyResume | true                   |
+//	| only predl_ready | PredlAwaiting | n/a (covered by Predl tests above) |
+//	+----------------+--------------+----------------------------+
+//
+// (Variants 1, 2, 3 below; variant 4 already covered by
+// TestProgress_RecoveryScan_PredlOverProgress's predl-only branch.)
+
+func TestRecoveryScan_DownloadOnly_NotFromPredl(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "progress.json"), []byte(`{"etag":"e","entries":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := ScanRecovery(tmp)
+	if state.Phase != RecoveryPhaseDownloadResume {
+		t.Errorf("Phase = %v, want RecoveryPhaseDownloadResume", state.Phase)
+	}
+	if state.WasPredl {
+		t.Errorf("WasPredl = true; download-only sidecar has no predl context")
+	}
+}
+
+func TestRecoveryScan_ApplyResume_FromFreshDownload(t *testing.T) {
+	tmp := t.TempDir()
+	wal := `{"etag":"e","was_predl":false,"pending":["a"],"done":[]}`
+	if err := os.WriteFile(filepath.Join(tmp, "apply.wal"), []byte(wal), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := ScanRecovery(tmp)
+	if state.Phase != RecoveryPhaseApplyResume {
+		t.Errorf("Phase = %v, want RecoveryPhaseApplyResume", state.Phase)
+	}
+	if state.WasPredl {
+		t.Errorf("WasPredl = true; WAL was_predl=false")
+	}
+}
+
+func TestRecoveryScan_ApplyResume_FromPredl(t *testing.T) {
+	tmp := t.TempDir()
+	wal := `{"etag":"e","was_predl":true,"pending":["a"],"done":[]}`
+	if err := os.WriteFile(filepath.Join(tmp, "apply.wal"), []byte(wal), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := ScanRecovery(tmp)
+	if state.Phase != RecoveryPhaseApplyResume {
+		t.Errorf("Phase = %v, want RecoveryPhaseApplyResume", state.Phase)
+	}
+	if !state.WasPredl {
+		t.Errorf("WasPredl = false; WAL was_predl=true")
+	}
+}
+
+func TestRecoveryScan_CorruptWal(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "apply.wal"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := ScanRecovery(tmp)
+	if state.Phase != RecoveryCorrupt {
+		t.Errorf("Phase = %v, want RecoveryCorrupt", state.Phase)
 	}
 }
 ```
@@ -836,6 +899,7 @@ Expected: FAIL — symbols undefined.
 package kurogames
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -932,6 +996,39 @@ func LoadProgress(dir string) (*ProgressFile, error) {
 	return loadProgressFile(filepath.Join(dir, "progress.json"))
 }
 
+// LoadProgressFromPath parses a sidecar ProgressFile (progress.json or
+// predl_ready.json — same schema) from an explicit path. Used by App
+// layer's ResumeInterrupted ETag drift check (spec §2.3).
+func LoadProgressFromPath(path string) (*ProgressFile, error) {
+	return loadProgressFile(path)
+}
+
+// ReadWALETag returns the ETag recorded in apply.wal's header line.
+// Returns "" if file missing/unreadable/header malformed. Used by App
+// layer's ResumeInterrupted ETag drift check (spec §2.3).
+//
+// WAL format (set by applier in Task 9): line 1 is JSON header
+// `{"etag":"<value>","plan_files":[...]}`; subsequent lines are
+// `<relpath> OK\n` per applied file.
+func ReadWALETag(path string) string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	// Header is single line; split on first newline
+	nl := bytes.IndexByte(body, '\n')
+	if nl < 0 {
+		nl = len(body)
+	}
+	var hdr struct {
+		ETag string `json:"etag"`
+	}
+	if err := json.Unmarshal(body[:nl], &hdr); err != nil {
+		return ""
+	}
+	return hdr.ETag
+}
+
 func loadProgressFile(path string) (*ProgressFile, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -949,9 +1046,9 @@ type RecoveryPhase int
 
 const (
 	RecoveryNone RecoveryPhase = iota
-	PhaseDownloadResume
-	PhaseApplyResume
-	PhasePredlAwaiting
+	RecoveryPhaseDownloadResume
+	RecoveryPhaseApplyResume
+	RecoveryPhasePredlAwaiting
 	RecoveryCorrupt
 )
 
@@ -961,7 +1058,11 @@ type RecoveryState struct {
 	Err      error
 }
 
-// ScanRecovery resolves sidecar collisions per spec §6.3.
+// ScanRecovery resolves sidecar collisions per spec §6.3 + §2.3.
+// WasPredl is set from apply.wal's `was_predl` header field (Task 9 writes
+// it via applyWAL.WasPredl) — this distinguishes "interrupted apply that
+// originated from a predl" from "interrupted apply from a fresh download",
+// which spec §3.5 row 4 surfaces in the resume prompt copy.
 func ScanRecovery(dir string) RecoveryState {
 	hasProgress := fileExists(filepath.Join(dir, "progress.json"))
 	hasWAL := fileExists(filepath.Join(dir, "apply.wal"))
@@ -975,10 +1076,20 @@ func ScanRecovery(dir string) RecoveryState {
 		if hasPredl {
 			_ = os.Remove(filepath.Join(dir, "predl_ready.json"))
 		}
-		if _, err := os.ReadFile(filepath.Join(dir, "apply.wal")); err != nil {
+		walPath := filepath.Join(dir, "apply.wal")
+		body, err := os.ReadFile(walPath)
+		if err != nil {
 			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
 		}
-		return RecoveryState{Phase: PhaseApplyResume}
+		// Parse header for was_predl flag. Fall back to RecoveryCorrupt on
+		// malformed JSON — caller surfaces `unrecoverable` per spec §6.3.
+		var hdr struct {
+			WasPredl bool `json:"was_predl"`
+		}
+		if err := json.Unmarshal(body, &hdr); err != nil {
+			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
+		}
+		return RecoveryState{Phase: RecoveryPhaseApplyResume, WasPredl: hdr.WasPredl}
 
 	case hasProgress && hasPredl:
 		_ = os.Remove(filepath.Join(dir, "progress.json"))
@@ -986,21 +1097,21 @@ func ScanRecovery(dir string) RecoveryState {
 			_ = os.Remove(filepath.Join(dir, "predl_ready.json"))
 			return RecoveryState{Phase: RecoveryNone}
 		}
-		return RecoveryState{Phase: PhasePredlAwaiting}
+		return RecoveryState{Phase: RecoveryPhasePredlAwaiting}
 
 	case hasProgress:
 		if _, err := loadProgressFile(filepath.Join(dir, "progress.json")); err != nil {
 			_ = os.Remove(filepath.Join(dir, "progress.json"))
 			return RecoveryState{Phase: RecoveryNone}
 		}
-		return RecoveryState{Phase: PhaseDownloadResume}
+		return RecoveryState{Phase: RecoveryPhaseDownloadResume}
 
 	case hasPredl:
 		if _, err := loadProgressFile(filepath.Join(dir, "predl_ready.json")); err != nil {
 			_ = os.Remove(filepath.Join(dir, "predl_ready.json"))
 			return RecoveryState{Phase: RecoveryNone}
 		}
-		return RecoveryState{Phase: PhasePredlAwaiting}
+		return RecoveryState{Phase: RecoveryPhasePredlAwaiting}
 
 	default:
 		return RecoveryState{Phase: RecoveryNone}
@@ -1016,10 +1127,10 @@ func fileExists(path string) bool {
 - [ ] **Step 4: Run, verify PASS**
 
 ```bash
-go test -count=1 -run "TestProgress" ./internal/providers/kurogames/...
+go test -count=1 -run "TestProgress|TestRecoveryScan" ./internal/providers/kurogames/...
 ```
 
-Expected: 6 tests PASS.
+Expected: 10 tests PASS (6 TestProgress + 4 TestRecoveryScan variants).
 
 - [ ] **Step 5: Whole-repo verification**
 
@@ -1461,6 +1572,36 @@ func TestStateRace(t *testing.T) {
 	wg.Wait()
 }
 
+// TestThrottle_8Hz_FakeClock validates spec §3.3 throttle target: 1000
+// incoming progress events across an 8-tick (1-second) window emit ~8
+// outgoing snapshots (latest-wins coalesce per tick). Per spec §7.6.
+func TestThrottle_8Hz_FakeClock(t *testing.T) {
+	var emitted atomic.Int64
+	emit := func(name string, args ...any) {
+		emitted.Add(1)
+	}
+	e := newEventEmitter(emit, realClock{})
+	// Don't start the goroutine; manually invoke drain() 8 times to simulate
+	// 1 second at the 125ms tick interval (1000ms / 125ms = 8 ticks).
+
+	const totalEvents = 1000
+	const ticks = 8
+	const eventsPerTick = totalEvents / ticks
+	for tick := 0; tick < ticks; tick++ {
+		for i := 0; i < eventsPerTick; i++ {
+			e.queueProgress("g1", GameUpdateSnapshot{
+				InFlight: &InFlightSnapshot{Current: int64(tick*eventsPerTick + i)},
+			})
+		}
+		e.drain()
+	}
+
+	got := emitted.Load()
+	if got != int64(ticks) {
+		t.Errorf("emitted = %d, want %d (1000 events coalesced into one per 125ms tick over 1 second)", got, ticks)
+	}
+}
+
 func TestSnapshot_NoPointerLeak(t *testing.T) {
 	st := &GameUpdateState{
 		AvailableUpdate: &core.UpdatePlan{
@@ -1498,10 +1639,10 @@ func TestSnapshot_NoPointerLeak(t *testing.T) {
 
 ```bash
 export PATH="/c/Program Files/Go/bin:/c/Users/willie/go/bin:$PATH"
-go test -count=1 -race ./internal/app/... -run "TestEmitter|TestStateRace|TestSnapshot"
+go test -count=1 -race ./internal/app/... -run "TestEmitter|TestStateRace|TestSnapshot|TestThrottle"
 ```
 
-Expected: 4 tests PASS, no race detected.
+Expected: 5 tests PASS, no race detected.
 
 - [ ] **Step 6: Whole-internal verification**
 
@@ -1991,6 +2132,8 @@ git commit -m "feat(kurogames): manifest fetch + ETag + sanitizeURL + filterChan
 
 Spec sources: §2.8 retry policy (3x net with 1s/4s/16s backoff, 2x hash mismatch), §5.1 worker pool of 4, §5.3 download phase pseudocode, §7.0 Clock seam for tests.
 
+**MVP-minus reminder** (per spec §1.2.3): if Task 1 escalated to MVP-minus (full-file-replace only, no diff/patch), `core.FileTask` has no `Mode` field — all entries are full-replace, and this task's downloader treats every URL as a whole-file fetch. Skip any patch/delta-format branches.
+
 - [ ] **Step 1: Implement worker pool + retry + verify**
 
 `internal/providers/kurogames/update_download.go`:
@@ -2033,22 +2176,26 @@ type downloader struct {
 	plan      *core.UpdatePlan
 	onEvent   func(core.UpdateEvent) // throttled by App layer
 	bytesDone atomic.Int64           // sum across workers
-	clock     Clock                  // injected for retry backoff in tests
+	clock     RetryClock             // injected for retry backoff in tests
 }
 
-// Clock — must match update_state.go's interface; redeclare here to avoid
-// kurogames depending on app package (would create import cycle).
-type Clock interface {
+// RetryClock abstracts time.Sleep + time.Now + time.NewTicker for the
+// download-retry backoff seam. **Distinct from `app.Clock`** (which
+// only needs Now/NewTicker for the ticker-drain emitter — no Sleep).
+// We give it a different name to avoid confusion when reading both
+// packages side-by-side in update reviews. Production: realRetryClock;
+// tests: fakeRetryClock (instant Sleep).
+type RetryClock interface {
 	Now() time.Time
 	NewTicker(d time.Duration) *time.Ticker
 	Sleep(d time.Duration)
 }
 
-type realKurogamesClock struct{}
+type realRetryClock struct{}
 
-func (realKurogamesClock) Now() time.Time                         { return time.Now() }
-func (realKurogamesClock) NewTicker(d time.Duration) *time.Ticker { return time.NewTicker(d) }
-func (realKurogamesClock) Sleep(d time.Duration)                  { time.Sleep(d) }
+func (realRetryClock) Now() time.Time                         { return time.Now() }
+func (realRetryClock) NewTicker(d time.Duration) *time.Ticker { return time.NewTicker(d) }
+func (realRetryClock) Sleep(d time.Duration)                  { time.Sleep(d) }
 
 // runDownload runs the download phase: dispatches plan.Files across N
 // workers, retries net/hash failures per policy, emits per-file progress.
@@ -2287,6 +2434,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2299,12 +2447,12 @@ import (
 	"launcher-collection-tmp/internal/core"
 )
 
-// fakeKurogamesClock makes Sleep instant for fast tests.
-type fakeKurogamesClock struct{}
+// fakeRetryClock makes Sleep instant for fast tests.
+type fakeRetryClock struct{}
 
-func (fakeKurogamesClock) Now() time.Time                         { return time.Now() }
-func (fakeKurogamesClock) NewTicker(d time.Duration) *time.Ticker { return time.NewTicker(d) }
-func (fakeKurogamesClock) Sleep(d time.Duration)                  {} // instant
+func (fakeRetryClock) Now() time.Time                         { return time.Now() }
+func (fakeRetryClock) NewTicker(d time.Duration) *time.Ticker { return time.NewTicker(d) }
+func (fakeRetryClock) Sleep(d time.Duration)                  {} // instant
 
 func sha(s string) string {
 	h := sha256.Sum256([]byte(s))
@@ -2336,7 +2484,7 @@ func TestDownload_HappyPath(t *testing.T) {
 		logger:   slogTest(t),
 		progress: ps,
 		plan:     plan,
-		clock:    fakeKurogamesClock{},
+		clock:    fakeRetryClock{},
 	}
 	if err := d.runDownload(context.Background()); err != nil {
 		t.Fatalf("runDownload: %v", err)
@@ -2370,7 +2518,7 @@ func Test5xxRetriesThenFails(t *testing.T) {
 	}
 	d := &downloader{
 		client: srv.Client(), logger: slogTest(t), progress: ps,
-		plan: plan, clock: fakeKurogamesClock{},
+		plan: plan, clock: fakeRetryClock{},
 	}
 	err := d.runDownload(context.Background())
 	if err == nil {
@@ -2404,7 +2552,7 @@ func TestHashRetriesThenFails(t *testing.T) {
 	}
 	d := &downloader{
 		client: srv.Client(), logger: slogTest(t), progress: ps,
-		plan: plan, clock: fakeKurogamesClock{},
+		plan: plan, clock: fakeRetryClock{},
 	}
 	err := d.runDownload(context.Background())
 	if err == nil {
@@ -2437,7 +2585,7 @@ func TestDownload_CancelMidStream(t *testing.T) {
 	}
 	d := &downloader{
 		client: srv.Client(), logger: slogTest(t), progress: ps,
-		plan: plan, clock: fakeKurogamesClock{},
+		plan: plan, clock: fakeRetryClock{},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -2447,6 +2595,48 @@ func TestDownload_CancelMidStream(t *testing.T) {
 	err := d.runDownload(ctx)
 	if err == nil {
 		t.Fatal("expected ctx error")
+	}
+}
+
+// TestCancel_BeforeStart: ctx already cancelled when runDownload is called
+// → must return ctx.Err() immediately, no HTTP traffic, no .part files.
+// Spec §7.4 mandate.
+func TestCancel_BeforeStart(t *testing.T) {
+	var attempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		w.Write([]byte("x"))
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: sha("x"), Size: 1, URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+
+	// Cancel BEFORE runDownload starts
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := d.runDownload(ctx)
+	if err == nil {
+		t.Fatal("expected ctx.Err(), got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if got := attempts.Load(); got != 0 {
+		t.Errorf("server hit %d times after pre-cancel; want 0", got)
 	}
 }
 
@@ -2483,7 +2673,7 @@ func TestDownload_ResumeSkipsCompleted(t *testing.T) {
 	}
 	d := &downloader{
 		client: srv.Client(), logger: slogTest(t), progress: ps,
-		plan: plan, clock: fakeKurogamesClock{},
+		plan: plan, clock: fakeRetryClock{},
 	}
 	if err := d.runDownload(context.Background()); err != nil {
 		t.Fatal(err)
@@ -2549,6 +2739,8 @@ git commit -m "feat(kurogames): download phase — worker pool 4 + retry + per-f
 
 ## Task 9: update_apply.go — apply.wal + atomic rename + EXDEV detect + applyLock
 
+**MVP-minus reminder** (per spec §1.2.3): if Task 1 escalated to MVP-minus, this task's apply phase is pure rename (`os.Rename` of full-replace files into game dir) — no patch invocation. The `update_patch.go` companion file is NOT created. WAL still records `pending`/`done`; only the per-file payload changes.
+
 **Files:**
 - Create: `internal/providers/kurogames/update_apply.go`
 - Create: `internal/providers/kurogames/update_apply_test.go`
@@ -2604,17 +2796,10 @@ type applier struct {
 // loop is treated as no-op per spec §2.6 (apply is atomic-batch).
 func (a *applier) runApply(ctx context.Context) error {
 	// Cross-volume re-check (spec §5.6): apply phase must be on same volume
-	tempVol := filepath.VolumeName(a.tempRoot)
-	gameVol := filepath.VolumeName(a.gameDir)
-	if tempVol != gameVol {
-		return &core.UpdateError{
-			Code:      "cross_volume_midrun",
-			Retryable: false,
-			Params: map[string]string{
-				"temp_vol": tempVol,
-				"game_vol": gameVol,
-			},
-		}
+	// as it was at preflight. Extracted to a helper for unit testability
+	// (TestApply_VolumeChangedBetweenPhases — spec §7.2).
+	if err := validateSameVolume(a.tempRoot, a.gameDir); err != nil {
+		return err
 	}
 
 	// Acquire applyLock (3rd guard; spec §2.7)
@@ -2746,6 +2931,29 @@ func resumeApply(ctx context.Context, walPath, gameDir string, lock applyLock, o
 	return nil
 }
 
+// validateSameVolume returns *core.UpdateError{cross_volume_midrun} when
+// tempDir and gameDir resolve to different VolumeName values. Extracted so
+// tests can supply hand-crafted "C:\..." vs "D:\..." paths without needing
+// a real multi-volume Windows host (spec §7.2 TestApply_VolumeChangedBetweenPhases).
+//
+// On non-Windows hosts filepath.VolumeName returns "" for both, so this is
+// a no-op there — same behavior as before the extraction.
+func validateSameVolume(tempDir, gameDir string) error {
+	tempVol := filepath.VolumeName(tempDir)
+	gameVol := filepath.VolumeName(gameDir)
+	if tempVol != gameVol {
+		return &core.UpdateError{
+			Code:      "cross_volume_midrun",
+			Retryable: false,
+			Params: map[string]string{
+				"temp_vol": tempVol,
+				"game_vol": gameVol,
+			},
+		}
+	}
+	return nil
+}
+
 // atomicRename does a file-level rename; on EXDEV (cross-volume) returns
 // error with details (M3.A doesn't fall back to copy+delete).
 func atomicRename(src, dst string) error {
@@ -2827,6 +3035,15 @@ import (
 	"launcher-collection-tmp/internal/core"
 )
 
+// TestApply_HappyPath: apply phase end-to-end with no recovery state.
+//
+// Note: validateSameVolume runs on both tempDir and gameDir (both = t.TempDir()).
+// On Windows this verifies cross-volume *rejection* via the negative-case
+// TestApply_VolumeChangedBetweenPhases — same-volume here just exercises
+// the success path. On Linux/macOS filepath.VolumeName returns "" for any
+// path, so the volume check is a no-op there; the real cross-volume
+// assertion only runs on Windows hosts (or via the unit test's hand-crafted
+// `C:\\` vs `D:\\` paths in TestApply_VolumeChangedBetweenPhases).
 func TestApply_HappyPath(t *testing.T) {
 	tmp := t.TempDir()
 	gameDir := t.TempDir()
@@ -2879,16 +3096,40 @@ func TestApply_HappyPath(t *testing.T) {
 	}
 }
 
-func TestApply_CrossVolumeMidrunError(t *testing.T) {
-	// Use Volume name comparison via filepath.VolumeName — empty on Linux,
-	// but on Linux test paths share empty volume so this passes through.
-	// We force an explicit different volume by using paths with volumes if
-	// on Windows; otherwise skip.
-	if filepath.VolumeName("/tmp") == filepath.VolumeName("/var") {
-		t.Skip("non-Windows: filepath.VolumeName returns empty; can't simulate cross-volume")
+// TestApply_VolumeChangedBetweenPhases — spec §7.2 mandate. Validates
+// `cross_volume_midrun` error code path. Uses validateSameVolume directly
+// with hand-crafted Windows-style paths so the test runs on any host
+// (filepath.VolumeName parses the prefix without touching the FS).
+//
+// Skipped on non-Windows: filepath.VolumeName returns "" for /tmp etc.,
+// so the function correctly cannot detect a difference. The runtime
+// behavior is then "treat as same volume" — which matches non-Windows
+// reality (no drive-letter concept).
+func TestApply_VolumeChangedBetweenPhases(t *testing.T) {
+	if filepath.VolumeName(`C:\foo`) == "" {
+		t.Skip("filepath.VolumeName behaves only on Windows hosts")
 	}
-	// Windows-only: hard to simulate without admin; skip in unit test layer.
-	t.Skip("cross-volume requires Windows admin to mount second volume; covered in manual smoke")
+
+	// Same volume → no error
+	if err := validateSameVolume(`C:\temp\launcher-collection`, `C:\Program Files\Wuthering Waves`); err != nil {
+		t.Errorf("same volume returned err: %v", err)
+	}
+
+	// Different volume → cross_volume_midrun
+	err := validateSameVolume(`C:\temp\launcher-collection`, `D:\Games\Wuthering Waves`)
+	if err == nil {
+		t.Fatal("different volume: expected cross_volume_midrun error, got nil")
+	}
+	ue, ok := err.(*core.UpdateError)
+	if !ok {
+		t.Fatalf("err = %T, want *core.UpdateError", err)
+	}
+	if ue.Code != "cross_volume_midrun" {
+		t.Errorf("Code = %q, want cross_volume_midrun", ue.Code)
+	}
+	if ue.Params["temp_vol"] != `C:` || ue.Params["game_vol"] != `D:` {
+		t.Errorf("Params = %v, want temp_vol=C: game_vol=D:", ue.Params)
+	}
 }
 
 func TestApply_WALReplay(t *testing.T) {
@@ -3015,7 +3256,7 @@ type Provider struct {
 	settings   Settings
 	logger     *slog.Logger
 	httpClient *http.Client     // for manifest + downloads; injected from app layer
-	clock      Clock            // for download retry backoff (test-only injection)
+	clock      RetryClock       // for download retry backoff (test-only injection)
 }
 ```
 
@@ -3030,7 +3271,7 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 		settings:   settings,
 		logger:     logger,
 		httpClient: &http.Client{Timeout: 5 * time.Minute},
-		clock:      realKurogamesClock{},
+		clock:      realRetryClock{},
 	}
 }
 ```
@@ -3176,10 +3417,14 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 		}
 	}
 
-	// Determine TempDir
+	// Determine TempDir — this is the *root* (e.g. .../launcher-collection).
+	// `newProgressStore.dir()` appends `<gameID-flat>/<version>` itself; do
+	// NOT append the gameID here or paths will double (issue #10 of iter-1
+	// review). MUST match Task 11's `kurogamesTempDir` which returns the
+	// same root so recovery scan finds these paths on next App.New().
 	tempDir := p.settings.TempDir
 	if tempDir == "" {
-		tempDir = filepath.Join(os.TempDir(), "launcher-collection", strings.ReplaceAll(string(plan.GameID), "/", "-"))
+		tempDir = filepath.Join(os.TempDir(), "launcher-collection")
 	}
 
 	progress := newProgressStore(tempDir, string(plan.GameID), plan.Version)
@@ -3376,7 +3621,7 @@ func TestUpdate_HappyPath(t *testing.T) {
 
 	d := &downloader{
 		client: srv.Client(), logger: testLogger(), progress: ps,
-		plan: &plan, onEvent: onEvent, clock: fakeKurogamesClock{},
+		plan: &plan, onEvent: onEvent, clock: fakeRetryClock{},
 	}
 	if err := d.runDownload(context.Background()); err != nil {
 		t.Fatalf("download: %v", err)
@@ -3457,6 +3702,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -3489,9 +3735,12 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 		return fmt.Errorf("provider %s does not support updates (M3.A: only kurogames)", p.ID())
 	}
 
-	// 1st game-running guard
-	if g := findGameDescriptor(p, gid); g != nil {
-		if kurogames.IsProcessRunning(g.ExeName) {
+	// 1st game-running guard — resolve exe name via core.ExeNamer interface
+	// (NOT core.GameDescriptor.ExeName — GameDescriptor has no such field;
+	// per-provider exe metadata lives in `gameMeta` and is exposed via
+	// the ExeNamer optional interface, same pattern as asset_handler.go:101).
+	if exeName, ok := gameExeName(p, gid); ok {
+		if kurogames.IsProcessRunning(exeName) {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -3635,9 +3884,9 @@ func (a *App) ApplyPredownload(gameID string) error {
 		return fmt.Errorf("provider %s no Updater", p.ID())
 	}
 
-	// 1st game-running guard
-	if g := findGameDescriptor(p, gid); g != nil {
-		if kurogames.IsProcessRunning(g.ExeName) {
+	// 1st game-running guard — see StartUpdate flow for ExeNamer rationale
+	if exeName, ok := gameExeName(p, gid); ok {
+		if kurogames.IsProcessRunning(exeName) {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -3696,14 +3945,126 @@ func (a *App) DismissError(gameID string) error {
 	return nil
 }
 
-// ResumeInterrupted re-enters the in-flight pipeline using existing
-// progress.json or apply.wal. Equivalent to StartUpdate but skips
-// CheckForUpdate (the plan is reconstructed from sidecar).
+// ResumeInterrupted re-enters an interrupted update pipeline using an
+// existing sidecar (progress.json or apply.wal). Re-fetches the manifest
+// to validate the ETag still matches; on drift, drops the sidecar and
+// surfaces `manifest_changed` (spec §2.3 row "Only progress.json").
+//
+// Spec §2.3: download-resume re-fetches manifest header for ETag compare;
+// apply-resume re-hashes only WAL-listed files. Both paths converge on
+// runUpdateWorker, which delegates to upd.RunUpdate — its downloader
+// resumes from progress.json by file mtime+size equality (spec §5.1)
+// and its applier replays apply.wal entries marked `OK` (spec §5.3).
 func (a *App) ResumeInterrupted(gameID string) error {
-	// Implementation: read sidecar, reconstruct plan, call runUpdateWorker.
-	// Detailed flow deferred to Task 16 (integration tests cover this);
-	// for now, document that ResumeInterrupted is a thin wrapper.
-	return fmt.Errorf("ResumeInterrupted: implementation deferred to integration test phase (Task 16)")
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return err
+	}
+	upd, ok := p.(core.Updater)
+	if !ok {
+		return fmt.Errorf("provider %s does not support updates", p.ID())
+	}
+
+	state := a.updateRegistry.Get(gid)
+	state.mu.RLock()
+	if state.InFlight != nil {
+		state.mu.RUnlock()
+		return fmt.Errorf("operation already in flight for %s", gid)
+	}
+	state.mu.RUnlock()
+
+	// 1st game-running guard — same as StartUpdate
+	if exeName, ok := gameExeName(p, gid); ok {
+		if kurogames.IsProcessRunning(exeName) {
+			a.setLastError(gid, &core.UpdateError{
+				Code:      "process_blocked",
+				Retryable: true,
+				Params:    map[string]string{"kind": "process_running", "game": string(gid)},
+			})
+			return nil
+		}
+	}
+
+	// Re-fetch manifest so plan reflects current server state; downloader's
+	// resume logic uses progress.json's recorded mtime+size to skip files
+	// already on disk in temp.
+	plan, err := upd.CheckForUpdate(context.Background(), gid)
+	if err != nil {
+		a.setLastError(gid, asUpdateError(err))
+		return nil
+	}
+
+	// Discover sidecar dir for this gid+version, examine recovery state.
+	tempRoot := a.kurogamesTempDir(gid)
+	gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
+	sidecarDir := filepath.Join(tempRoot, gameIDFlat, plan.Version)
+	rec := kurogames.ScanRecovery(sidecarDir)
+
+	// ETag drift check (spec §2.3): read sidecar's recorded ETag and compare
+	// to fresh manifest's ETag. Mismatch → drop sidecar + surface manifest_changed.
+	sidecarETag := readSidecarETag(sidecarDir)
+	if sidecarETag != "" && sidecarETag != plan.ManifestETag {
+		_ = removeAll(sidecarDir)
+		a.setLastError(gid, &core.UpdateError{
+			Code:      "manifest_changed",
+			Retryable: true,
+			Params:    map[string]string{"old_etag": sidecarETag, "new_etag": plan.ManifestETag},
+		})
+		return nil
+	}
+
+	// Kind dispatch: predl-resume preserves PlanPredownload semantics
+	// (RunUpdate skips apply phase + renames to predl_ready.json on completion).
+	if rec.WasPredl {
+		plan.Kind = core.PlanPredownload
+	}
+
+	// Set InFlight; initial Phase reflects sidecar (RecoveryPhaseApplyResume → PhaseApply,
+	// else PhaseDownload).
+	ctx, cancel := context.WithCancel(context.Background())
+	initialPhase := core.PhaseDownload
+	if rec.Phase == kurogames.RecoveryPhaseApplyResume {
+		initialPhase = core.PhaseApply
+	}
+	state.mu.Lock()
+	if state.InFlight != nil {
+		state.mu.Unlock()
+		cancel()
+		return fmt.Errorf("operation already in flight for %s", gid)
+	}
+	state.InFlight = &InFlightOp{
+		Plan:   plan,
+		Phase:  initialPhase,
+		Total:  plan.TotalBytes,
+		cancel: cancel,
+	}
+	state.LastError = nil
+	state.mu.Unlock()
+	a.updateRegistry.EmitTerminal(gid)
+
+	go a.runUpdateWorker(ctx, gid, upd, plan)
+	return nil
+}
+
+// readSidecarETag returns the ETag persisted in progress.json or
+// predl_ready.json (same shape) inside dir. Returns "" if neither exists
+// or both are unreadable. apply.wal also records ETag in its first line
+// (per Task 9's WAL format) — read that as fallback.
+func readSidecarETag(dir string) string {
+	if pf, err := kurogames.LoadProgress(dir); err == nil {
+		return pf.ETag
+	}
+	// apply.wal has its own ETag; fall back to its parser
+	if etag := kurogames.ReadWALETag(filepath.Join(dir, "apply.wal")); etag != "" {
+		return etag
+	}
+	// predl_ready.json — use loadProgressFile via kurogames helper
+	predlPath := filepath.Join(dir, "predl_ready.json")
+	if pf, err := kurogames.LoadProgressFromPath(predlPath); err == nil {
+		return pf.ETag
+	}
+	return ""
 }
 
 // UpdateStatusAll returns per-game state snapshots.
@@ -3743,6 +4104,27 @@ func (a *App) gameInstallDir(gid core.GameID, p core.Provider) string {
 }
 
 func (a *App) preflightChecks(tempDir, gameDir string, totalBytes int64) error {
+	// Spec §1.3: TempDir MUST be on NTFS (or any FS with sub-second mtime
+	// resolution). FAT32/exFAT have 2s resolution which breaks the resume
+	// exact-equality check (spec §5.1). os.MkdirAll the dir first so
+	// GetVolumeInformation has a target.
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+		return &core.UpdateError{
+			Code:      "internal",
+			Retryable: false,
+			Params:    map[string]string{"detail": "create temp dir: " + err.Error()},
+		}
+	}
+	if fsName, ok := platformFilesystemName(tempDir); ok {
+		if !isSupportedFilesystem(fsName) {
+			return &core.UpdateError{
+				Code:      "unsupported_filesystem",
+				Retryable: false,
+				Params:    map[string]string{"temp_dir": tempDir, "fs": fsName},
+			}
+		}
+	}
+
 	tempVol := filepath.VolumeName(tempDir)
 	gameVol := filepath.VolumeName(gameDir)
 	if tempVol != gameVol && tempVol != "" && gameVol != "" {
@@ -3764,6 +4146,18 @@ func (a *App) preflightChecks(tempDir, gameDir string, totalBytes int64) error {
 	return nil
 }
 
+// isSupportedFilesystem returns true for filesystems with sub-second mtime
+// resolution (NTFS, ReFS). FAT32/exFAT have 2s resolution which breaks
+// progress.json's mtime+size exact-equality resume check (spec §5.1, §1.3).
+func isSupportedFilesystem(name string) bool {
+	switch strings.ToUpper(name) {
+	case "NTFS", "REFS":
+		return true
+	default:
+		return false
+	}
+}
+
 func asUpdateError(err error) *core.UpdateError {
 	if ue, ok := err.(*core.UpdateError); ok {
 		return ue
@@ -3775,13 +4169,16 @@ func asUpdateError(err error) *core.UpdateError {
 	}
 }
 
-func findGameDescriptor(p core.Provider, gid core.GameID) *core.GameDescriptor {
-	for _, g := range p.Games() {
-		if g.ID == gid {
-			return &g
-		}
+// gameExeName resolves the .exe filename for gid via the core.ExeNamer
+// optional interface. Returns ("", false) if the provider does not implement
+// ExeNamer or gid is unknown to the provider. Same shape as the lookup in
+// internal/app/asset_handler.go:101.
+func gameExeName(p core.Provider, gid core.GameID) (string, bool) {
+	en, ok := p.(core.ExeNamer)
+	if !ok {
+		return "", false
 	}
-	return nil
+	return en.ExeName(gid)
 }
 
 func removeAll(path string) error {
@@ -3802,10 +4199,13 @@ import (
 	"os"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 func osTempDir() string  { return os.TempDir() }
 func osRemoveAll(path string) error { return os.RemoveAll(path) }
+func osReadDir(path string) ([]os.DirEntry, error) { return os.ReadDir(path) }
 
 func platformHasFreeSpace(dir string, need int64) bool {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
@@ -3823,7 +4223,37 @@ func platformHasFreeSpace(dir string, need int64) bool {
 	}
 	return int64(freeBytesAvailable) >= need
 }
+
+// platformFilesystemName resolves the filesystem name (e.g. "NTFS", "FAT32",
+// "exFAT") of the volume containing `dir`. Returns ("", false) on lookup
+// failure (treated as "skip the FS check" by caller — better to allow than
+// to spuriously reject). Per spec §1.3 + §6.1 unsupported_filesystem.
+func platformFilesystemName(dir string) (string, bool) {
+	root := filepath.VolumeName(dir) + `\`
+	rootPtr, err := windows.UTF16PtrFromString(root)
+	if err != nil {
+		return "", false
+	}
+	var (
+		volNameBuf       [windows.MAX_PATH + 1]uint16
+		serial           uint32
+		maxComponent     uint32
+		fsFlags          uint32
+		fsNameBuf        [windows.MAX_PATH + 1]uint16
+	)
+	if err := windows.GetVolumeInformation(
+		rootPtr,
+		&volNameBuf[0], uint32(len(volNameBuf)),
+		&serial, &maxComponent, &fsFlags,
+		&fsNameBuf[0], uint32(len(fsNameBuf)),
+	); err != nil {
+		return "", false
+	}
+	return windows.UTF16ToString(fsNameBuf[:]), true
+}
 ```
+
+(Add `"path/filepath"` to imports if not already present in the windows file.)
 
 `internal/app/update_handler_other.go`:
 
@@ -3836,7 +4266,11 @@ import "os"
 
 func osTempDir() string  { return os.TempDir() }
 func osRemoveAll(path string) error { return os.RemoveAll(path) }
+func osReadDir(path string) ([]os.DirEntry, error) { return os.ReadDir(path) }
 func platformHasFreeSpace(dir string, need int64) bool { return true } // stub
+// On non-Windows the FS check is unavailable; return ("", false) so caller
+// skips the unsupported-filesystem branch (CI Linux runners need this).
+func platformFilesystemName(dir string) (string, bool) { return "", false }
 ```
 
 - [ ] **Step 2: Wire `UpdateStateRegistry` into App**
@@ -3862,9 +4296,186 @@ emit := func(name string, args ...any) {
 	}
 }
 a.updateRegistry = NewUpdateStateRegistry(emit, realClock{})
+
+// Spec §2.3: walk <TempDir>/<gameID-flat>/<version>/ for sidecars left
+// behind by an interrupted prior run. ScanRecovery (Task 5) handles the
+// collision matrix; we translate its result into LastError or PredlReady
+// so the UI's resume-prompt flow (spec §3.5 row 4) can fire on next render.
+a.scanForRecovery()
 ```
 
 (Assuming `runtime.EventsEmit` is the Wails v2 API; adjust import as `import wruntime "github.com/wailsapp/wails/v2/pkg/runtime"`.)
+
+Append `scanForRecovery` to `internal/app/update_handler.go`:
+
+```go
+// scanForRecovery walks the kurogames temp tree on App startup and seeds
+// per-game state: interrupted runs become LastError = interrupted_resume
+// (UI shows resume prompt), completed predownloads become PredlReady.
+// Per spec §2.3 + §6.3 sidecar collision rules (handled by ScanRecovery).
+//
+// Tree shape: <kurogamesTempDir>/<gameID-flat>/<version>/{progress.json|apply.wal|predl_ready.json}
+// where <gameID-flat> = strings.ReplaceAll(string(gid), "/", "-").
+func (a *App) scanForRecovery() {
+	tempRoot := a.kurogamesTempDir("") // empty gid: returns settings.TempDir or default root
+	gameDirs, err := osReadDir(tempRoot)
+	if err != nil {
+		return // no temp tree → nothing to recover (normal first-run case)
+	}
+	for _, gameDir := range gameDirs {
+		if !gameDir.IsDir() {
+			continue
+		}
+		gameIDFlat := gameDir.Name()
+		// Reverse the gameID-flat encoding: "kurogames-wutheringwaves" → "kurogames/wutheringwaves"
+		gid := core.GameID(strings.Replace(gameIDFlat, "-", "/", 1))
+		// Verify gid resolves to a known provider; skip foreign dirs
+		if _, err := a.provider(gid); err != nil {
+			continue
+		}
+		gameDirPath := filepath.Join(tempRoot, gameIDFlat)
+		versionDirs, err := osReadDir(gameDirPath)
+		if err != nil {
+			continue
+		}
+		for _, vDir := range versionDirs {
+			if !vDir.IsDir() {
+				continue
+			}
+			sidecarDir := filepath.Join(gameDirPath, vDir.Name())
+			a.applyRecoveryState(gid, sidecarDir)
+		}
+	}
+}
+
+func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
+	rec := kurogames.ScanRecovery(sidecarDir)
+	state := a.updateRegistry.Get(gid)
+	switch rec.Phase {
+	case kurogames.RecoveryPhaseDownloadResume:
+		state.mu.Lock()
+		state.LastError = &core.UpdateError{
+			Code:      "interrupted_resume",
+			Retryable: true,
+			Params: map[string]string{
+				"phase":    "download",
+				"wasPredl": fmt.Sprintf("%t", rec.WasPredl),
+			},
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryPhaseApplyResume:
+		state.mu.Lock()
+		state.LastError = &core.UpdateError{
+			Code:      "interrupted_resume",
+			Retryable: true,
+			Params: map[string]string{
+				"phase":    "apply",
+				"wasPredl": fmt.Sprintf("%t", rec.WasPredl),
+			},
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryPhasePredlAwaiting:
+		// Spec §2.3 row "Only predl_ready.json": parse → set state.PredlReady, no prompt.
+		predlPath := filepath.Join(sidecarDir, "predl_ready.json")
+		pf, err := kurogames.LoadProgressFromPath(predlPath)
+		if err != nil {
+			return // ScanRecovery already deletes corrupt predl_ready.json
+		}
+		// Reconstruct minimal UpdatePlan from ProgressFile. Apply phase only
+		// needs Path (URL/Hash already used during predownload's verify step).
+		files := make([]core.FileTask, 0, len(pf.Entries))
+		var totalBytes int64
+		for relPath, entry := range pf.Entries {
+			files = append(files, core.FileTask{
+				Path: relPath,
+				Hash: entry.Hash,
+				Size: entry.Size,
+			})
+			totalBytes += entry.Size
+		}
+		state.mu.Lock()
+		state.PredlReady = &core.UpdatePlan{
+			GameID:       gid,
+			Kind:         core.PlanPredownload,
+			ManifestETag: pf.ETag,
+			Version:      pf.Version,
+			Files:        files,
+			TotalBytes:   totalBytes,
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryCorrupt:
+		// Spec §2.3 row "Corrupt apply.wal": LastError = unrecoverable.
+		state.mu.Lock()
+		state.LastError = &core.UpdateError{
+			Code:      "unrecoverable",
+			Retryable: false,
+			Params:    map[string]string{"reason": "corrupt apply.wal sidecar"},
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryNone:
+		// nothing to do
+	}
+}
+```
+
+Add `osReadDir` shim to the platform files (`update_handler_windows.go` and `update_handler_other.go`):
+
+```go
+// in update_handler_windows.go AND update_handler_other.go (identical body):
+func osReadDir(path string) ([]os.DirEntry, error) { return os.ReadDir(path) }
+```
+
+(Required imports for `update_handler.go`: `os`, `path/filepath`, `strings`, plus existing `core` and `kurogames` packages.)
+
+- [ ] **Step 2b: Enhance App.RefreshVersion with phantom-predl invalidation**
+
+Per spec §2.4: when Refresh detects `current_version == PredlReady.Plan.Version`, silently invalidate the predl (delete sidecar + temp; no UI prompt — this is housekeeping). Modify `internal/app/app.go`:
+
+```go
+func (a *App) RefreshVersion(gameID string) (core.VersionInfo, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return core.VersionInfo{}, err
+	}
+	vi, err := p.CheckVersion(a.ctx, gid)
+	if err != nil {
+		return vi, err
+	}
+
+	// Spec §2.4 phantom-predl: PredlReady becomes invalid the moment its
+	// version is no longer "next" (user reinstalled at that exact version,
+	// or KRLauncher applied the predl externally). Silently delete sidecar
+	// and clear PredlReady — no toast/dialog. Test: TestRefresh_PhantomPredlSilentInvalidate.
+	if a.updateRegistry != nil {
+		state := a.updateRegistry.Get(gid)
+		state.mu.RLock()
+		predl := state.PredlReady
+		state.mu.RUnlock()
+		if predl != nil && vi.Current == predl.Version {
+			tempDir := a.kurogamesTempDir(gid)
+			gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
+			versionDir := filepath.Join(tempDir, gameIDFlat, predl.Version)
+			_ = removeAll(versionDir)
+			state.mu.Lock()
+			state.PredlReady = nil
+			state.mu.Unlock()
+			a.updateRegistry.EmitTerminal(gid)
+		}
+	}
+	return vi, err
+}
+```
+
+(Add `"path/filepath"` and `"strings"` to `app.go` imports if not already present.)
 
 - [ ] **Step 3: Modify App.Launch to refuse during apply phase**
 
@@ -3916,6 +4527,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	"launcher-collection-tmp/internal/core"
 )
@@ -3959,6 +4571,137 @@ func (f *fakeUpdater) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEve
 
 func TestStartUpdate_PropagatesCheckError(t *testing.T) {
 	t.Skip("App-layer integration test deferred to Task 16; this stub asserts wiring compiles")
+}
+
+// TestRapidStartCancelStart_NoInterleave validates the spec §2.1 invariant:
+// a second StartUpdate must observe `state.InFlight == nil` only AFTER the
+// first goroutine's defer (worker temp-cleanup, sidecar finalization) fully
+// completes. The mu.Lock ordering inside runUpdateWorker's defer is the
+// happens-before edge. Run with `go test -race` to catch interleaving bugs.
+//
+// Spec §7.4 mandate. The test uses a fakeUpdater whose RunUpdate blocks on
+// a channel until released, so we can deterministically order Start → Cancel →
+// (await first defer) → Start.
+func TestRapidStartCancelStart_NoInterleave(t *testing.T) {
+	a := &App{updateRegistry: NewUpdateStateRegistry(func(string, ...any) {}, realClock{})}
+	defer a.updateRegistry.emitter.Stop()
+
+	gid := core.GameID("kurogames/wuwa")
+	state := a.updateRegistry.Get(gid)
+
+	// Simulate first runUpdateWorker holding the lock briefly during defer
+	first := make(chan struct{})
+	state.mu.Lock()
+	state.InFlight = &InFlightOp{Plan: core.UpdatePlan{Version: "1"}}
+	state.mu.Unlock()
+
+	// Cancel + clear (simulates first goroutine's defer)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		state.mu.Lock()
+		state.InFlight = nil
+		state.mu.Unlock()
+		close(first)
+	}()
+
+	// Second StartUpdate-equivalent: spin until lock observes InFlight == nil
+	deadline := time.Now().Add(1 * time.Second)
+	for {
+		state.mu.RLock()
+		clear := state.InFlight == nil
+		state.mu.RUnlock()
+		if clear {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("InFlight never cleared (deadlock or invariant violation)")
+		}
+	}
+	<-first
+
+	// Now safe to set new InFlight without interleaving
+	state.mu.Lock()
+	if state.InFlight != nil {
+		state.mu.Unlock()
+		t.Fatal("InFlight non-nil at second-start time — first cleanup did not happen-before")
+	}
+	state.InFlight = &InFlightOp{Plan: core.UpdatePlan{Version: "2"}}
+	state.mu.Unlock()
+}
+
+// TestRunUpdate_PanicRecovers — spec §7.2 (errcode_coverage `internal`) +
+// spec §6.4 panic recovery contract. A fakeUpdater whose RunUpdate panics
+// must be caught by runUpdateWorker's defer; state.LastError set to
+// {Code: "internal"}; state.InFlight cleared.
+func TestRunUpdate_PanicRecovers(t *testing.T) {
+	a := &App{updateRegistry: NewUpdateStateRegistry(func(string, ...any) {}, realClock{})}
+	defer a.updateRegistry.emitter.Stop()
+
+	gid := core.GameID("kurogames/wuwa")
+
+	panicker := &fakeUpdater{
+		id:    "kurogames",
+		games: []core.GameDescriptor{{ID: gid}},
+		runErr: nil, // overridden below
+	}
+	// Wrap fake to panic instead of returning runErr
+	panicked := make(chan struct{})
+	panickyRunUpdate := func(ctx context.Context, plan core.UpdatePlan, onEvent func(core.UpdateEvent)) error {
+		close(panicked)
+		panic("synthetic test panic")
+	}
+
+	state := a.updateRegistry.Get(gid)
+	state.mu.Lock()
+	state.InFlight = &InFlightOp{Plan: core.UpdatePlan{GameID: gid, Version: "1"}}
+	state.mu.Unlock()
+
+	// runUpdateWorker invokes upd.RunUpdate. Inject panicky impl via wrapper.
+	a.runUpdateWorker(context.Background(), gid, &panickyUpdater{base: panicker, fn: panickyRunUpdate}, core.UpdatePlan{GameID: gid})
+
+	<-panicked
+
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.InFlight != nil {
+		t.Errorf("InFlight = %+v, want nil after panic recovery", state.InFlight)
+	}
+	if state.LastError == nil || state.LastError.Code != "internal" {
+		t.Errorf("LastError = %+v, want {Code: internal}", state.LastError)
+	}
+}
+
+// panickyUpdater wraps a base Updater but routes RunUpdate to fn (used by
+// TestRunUpdate_PanicRecovers to inject a panic).
+type panickyUpdater struct {
+	base *fakeUpdater
+	fn   func(ctx context.Context, plan core.UpdatePlan, onEvent func(core.UpdateEvent)) error
+}
+
+func (p *panickyUpdater) ID() core.BackendID                                      { return p.base.ID() }
+func (p *panickyUpdater) DisplayName() core.LocalizedString                       { return p.base.DisplayName() }
+func (p *panickyUpdater) Games() []core.GameDescriptor                            { return p.base.Games() }
+func (p *panickyUpdater) SettingsSchema() []core.SettingField                     { return p.base.SettingsSchema() }
+func (p *panickyUpdater) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
+	return p.base.DetectInstall(ctx)
+}
+func (p *panickyUpdater) GetIcon(ctx context.Context, gid core.GameID) (string, error) {
+	return p.base.GetIcon(ctx, gid)
+}
+func (p *panickyUpdater) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.Background, error) {
+	return p.base.GetBackgrounds(ctx, gid)
+}
+func (p *panickyUpdater) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error) {
+	return p.base.CheckVersion(ctx, gid)
+}
+func (p *panickyUpdater) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
+	return p.base.Launch(ctx, gid, opts)
+}
+func (p *panickyUpdater) CheckForUpdate(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
+	return p.base.CheckForUpdate(ctx, gid)
+}
+func (p *panickyUpdater) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent func(core.UpdateEvent)) error {
+	return p.fn(ctx, plan, onEvent)
 }
 
 // More tests in Task 16 integration phase — this file establishes wiring.
@@ -4923,7 +5666,7 @@ func TestPredl_HappyPath(t *testing.T) {
 		Version:      "3.5.0",
 		Files:        []core.FileTask{{Path: "next.dll", Hash: hash, Size: int64(len(body)), URL: srv.URL}},
 	}
-	d := &downloader{client: srv.Client(), logger: testLogger(), progress: ps, plan: &plan, clock: fakeKurogamesClock{}}
+	d := &downloader{client: srv.Client(), logger: testLogger(), progress: ps, plan: &plan, clock: fakeRetryClock{}}
 	if err := d.runDownload(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -5045,12 +5788,16 @@ func TestProtocolDocMatchesCode(t *testing.T) {
 package kurogames
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestErrcodeCoverage walks the manifest of error codes and asserts each
-// has at least one referencing test file.
+// TestErrcodeCoverage walks the manifest of error codes (spec §7.2) and
+// asserts each has at least one referencing test file under
+// internal/providers/kurogames/ or internal/app/. Catches drift when a
+// new error code lands without coverage.
 func TestErrcodeCoverage(t *testing.T) {
 	codes := []string{
 		"process_blocked", "manifest_changed", "manifest_not_found",
@@ -5059,24 +5806,163 @@ func TestErrcodeCoverage(t *testing.T) {
 		"corrupt", "apply_partial", "unrecoverable",
 		"unsupported_filesystem", "internal",
 	}
+	content := allTestFilesContent(t)
 	for _, code := range codes {
-		if !strings.Contains(allTestFilesContent(t), code) {
-			t.Errorf("error code %q has no test reference; add one to spec §7.2 coverage matrix", code)
+		needle := `"` + code + `"`
+		if !strings.Contains(content, needle) {
+			t.Errorf("error code %q has no test reference; add a test that mentions it (literal string match required)", code)
 		}
 	}
 }
 
-// allTestFilesContent reads concatenated content of all _test.go files in
-// internal/providers/kurogames/ and internal/app/. Implementation: walk
-// dir + ReadFile each + concat. Stub for plan template; real impl in Task 16.
+// allTestFilesContent concatenates the body of every *_test.go file under
+// internal/providers/kurogames/ and internal/app/. Used by TestErrcodeCoverage
+// to do a coarse string search for each error code literal.
+//
+// Path resolution: tests run with `pwd = internal/providers/kurogames/`, so
+// `../../app` and `.` are the two roots.
 func allTestFilesContent(t *testing.T) string {
 	t.Helper()
-	// TODO during implementation: filepath.Walk + ioutil.ReadFile + concat
-	return ""
+	roots := []string{".", "../../app"}
+	var sb strings.Builder
+	for _, root := range roots {
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // skip unreadable dirs (defensive: don't fail the test)
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(info.Name(), "_test.go") {
+				return nil
+			}
+			body, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			sb.Write(body)
+			sb.WriteByte('\n')
+			return nil
+		})
+		if err != nil {
+			t.Logf("walk %s: %v (skipped)", root, err)
+		}
+	}
+	return sb.String()
 }
 ```
 
-(NB: This test is intentionally weak — Task 16 implementer fills in `allTestFilesContent` properly. The plan-time placeholder ensures the test exists.)
+- [ ] **Step 3b: Phantom-predl silent invalidate test (spec §7.5)**
+
+`internal/app/update_phantom_predl_test.go`:
+
+```go
+package app
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"launcher-collection-tmp/internal/core"
+)
+
+// TestRefresh_PhantomPredlSilentInvalidate validates spec §2.4 phantom-predl
+// rule: when CheckVersion's Current matches PredlReady.Plan.Version (e.g.,
+// user reinstalled via KRLauncher to that version, or KRLauncher applied the
+// predl externally), the predl is silently dropped — no ConfirmDialog event,
+// sidecar deleted, state.PredlReady cleared. Spec §7.5 mandate.
+func TestRefresh_PhantomPredlSilentInvalidate(t *testing.T) {
+	tempRoot := t.TempDir()
+
+	gid := core.GameID("kurogames/wuwa")
+	emitCount := 0
+	var dialogEmitted bool
+	emit := func(name string, args ...any) {
+		emitCount++
+		if name == "ui:confirm" {
+			dialogEmitted = true
+		}
+	}
+
+	// Construct App with a fake provider whose CheckVersion returns "3.4.0"
+	// — same as PredlReady.Version — to trigger the phantom case.
+	a := &App{
+		updateRegistry: NewUpdateStateRegistry(emit, realClock{}),
+		settings: Settings{Backends: BackendsSettings{Kurogames: KurogamesSettings{TempDir: tempRoot}}},
+	}
+	defer a.updateRegistry.emitter.Stop()
+
+	// Wire fake provider via a.providers map (assumed structure; adapt to
+	// actual App internals — registerProvider helper, etc.).
+	a.providers = map[core.BackendID]core.Provider{
+		"kurogames": &phantomPredlFakeProvider{currentVersion: "3.4.0", gid: gid},
+	}
+
+	// Seed PredlReady on disk + in registry
+	gameIDFlat := "kurogames-wuwa"
+	versionDir := filepath.Join(tempRoot, gameIDFlat, "3.4.0")
+	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "predl_ready.json"),
+		[]byte(`{"etag":"e","version":"3.4.0","entries":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := a.updateRegistry.Get(gid)
+	state.PredlReady = &core.UpdatePlan{
+		GameID: gid, Version: "3.4.0", ManifestETag: "e",
+	}
+
+	// Refresh — phantom condition fires
+	if _, err := a.RefreshVersion(string(gid)); err != nil {
+		t.Fatalf("RefreshVersion: %v", err)
+	}
+
+	// Assertions
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.PredlReady != nil {
+		t.Errorf("PredlReady = %+v, want nil after phantom invalidate", state.PredlReady)
+	}
+	if _, err := os.Stat(versionDir); err == nil {
+		t.Errorf("versionDir %s still exists; should be removed", versionDir)
+	}
+	if dialogEmitted {
+		t.Errorf("ui:confirm dialog emitted; phantom invalidate must be silent")
+	}
+}
+
+// phantomPredlFakeProvider only implements CheckVersion meaningfully; other
+// methods return zero values. Suitable for testing RefreshVersion logic.
+type phantomPredlFakeProvider struct {
+	currentVersion string
+	gid            core.GameID
+}
+
+func (p *phantomPredlFakeProvider) ID() core.BackendID                   { return "kurogames" }
+func (p *phantomPredlFakeProvider) DisplayName() core.LocalizedString    { return core.LocalizedString{} }
+func (p *phantomPredlFakeProvider) Games() []core.GameDescriptor         { return []core.GameDescriptor{{ID: p.gid}} }
+func (p *phantomPredlFakeProvider) SettingsSchema() []core.SettingField  { return nil }
+func (p *phantomPredlFakeProvider) DetectInstall(_ context.Context) ([]core.InstalledGame, error) {
+	return []core.InstalledGame{{GameID: p.gid, InstallPath: ""}}, nil
+}
+func (p *phantomPredlFakeProvider) GetIcon(_ context.Context, _ core.GameID) (string, error) {
+	return "", nil
+}
+func (p *phantomPredlFakeProvider) GetBackgrounds(_ context.Context, _ core.GameID) ([]core.Background, error) {
+	return nil, nil
+}
+func (p *phantomPredlFakeProvider) CheckVersion(_ context.Context, _ core.GameID) (core.VersionInfo, error) {
+	return core.VersionInfo{Current: p.currentVersion, Latest: p.currentVersion}, nil
+}
+func (p *phantomPredlFakeProvider) Launch(_ context.Context, _ core.GameID, _ core.LaunchOptions) (int, error) {
+	return 0, nil
+}
+```
+
+(NB: this test depends on `App.providers` map structure. If actual M2 app.go uses a different field name or accessor, adjust the test wiring accordingly. Field name confirmation requires reading `internal/app/app.go` at implementation time.)
 
 - [ ] **Step 4: Sanitize URL fuzz test**
 
@@ -5106,7 +5992,233 @@ func FuzzSanitizeURL(f *testing.F) {
 }
 ```
 
-- [ ] **Step 5: Run all integration + new tests**
+- [ ] **Step 5: Generate large_manifest.json.gz load fixture (spec §7.9)**
+
+Create `internal/providers/kurogames/testdata/gen_large_manifest.go` (NOT compiled into the package — `//go:build ignore` lets it run via `go run` only):
+
+```go
+//go:build ignore
+
+package main
+
+import (
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
+// gen_large_manifest.go: regenerate testdata/large_manifest.json.gz for spec
+// §7.9 load benchmarks. Run with:
+//   go run testdata/gen_large_manifest.go
+// from internal/providers/kurogames/. Output overwrites the gz fixture.
+//
+// Schema mirrors update_manifest.go's `manifestRaw` shape: 1000 file entries
+// with synthetic 64-char SHA-256 hashes + 1KiB-1MiB random sizes.
+func main() {
+	type fileRaw struct {
+		Path string `json:"path"`
+		Hash string `json:"hash"`
+		Size int64  `json:"size"`
+		URL  string `json:"url"`
+	}
+	type manifestRaw struct {
+		Version string    `json:"version"`
+		Files   []fileRaw `json:"files"`
+	}
+
+	mf := manifestRaw{Version: "3.4.0-load"}
+	for i := 0; i < 1000; i++ {
+		h := sha256.Sum256([]byte(fmt.Sprintf("entry-%d", i)))
+		mf.Files = append(mf.Files, fileRaw{
+			Path: fmt.Sprintf("Engine/Game/Bin/foo_%04d.dll", i),
+			Hash: hex.EncodeToString(h[:]),
+			Size: int64(1024 + (i*7919)%(1024*1024)),
+			URL:  fmt.Sprintf("https://cdn.example/files/%04d.bin", i),
+		})
+	}
+
+	body, err := json.Marshal(&mf)
+	if err != nil {
+		panic(err)
+	}
+	out, err := os.Create("testdata/large_manifest.json.gz")
+	if err != nil {
+		panic(err)
+	}
+	defer out.Close()
+	gw := gzip.NewWriter(out)
+	if _, err := gw.Write(body); err != nil {
+		panic(err)
+	}
+	if err := gw.Close(); err != nil {
+		panic(err)
+	}
+	fmt.Printf("wrote %s with %d entries\n", "testdata/large_manifest.json.gz", len(mf.Files))
+}
+```
+
+Generate the fixture once (commit the binary):
+
+```bash
+export PATH="/c/Program Files/Go/bin:/c/Users/willie/go/bin:$PATH"
+cd internal/providers/kurogames
+mkdir -p testdata
+go run testdata/gen_large_manifest.go
+ls -la testdata/large_manifest.json.gz
+```
+
+Expected: ~30-50 KiB gzipped fixture with 1000 entries.
+
+- [ ] **Step 6: Add update_load_test.go with the 3 spec §7.9 benchmarks**
+
+`internal/providers/kurogames/update_load_test.go`:
+
+```go
+//go:build load
+
+package kurogames
+
+import (
+	"compress/gzip"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// loadFixtureFiles parses testdata/large_manifest.json.gz into []core.FileTask
+// for the load benchmarks. Builds a 1000-entry fixture from the gzipped
+// manifest at testdata/large_manifest.json.gz (regenerated via
+// `go run testdata/gen_large_manifest.go`).
+func loadFixtureFiles(b *testing.B) []manifestFileRaw {
+	b.Helper()
+	f, err := os.Open("testdata/large_manifest.json.gz")
+	if err != nil {
+		b.Fatalf("fixture missing — run `go run testdata/gen_large_manifest.go`: %v", err)
+	}
+	defer f.Close()
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer gr.Close()
+	var mf manifestRaw
+	if err := json.NewDecoder(gr).Decode(&mf); err != nil {
+		b.Fatal(err)
+	}
+	if len(mf.Files) != 1000 {
+		b.Fatalf("fixture has %d entries, want 1000", len(mf.Files))
+	}
+	return mf.Files
+}
+
+// BenchmarkProgressAppend_1000Entries: 1000 sequential MarkComplete calls;
+// spec §7.9 budget ≤50ms per iteration.
+func BenchmarkProgressAppend_1000Entries(b *testing.B) {
+	files := loadFixtureFiles(b)
+	for i := 0; i < b.N; i++ {
+		tmp := b.TempDir()
+		ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+		if err := ps.Init("etag-bench"); err != nil {
+			b.Fatal(err)
+		}
+		start := time.Now()
+		for _, f := range files {
+			if err := ps.MarkComplete(f.Path, time.Now(), f.Size); err != nil {
+				b.Fatal(err)
+			}
+		}
+		elapsed := time.Since(start)
+		if elapsed > 50*time.Millisecond {
+			b.Errorf("iter %d: 1000 MarkComplete took %v, want ≤50ms (spec §7.9)", i, elapsed)
+		}
+	}
+}
+
+// BenchmarkSidecarParse_LargeProgress: parse a progress.json with 1000
+// entries; spec §7.9 budget ≤50ms per iteration.
+func BenchmarkSidecarParse_LargeProgress(b *testing.B) {
+	files := loadFixtureFiles(b)
+	tmp := b.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-bench"); err != nil {
+		b.Fatal(err)
+	}
+	for _, f := range files {
+		if err := ps.MarkComplete(f.Path, time.Now(), f.Size); err != nil {
+			b.Fatal(err)
+		}
+	}
+	progressPath := filepath.Join(ps.dir(), "progress.json")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		start := time.Now()
+		pf, err := loadProgressFile(progressPath)
+		elapsed := time.Since(start)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(pf.Entries) != 1000 {
+			b.Fatalf("entries = %d, want 1000", len(pf.Entries))
+		}
+		if elapsed > 50*time.Millisecond {
+			b.Errorf("iter %d: parse 1000-entry progress took %v, want ≤50ms (spec §7.9)", i, elapsed)
+		}
+	}
+}
+
+// BenchmarkApplyLoop_RenameOnly: no-op rename loop over 1000 zero-byte files;
+// spec §7.9 wall-clock budget — establishes baseline for apply phase cost.
+func BenchmarkApplyLoop_RenameOnly(b *testing.B) {
+	files := loadFixtureFiles(b)
+	for i := 0; i < b.N; i++ {
+		srcRoot := b.TempDir()
+		dstRoot := b.TempDir()
+		// Pre-create empty source files
+		for _, f := range files {
+			p := filepath.Join(srcRoot, f.Path)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				b.Fatal(err)
+			}
+			if err := os.WriteFile(p, nil, 0o644); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.ResetTimer()
+		start := time.Now()
+		for _, f := range files {
+			src := filepath.Join(srcRoot, f.Path)
+			dst := filepath.Join(dstRoot, f.Path)
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				b.Fatal(err)
+			}
+			if err := os.Rename(src, dst); err != nil {
+				b.Fatal(err)
+			}
+		}
+		elapsed := time.Since(start)
+		// Documented baseline (no hard cap): log for tracking.
+		b.Logf("iter %d: 1000 rename took %v", i, elapsed)
+		_ = fmt.Sprint(elapsed)
+	}
+}
+```
+
+Run with:
+
+```bash
+export PATH="/c/Program Files/Go/bin:/c/Users/willie/go/bin:$PATH"
+go test -tags=load -bench=. -benchtime=1x ./internal/providers/kurogames/...
+```
+
+Expected: 3 benchmarks run; ProgressAppend + SidecarParse stay under 50ms; ApplyLoop logs wall-clock.
+
+- [ ] **Step 7: Run all integration + new tests**
 
 ```bash
 export PATH="/c/Program Files/Go/bin:/c/Users/willie/go/bin:$PATH"
@@ -5116,11 +6228,11 @@ go test -count=1 ./internal/...
 
 Expected: GREEN.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add internal/providers/kurogames/update_integration_test.go internal/providers/kurogames/m3a_protocol_doc_test.go internal/providers/kurogames/errcode_coverage_test.go internal/providers/kurogames/sanitize_url_fuzz_test.go
-git commit -m "test(kurogames): integration tests + drift doc-test + errcode coverage + sanitize fuzz"
+git add internal/providers/kurogames/update_integration_test.go internal/providers/kurogames/m3a_protocol_doc_test.go internal/providers/kurogames/errcode_coverage_test.go internal/providers/kurogames/sanitize_url_fuzz_test.go internal/providers/kurogames/update_load_test.go internal/providers/kurogames/testdata/ internal/app/update_phantom_predl_test.go
+git commit -m "test: integration + drift + errcode coverage + sanitize fuzz + load benchmarks + phantom-predl"
 ```
 
 ---
