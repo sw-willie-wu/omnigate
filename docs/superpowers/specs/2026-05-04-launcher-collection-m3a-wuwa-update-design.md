@@ -146,6 +146,32 @@ func (e *UpdateError) Error() string { return fmt.Sprintf("%s: %v", e.Code, e.Pa
 
 The interface is optional: kurogames implements it; hoyoverse / hypergryph providers do NOT in M3.A. App layer type-asserts at `RPC handler` entry.
 
+### 1.2.1 Relationship to M2's `CheckVersion`
+
+M2's `core.Provider.CheckVersion(ctx, gid) → VersionInfo{Current, Latest, Predownload}` is **kept unchanged**. It serves M2's sidebar version display via `App.RefreshVersion` and is cheap (no full manifest fetch). M3.A's `CheckForUpdate` is a separate, heavier call that fetches the full file manifest and returns a `UpdatePlan`. The two are independent:
+
+- `App.RefreshVersion` (M2) keeps calling `p.CheckVersion` only.
+- `App.StartUpdate / StartPredownload` (M3.A new) calls `p.(core.Updater).CheckForUpdate` to populate `state.AvailableUpdate / AvailablePredl`.
+- Concurrent `RefreshVersion` and `StartUpdate` are safe: writes to `GameUpdateState` go through `mu`; the two RPCs hit different fields (`VersionInfo` is in `useGamesStore`, not `useUpdatesStore`).
+- A separate "background CheckForUpdate to populate AvailableUpdate" can be added later (M4); for M3.A, `AvailableUpdate` is populated lazily on user click and the result cached on the snapshot.
+
+### 1.2.2 `UpdateError` marshalling to frontend
+
+Two paths, both structured (no rendered text from Go):
+
+1. **Via state snapshot**: `GameUpdateState.LastError` carries the struct; `UpdateStatusAll` RPC returns it as JSON; frontend renders via `t(\`update.errors.${code}\`, params)`.
+2. **As RPC return error**: Wails return-error path returns a string. RPC handlers that need to surface a structured `UpdateError` to a toast directly (e.g., `process_blocked` from `StartUpdate`) **also** write it to `state.LastError` and return a generic error. The frontend reads from snapshot, not from the error string. Document this in `update_handler.go`.
+
+### 1.2.3 MVP-minus branch points
+
+If §4.4 escalates to MVP-minus (full-file-replace only, no diff/patch), the following sections soften:
+
+- **§1.2 `FileTask`** — no `Mode` field; all entries are full-replace.
+- **§2.5 / §5.3 apply phase** — pure file rename; no patch invocation.
+- **§5.1 `update_apply.go`** — no `update_patch.go` companion needed.
+
+Plan-writer flags these as conditional on research outcome.
+
 ### 1.3 Settings additions
 
 ```go
@@ -156,6 +182,8 @@ type KurogamesSettings struct {
 ```
 
 No UI for `temp_dir`; power-user override via `settings.toml` only. Defaults handled in `LoadSettings`.
+
+**Backward-compat note**: existing `settings.toml` files with `version = 1` and no `temp_dir` field load cleanly (Go zero-value `""` triggers the runtime default). **No schema version bump needed**. Plan-writer should NOT add a settings migration task.
 
 ---
 
@@ -192,6 +220,8 @@ UI display derived from field combinations; see §3.1 for the matrix.
 - Writers: Wails RPC handlers (Start/Cancel) + `RunUpdate`'s `onEvent` callback — both take `Lock()`.
 - Readers: `UpdateStatus*` Wails query — takes `RLock()` and returns a **value snapshot copy** (no pointer leakage to frontend → no torn reads).
 - `cancel context.CancelFunc` always read/written together with `InFlight`; worker termination clears both under the same write-lock.
+
+**Invariant**: `state.InFlight != nil` if and only if a `runUpdate` goroutine has been spawned and its `defer` has not yet run to completion. Equivalently: writers that set `InFlight = nil` must do so under `mu.Lock()` after **all** worker-side cleanup (temp dir cleanup, sidecar finalization) has completed; subsequent `StartUpdate` invocations only proceed once they observe `InFlight == nil` under their own `mu.Lock()`. Rapid Start→Cancel→Start sequences cannot interleave temp cleanup with new download because the new StartUpdate's `mu.Lock()` blocks until the previous goroutine's `defer` releases.
 
 ### 2.2 Persistence: three sidecars
 
@@ -230,6 +260,8 @@ Recovery does not auto-trigger; user must click resume. Mid-apply guidance: if u
 - UI confirms via ConfirmDialog "預下載已過期 (v2.0)，清除並更新到 v2.1？" → on Yes call `RemovePredownload` (deletes sidecar + temp files) + `StartUpdate`.
 - Never reuse old predl files even if new version is a hotfix on top.
 
+**Phantom-predl recovery**: if `current_version == PredlReady.Plan.Version` (e.g., user manually deleted the game and reinstalled via KRLauncher to that exact version, or KRLauncher applied the predl externally), the predl is no longer applicable. On Refresh, when CheckVersion's `Current == PredlReady.Plan.Version`, silently invalidate (delete sidecar + temp; no UI prompt — this is housekeeping, not a user choice).
+
 ### 2.5 Predl → Apply transition
 
 - Refresh detects `manifest.released_at <= now` (or latest version equals PredlReady's plan version) → UI shows `[套用預下載]` button.
@@ -246,9 +278,11 @@ Recovery does not auto-trigger; user must click resume. Mid-apply guidance: if u
 
 | Point | Action |
 |---|---|
-| RPC entry (StartUpdate / StartPredownload / ApplyPredownload) | Check via `tasklist`-style process query; reject early with `process_blocked{kind: "process_running"}` |
+| RPC entry (StartUpdate / StartPredownload / ApplyPredownload) | Check via `windows.CreateToolhelp32Snapshot` + `Process32First/Next` or `wmic`-equivalent for the game's exe name; reject early with `process_blocked{kind: "process_running"}` |
 | `RunUpdate` worker entry (after barrier release) | Re-check (race window between click and goroutine start); same error code |
-| Apply phase begin | Acquire OS-level file lock on `<gameDir>\.lc_update.lock` via `windows.LockFileEx` with `LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY`; failure → `process_blocked{kind: "lock_held"}`. Also: `Launch` RPC (the existing M2 launcher) checks `InFlight.Phase == PhaseApply` and refuses. |
+| Apply phase begin | Acquire OS-level file lock on `<gameDir>\.lc_update.lock` via `windows.LockFileEx` with `LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY`; failure → `process_blocked{kind: "lock_held"}` |
+
+**Launch refusal during apply**: M2's `App.Launch` RPC (in `internal/app/app.go`) gains a check: before calling provider `Launch()`, take `state.mu.RLock()`, check `state.InFlight != nil && state.InFlight.Phase == PhaseApply`, refuse with `process_blocked{kind: "lock_held"}`. This lives at App layer (not provider) so it applies uniformly across all providers — non-kuro games could in principle have apply-in-flight in M3.B+. Plan task adds this as a 5-line modification to `App.Launch`.
 
 ### 2.8 Retry / error policy
 
@@ -404,6 +438,22 @@ Frontend resolves error display via `t(\`update.errors.${code}\`, params)`. Go s
 - Sidebar progress bar is **always above** `selection-bg` (z-index 1 > 0).
 - BottomBar reads only the selected game's state.
 
+### 3.8 Post-update asset / version refresh
+
+When frontend's `update:changed` push event reports a terminal state with `kind == "update"` and no `LastError` (i.e., update completed successfully), the `useGamesStore` MUST refresh that game:
+
+```ts
+EventsOn('update:changed', (gameID, snap) => {
+  // ... existing rAF batching ...
+  if (snap.in_flight === null && snap.last_error === null && wasJustCompleted(prev, snap)) {
+    games.refreshVersionFor(gameID);   // re-pulls VersionInfo
+    games.loadAssetsFor(gameID);       // re-pulls icon + bg URLs (kuro hybrid bg may have new entries cached)
+  }
+});
+```
+
+Predownload completion does NOT trigger this (current version unchanged). Apply-of-predl DOES trigger.
+
 ---
 
 ## 4. Protocol research methodology (M3.A.0)
@@ -523,7 +573,7 @@ Full capture (multi-MB): `manifest-full.json.gz`, .gitignore'd
 |---|---|
 | `update_manifest.go` | fetch + parse manifest → `UpdatePlan{Files[] (filtered to changed only), TotalBytes, ETag}`. Files identical between versions are filtered out at this stage; apply-phase Total reflects actual work. |
 | `update_download.go` | 4 download workers (`const downloadWorkers = 4`; rationale comment: empirical CDN throttle threshold; M3.B+ exposes `KurogamesSettings.DownloadConcurrency`). Per-file SHA verify. Emits byte-progress (throttled). |
-| `update_progress.go` | `progress.json` sidecar; `LoadProgress(tempDir)` for resume. Trust mtime+size by default; full-rehash with explicit force flag (no automatic full-rehash on every resume — too slow for 1000-file installs). |
+| `update_progress.go` | `progress.json` sidecar; `LoadProgress(tempDir)` for resume. Trust **exact equality** of mtime+size (`os.Stat(file).ModTime() == progress.entry.MTime && size == progress.entry.Size`); full-rehash with explicit force flag. progress.json is written AFTER each file's verify+rename, so its recorded mtime is captured post-fsync and matches the on-disk file's mtime byte-exactly. Reboot-safe because Windows lazy-flush is bounded by the rename's fsync. Mismatch → re-download from byte 0 (file-level recovery). |
 | `update_apply.go` | Read manifest snapshot + temp dir → write `apply.wal` + fsync → unlink `progress.json` → per-file atomic rename → append WAL → on completion delete WAL. |
 | `apply_lock_windows.go` / `apply_lock_stub.go` | `applyLock` interface (Acquire / Release). Windows uses `golang.org/x/sys/windows.LockFileEx` with `LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY` on `<gameDir>\.lc_update.lock`. Stub for non-Windows (CI Linux). |
 | `kurogames.go` (existing) | Adds `(p *Provider) CheckForUpdate / RunUpdate` methods implementing `core.Updater`. |
