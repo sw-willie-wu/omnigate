@@ -177,8 +177,13 @@ func (d *downloader) processFile(ctx context.Context, f core.FileTask) error {
 		if err := os.Rename(partPath, finalPath); err != nil {
 			return fmt.Errorf("rename %s: %w", finalPath, err)
 		}
-		// Record progress with exact mtime captured post-rename
-		fi, _ := os.Stat(finalPath)
+		// Record progress with exact mtime captured post-rename. Stat error
+		// here would corrupt progress.json with zero values — surface it
+		// rather than silently degrade resume semantics (Task 8 review fix).
+		fi, err := os.Stat(finalPath)
+		if err != nil {
+			return fmt.Errorf("stat post-rename %s: %w", finalPath, err)
+		}
 		if err := d.progress.MarkComplete(f.Path, fi.ModTime(), fi.Size()); err != nil {
 			return fmt.Errorf("progress.MarkComplete: %w", err)
 		}

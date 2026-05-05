@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,11 @@ type ProgressFile struct {
 }
 
 type progressStore struct {
+	// mu serializes concurrent MarkComplete calls from the download
+	// worker pool (Task 8 spawns 4 workers; each load-modify-writes
+	// progress.json; without this lock the last writer would clobber
+	// the others' entries).
+	mu       sync.Mutex
 	tempRoot string
 	gameID   string
 	version  string
@@ -59,7 +65,12 @@ func (p *progressStore) Init(etag string) error {
 }
 
 // MarkComplete records that <relPath> finished download + verify.
+// Holds p.mu so concurrent download workers serialize their load-modify-write
+// of progress.json (without the lock, last writer wins and earlier entries
+// are silently dropped — verified bug found in Task 8 code review).
 func (p *progressStore) MarkComplete(relPath string, mtime time.Time, size int64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	pf, err := loadProgressFile(filepath.Join(p.dir(), "progress.json"))
 	if err != nil {
 		return err
