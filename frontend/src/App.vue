@@ -40,6 +40,8 @@ onMounted(async () => {
   await Promise.allSettled(
     games.games.filter((g) => g.installed).map((g) => updates.checkForUpdate(g.id)),
   );
+  // Interrupted-resume notifications surface via the Topbar bell icon
+  // (Topbar reads useResumePrompt().pending). No mount-time modal.
 });
 </script>
 

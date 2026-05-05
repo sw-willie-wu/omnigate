@@ -137,8 +137,11 @@ func TestApply_LockHeld(t *testing.T) {
 	if err := ps.Init("etag-1"); err != nil {
 		t.Fatal(err)
 	}
+	// applyLock now lives under tempRoot/<gameID>/<version>/ (per
+	// runApply's lockDir = a.progress.dir()) so non-admin processes can lock
+	// when gameDir is under Program Files.
 	preLock := newApplyLock()
-	if err := preLock.Acquire(gameDir); err != nil {
+	if err := preLock.Acquire(ps.dir()); err != nil {
 		t.Fatalf("preLock: %v", err)
 	}
 	defer preLock.Release()

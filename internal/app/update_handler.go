@@ -53,49 +53,105 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 		}
 	}
 
-	// CheckForUpdate / re-use existing AvailablePredl
 	state := a.updateRegistry.Get(gid)
+	ctx, cancel := context.WithCancel(context.Background())
 	state.mu.Lock()
 	if state.InFlight != nil {
 		state.mu.Unlock()
+		cancel()
 		return fmt.Errorf("update already in flight for %s", gid)
 	}
-	state.mu.Unlock()
-
-	// CheckForUpdate (kind-specific entry; for simplicity, reuse same path
-	// and override Plan.Kind on return)
-	plan, err := upd.CheckForUpdate(context.Background(), gid)
-	if err != nil {
-		a.setLastError(gid, asUpdateError(err))
-		return nil
-	}
-	plan.Kind = kind
-
-	// Cross-volume + space precheck (spec §5.2)
-	tempDir := a.kurogamesTempDir(gid)
-	gameDir := a.gameInstallDir(gid, p)
-	if err := a.preflightChecks(tempDir, gameDir, plan.TotalBytes); err != nil {
-		a.setLastError(gid, asUpdateError(err))
-		return nil
-	}
-
-	// Set InFlight under mu
-	ctx, cancel := context.WithCancel(context.Background())
-	state.mu.Lock()
+	// Set "verifying" InFlight immediately so the BottomBar reflects the
+	// click. Without this, the user sees no feedback until upd.CheckForUpdate
+	// returns — and for large installs that means filterChangedFiles doing
+	// sequential MD5 over hundreds of GB-class .pak files (minutes, not
+	// seconds). Plan/TotalBytes start zero; runStartUpdateAsync rewrites
+	// them once CheckForUpdate returns.
 	state.InFlight = &InFlightOp{
-		Plan:    plan,
-		Phase:   core.PhaseDownload,
-		Total:   plan.TotalBytes,
-		cancel:  cancel,
+		Plan:   core.UpdatePlan{GameID: gid, Kind: kind},
+		Phase:  core.PhaseDownload,
+		Stage:  "verifying",
+		Total:  0,
+		cancel: cancel,
 	}
 	state.LastError = nil
 	state.mu.Unlock()
-
 	a.updateRegistry.EmitTerminal(gid)
 
-	// Launch worker goroutine
-	go a.runUpdateWorker(ctx, gid, upd, plan)
+	go a.runStartUpdateAsync(ctx, gid, kind, p, upd)
 	return nil
+}
+
+// runStartUpdateAsync is the off-thread continuation of startUpdateFlow.
+// Performs the heavy CheckForUpdate (per-file MD5) + preflightChecks, then
+// hands off to runUpdateWorker. On any error before runUpdateWorker takes
+// over, it must clear InFlight and set LastError (which runUpdateWorker
+// would otherwise do via its own deferred path).
+func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind core.PlanKind, p core.Provider, upd core.Updater) {
+	state := a.updateRegistry.Get(gid)
+
+	abort := func(err error) {
+		a.logger.Warn("runStartUpdateAsync abort", "game", gid, "err", err)
+		state.mu.Lock()
+		state.InFlight = nil
+		if !errors.Is(err, context.Canceled) {
+			state.LastError = asUpdateError(err)
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+	}
+
+	// Build a verify-progress callback that writes (done, total) into the
+	// InFlightOp so BottomBar can render "驗證本地檔案 X / Y". Throttled by
+	// the registry's emitter to avoid 195+ events/sec saturating the bridge.
+	onVerifyProgress := func(done, total int) {
+		state.mu.Lock()
+		if state.InFlight != nil && state.InFlight.Stage == "verifying" {
+			state.InFlight.Current = int64(done)
+			state.InFlight.Total = int64(total)
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitChanged(gid)
+	}
+
+	var plan core.UpdatePlan
+	var err error
+	if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
+		plan, err = updProg.CheckForUpdateWithProgress(ctx, gid, onVerifyProgress)
+	} else {
+		plan, err = upd.CheckForUpdate(ctx, gid)
+	}
+	if err != nil {
+		abort(err)
+		return
+	}
+	plan.Kind = kind
+	a.logger.Debug("runStartUpdateAsync: CheckForUpdate done", "game", gid, "files", len(plan.Files), "bytes", plan.TotalBytes, "version", plan.Version)
+
+	tempDir := a.kurogamesTempDir(gid)
+	gameDir := a.gameInstallDir(gid, p)
+	a.logger.Debug("runStartUpdateAsync: preflightChecks", "game", gid, "temp_dir", tempDir, "game_dir", gameDir)
+	if err := a.preflightChecks(tempDir, gameDir, plan.TotalBytes); err != nil {
+		abort(err)
+		return
+	}
+	a.logger.Debug("runStartUpdateAsync: preflightChecks done; entering runUpdateWorker", "game", gid)
+
+	// Verify phase done — rewrite InFlight with the real plan and switch
+	// out of the "verifying" stage so BottomBar can render "下載中 X%".
+	state.mu.Lock()
+	if state.InFlight == nil {
+		state.mu.Unlock()
+		return
+	}
+	state.InFlight.Plan = plan
+	state.InFlight.Stage = ""
+	state.InFlight.Current = 0
+	state.InFlight.Total = plan.TotalBytes
+	state.mu.Unlock()
+	a.updateRegistry.EmitChanged(gid)
+
+	a.runUpdateWorker(ctx, gid, upd, plan)
 }
 
 func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Updater, plan core.UpdatePlan) {
@@ -282,14 +338,6 @@ func (a *App) ResumeInterrupted(gameID string) error {
 		return fmt.Errorf("provider %s does not support updates", p.ID())
 	}
 
-	state := a.updateRegistry.Get(gid)
-	state.mu.RLock()
-	if state.InFlight != nil {
-		state.mu.RUnlock()
-		return fmt.Errorf("operation already in flight for %s", gid)
-	}
-	state.mu.RUnlock()
-
 	// 1st game-running guard — same as StartUpdate
 	if exeName, ok := gameExeName(p, gid); ok {
 		if kurogames.IsProcessRunning(exeName) {
@@ -302,65 +350,113 @@ func (a *App) ResumeInterrupted(gameID string) error {
 		}
 	}
 
-	// Re-fetch manifest so plan reflects current server state; downloader's
-	// resume logic uses progress.json's recorded mtime+size to skip files
-	// already on disk in temp.
-	plan, err := upd.CheckForUpdate(context.Background(), gid)
-	if err != nil {
-		a.setLastError(gid, asUpdateError(err))
-		return nil
-	}
-
-	// Discover sidecar dir for this gid+version, examine recovery state.
-	tempRoot := a.kurogamesTempDir(gid)
-	gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
-	sidecarDir := filepath.Join(tempRoot, gameIDFlat, plan.Version)
-	rec := kurogames.ScanRecovery(sidecarDir)
-
-	// ETag drift check (spec §2.3): read sidecar's recorded ETag and compare
-	// to fresh manifest's ETag. Mismatch → drop sidecar + surface manifest_changed.
-	sidecarETag := readSidecarETag(sidecarDir)
-	if sidecarETag != "" && sidecarETag != plan.ManifestETag {
-		_ = removeAll(sidecarDir)
-		a.setLastError(gid, &core.UpdateError{
-			Code:      "manifest_changed",
-			Retryable: true,
-			Params:    map[string]string{"old_etag": sidecarETag, "new_etag": plan.ManifestETag},
-		})
-		return nil
-	}
-
-	// Kind dispatch: predl-resume preserves PlanPredownload semantics
-	// (RunUpdate skips apply phase + renames to predl_ready.json on completion).
-	if rec.WasPredl {
-		plan.Kind = core.PlanPredownload
-	}
-
-	// Set InFlight; initial Phase reflects sidecar (RecoveryPhaseApplyResume → PhaseApply,
-	// else PhaseDownload).
+	state := a.updateRegistry.Get(gid)
 	ctx, cancel := context.WithCancel(context.Background())
-	initialPhase := core.PhaseDownload
-	if rec.Phase == kurogames.RecoveryPhaseApplyResume {
-		initialPhase = core.PhaseApply
-	}
 	state.mu.Lock()
 	if state.InFlight != nil {
 		state.mu.Unlock()
 		cancel()
 		return fmt.Errorf("operation already in flight for %s", gid)
 	}
+	// Set "verifying" InFlight + clear LastError immediately so the bell
+	// drops the notification (frontend's pending list filters by
+	// last_error.code) and the user gets visible feedback while CheckForUpdate
+	// re-fetches the manifest + re-MD5s local files (potentially minutes).
+	// Same pattern as startUpdateFlow → runStartUpdateAsync.
 	state.InFlight = &InFlightOp{
-		Plan:   plan,
-		Phase:  initialPhase,
-		Total:  plan.TotalBytes,
+		Plan:   core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate},
+		Phase:  core.PhaseDownload,
+		Stage:  "verifying",
+		Total:  0,
 		cancel: cancel,
 	}
 	state.LastError = nil
 	state.mu.Unlock()
 	a.updateRegistry.EmitTerminal(gid)
 
-	go a.runUpdateWorker(ctx, gid, upd, plan)
+	go a.runResumeAsync(ctx, gid, p, upd)
 	return nil
+}
+
+// runResumeAsync is the off-thread continuation of ResumeInterrupted —
+// same shape as runStartUpdateAsync. Re-fetches manifest, validates ETag,
+// then dispatches to runUpdateWorker with the appropriate Kind / initial
+// Phase based on the recovered sidecar.
+func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provider, upd core.Updater) {
+	state := a.updateRegistry.Get(gid)
+	abort := func(err error) {
+		a.logger.Warn("runResumeAsync abort", "game", gid, "err", err)
+		state.mu.Lock()
+		state.InFlight = nil
+		if !errors.Is(err, context.Canceled) {
+			state.LastError = asUpdateError(err)
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+	}
+
+	onVerifyProgress := func(done, total int) {
+		state.mu.Lock()
+		if state.InFlight != nil && state.InFlight.Stage == "verifying" {
+			state.InFlight.Current = int64(done)
+			state.InFlight.Total = int64(total)
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitChanged(gid)
+	}
+
+	var plan core.UpdatePlan
+	var err error
+	if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
+		plan, err = updProg.CheckForUpdateWithProgress(ctx, gid, onVerifyProgress)
+	} else {
+		plan, err = upd.CheckForUpdate(ctx, gid)
+	}
+	if err != nil {
+		abort(err)
+		return
+	}
+
+	tempRoot := a.kurogamesTempDir(gid)
+	gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
+	sidecarDir := filepath.Join(tempRoot, gameIDFlat, plan.Version)
+	rec := kurogames.ScanRecovery(sidecarDir)
+
+	sidecarETag := readSidecarETag(sidecarDir)
+	if sidecarETag != "" && sidecarETag != plan.ManifestETag {
+		_ = removeAll(sidecarDir)
+		abort(&core.UpdateError{
+			Code:      "manifest_changed",
+			Retryable: true,
+			Params:    map[string]string{"old_etag": sidecarETag, "new_etag": plan.ManifestETag},
+		})
+		return
+	}
+
+	if rec.WasPredl {
+		plan.Kind = core.PlanPredownload
+	}
+
+	initialPhase := core.PhaseDownload
+	if rec.Phase == kurogames.RecoveryPhaseApplyResume {
+		initialPhase = core.PhaseApply
+	}
+	// Verify done — rewrite the in-flight state with the real plan + phase
+	// (preserving the cancel closure captured from ResumeInterrupted's ctx).
+	state.mu.Lock()
+	if state.InFlight == nil {
+		state.mu.Unlock()
+		return // cancelled between verify finishing and rewrite
+	}
+	state.InFlight.Plan = plan
+	state.InFlight.Phase = initialPhase
+	state.InFlight.Stage = ""
+	state.InFlight.Current = 0
+	state.InFlight.Total = plan.TotalBytes
+	state.mu.Unlock()
+	a.updateRegistry.EmitChanged(gid)
+
+	a.runUpdateWorker(ctx, gid, upd, plan)
 }
 
 // readSidecarETag returns the ETag persisted in progress.json or
@@ -573,8 +669,10 @@ func removeAll(path string) error {
 // where <gameID-flat> = strings.ReplaceAll(string(gid), "/", "-").
 func (a *App) scanForRecovery() {
 	tempRoot := a.kurogamesTempDir("") // empty gid: returns settings.TempDir or default root
+	a.logger.Debug("scanForRecovery: enter", "temp_root", tempRoot)
 	gameDirs, err := osReadDir(tempRoot)
 	if err != nil {
+		a.logger.Debug("scanForRecovery: no temp dir (first-run normal)", "err", err)
 		return // no temp tree → nothing to recover (normal first-run case)
 	}
 	for _, gameDir := range gameDirs {
@@ -582,10 +680,9 @@ func (a *App) scanForRecovery() {
 			continue
 		}
 		gameIDFlat := gameDir.Name()
-		// Reverse the gameID-flat encoding: "kurogames-wutheringwaves" → "kurogames/wutheringwaves"
 		gid := core.GameID(strings.Replace(gameIDFlat, "-", "/", 1))
-		// Verify gid resolves to a known provider; skip foreign dirs
 		if _, err := a.provider(gid); err != nil {
+			a.logger.Debug("scanForRecovery: skip unknown game dir", "dir", gameIDFlat, "err", err)
 			continue
 		}
 		gameDirPath := filepath.Join(tempRoot, gameIDFlat)
@@ -598,6 +695,7 @@ func (a *App) scanForRecovery() {
 				continue
 			}
 			sidecarDir := filepath.Join(gameDirPath, vDir.Name())
+			a.logger.Debug("scanForRecovery: scanning sidecar dir", "game", gid, "dir", sidecarDir)
 			a.applyRecoveryState(gid, sidecarDir)
 		}
 	}
@@ -605,6 +703,7 @@ func (a *App) scanForRecovery() {
 
 func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 	rec := kurogames.ScanRecovery(sidecarDir)
+	a.logger.Debug("applyRecoveryState: ScanRecovery result", "game", gid, "dir", sidecarDir, "phase", rec.Phase, "wasPredl", rec.WasPredl)
 	state := a.updateRegistry.Get(gid)
 	switch rec.Phase {
 	case kurogames.RecoveryPhaseDownloadResume:

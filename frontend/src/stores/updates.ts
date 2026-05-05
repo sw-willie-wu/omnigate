@@ -32,6 +32,7 @@ export type UpdatePlan = {
 export type InFlightSnapshot = {
   kind: PlanKind;
   phase: Phase;
+  stage?: string; // "verifying" during runStartUpdateAsync's CheckForUpdate; empty during real download/apply
   current: number;
   total: number;
   version: string;
@@ -47,13 +48,20 @@ export type GameUpdateSnapshot = {
 };
 
 // justCompletedUpdate (spec §3.8): true iff transitioning from in-flight
-// PlanUpdate apply → idle with no error. Used to trigger asset refresh
-// in useGamesStore.
+// PlanUpdate → idle with no error. Used to trigger asset / version refresh
+// in useGamesStore so the sidebar status text can flip from "可更新" to
+// "就緒" without a manual Refresh.
+//
+// Originally also required prev.in_flight.phase === 'apply'. Dropped because
+// 0-file apply phase never emits any events (loop runs 0 times in
+// applier.runApply), so prev.in_flight.phase stays 'download' all the way
+// through completion — the apply-only check would silently miss the
+// already-up-to-date case (user fakes stale version, our update fixes the
+// config back to latest).
 function justCompletedUpdate(prev: GameUpdateSnapshot | undefined, snap: GameUpdateSnapshot): boolean {
   if (!prev) return false;
   if (!prev.in_flight) return false;
   if (prev.in_flight.kind !== 'update') return false;
-  if (prev.in_flight.phase !== 'apply') return false;
   if (snap.in_flight) return false;
   if (snap.last_error) return false;
   return true;

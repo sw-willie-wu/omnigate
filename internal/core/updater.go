@@ -30,15 +30,29 @@ type Updater interface {
 	RunUpdate(ctx context.Context, plan UpdatePlan, onEvent func(UpdateEvent)) error
 }
 
+// CheckForUpdateProgress is an optional interface a Provider may implement
+// to surface progress during the heavy local-file MD5 verification step
+// inside CheckForUpdate. App layer prefers this method when available so
+// the BottomBar can show "驗證本地檔案 X / Y" instead of a frozen UI during
+// the seconds-to-minutes verify phase.
+//
+// onProgress is called from filterChangedFiles after each local file has
+// been hashed and compared. It receives (done, total) where total is the
+// manifest's full file count and done is the number processed so far.
+// Callbacks may be invoked from arbitrary goroutines and must be cheap.
+type CheckForUpdateProgress interface {
+	CheckForUpdateWithProgress(ctx context.Context, gid GameID, onProgress func(done, total int)) (UpdatePlan, error)
+}
+
 // UpdatePlan describes the work needed to bring an installed game from
 // its current version to the manifest's target version.
 type UpdatePlan struct {
-	GameID       GameID     // which game this plan is for
-	Kind         PlanKind   // PlanUpdate | PlanPredownload
-	ManifestETag string     // re-checked at RunUpdate entry; mismatch → ErrManifestChanged
-	Version      string     // human-readable label, e.g. "3.4.0"
-	Files        []FileTask // already filtered: only files whose hash differs from current install
-	TotalBytes   int64      // sum of Files[].Size; used for download progress denominator
+	GameID       GameID     `json:"game_id"`       // which game this plan is for
+	Kind         PlanKind   `json:"kind"`          // PlanUpdate | PlanPredownload
+	ManifestETag string     `json:"manifest_etag"` // re-checked at RunUpdate entry; mismatch → ErrManifestChanged
+	Version      string     `json:"version"`       // human-readable label, e.g. "3.4.0"
+	Files        []FileTask `json:"files,omitempty"`
+	TotalBytes   int64      `json:"total_bytes"` // sum of Files[].Size; used for download progress denominator
 }
 
 // FileTask is one file to download + apply during an update run.
@@ -49,10 +63,10 @@ type UpdatePlan struct {
 // may use a different algorithm; verifiers MUST be paired with their
 // provider's manifest source.
 type FileTask struct {
-	Path string // relative to game install dir, e.g. "Wuthering Waves Game/foo/bar.dll"
-	Hash string // hex-encoded provider-specific hash (MD5 for kurogames)
-	Size int64  // expected byte size
-	URL  string // full CDN URL; sanitized before logging via sanitizeURL
+	Path string `json:"path"` // relative to game install dir
+	Hash string `json:"hash"` // hex-encoded provider-specific hash (MD5 for kurogames)
+	Size int64  `json:"size"` // expected byte size
+	URL  string `json:"url"`  // full CDN URL; sanitized before logging via sanitizeURL
 }
 
 // UpdateEvent is emitted by RunUpdate via the onEvent callback during
@@ -72,9 +86,9 @@ type UpdateEvent struct {
 // via i18n key update.errors.<Code> with Params substitution. Go side
 // never sends pre-rendered text.
 type UpdateError struct {
-	Code      string            // see spec §6.1 catalog
-	Params    map[string]string // template substitution data; URLs sanitized
-	Retryable bool              // true → toast shows retry button (frontend reads this flag)
+	Code      string            `json:"code"`             // see spec §6.1 catalog
+	Params    map[string]string `json:"params,omitempty"` // template substitution data; URLs sanitized
+	Retryable bool              `json:"retryable"`        // true → toast shows retry button (frontend reads this flag)
 }
 
 func (e *UpdateError) Error() string {

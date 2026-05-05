@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"launcher-collection-tmp/internal/core"
 )
@@ -231,34 +232,103 @@ func fileURL(cdn string, parentBaseURL string, entry manifestFileRaw) string {
 
 // --- File filter + MD5 helper ---
 
+// verifyWorkers controls parallelism in filterChangedFiles. SSD random
+// reads top out around 4-8 in-flight; CPU MD5 is single-thread per file at
+// ~600 MiB/s so going wider than ~8 doesn't help on commodity NVMe.
+const verifyWorkers = 4
+
 // filterChangedFiles drops manifest entries whose MD5 matches the
 // already-installed file. URL for each surviving entry is constructed
 // via fileURL(cdn, parentBaseURL, entry).
-func filterChangedFiles(installDir, cdn, parentBaseURL string, files []manifestFileRaw, logger *slog.Logger) []core.FileTask {
-	out := make([]core.FileTask, 0, len(files))
-	for _, f := range files {
-		full := filepath.Join(installDir, f.Dest)
-		fi, err := os.Stat(full)
-		if err != nil || fi.IsDir() {
-			out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
-			continue
+//
+// MD5 hashing runs in a worker pool (size verifyWorkers) so 195 GB-class
+// .pak files don't take 5+ minutes single-threaded. Output order is
+// preserved by indexing the input array.
+//
+// onProgress is called after each file finishes hashing with (done, total).
+// May be nil. Callbacks should be cheap and non-blocking; the App layer's
+// throttled emitter handles UI rate-limiting.
+//
+// ctx is checked at the top of each worker iteration so cancel during
+// verify takes effect at the next file boundary (worst case ~30s for the
+// largest .pak). Returns whatever has been computed so far when ctx done.
+func filterChangedFiles(ctx context.Context, installDir, cdn, parentBaseURL string, files []manifestFileRaw, logger *slog.Logger, onProgress func(done, total int)) []core.FileTask {
+	total := len(files)
+	if total == 0 {
+		return nil
+	}
+
+	// results[i] is non-nil iff files[i] needs to be downloaded.
+	results := make([]*core.FileTask, total)
+
+	// Job dispatch
+	jobs := make(chan int, total)
+	for i := range files {
+		jobs <- i
+	}
+	close(jobs)
+
+	// Progress is reported under a mutex so done counter stays monotonic
+	// even as workers complete out of order.
+	var (
+		progressMu sync.Mutex
+		done       int
+	)
+	emit := func() {
+		progressMu.Lock()
+		done++
+		d := done
+		progressMu.Unlock()
+		if onProgress != nil {
+			onProgress(d, total)
 		}
-		if fi.Size() != f.Size {
-			out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
-			continue
-		}
-		h, err := md5File(full)
-		if err != nil {
-			if logger != nil {
-				logger.Debug("md5 check failed; will re-download", "path", f.Dest, "err", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(verifyWorkers)
+	for w := 0; w < verifyWorkers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				f := files[i]
+				full := filepath.Join(installDir, f.Dest)
+				fi, err := os.Stat(full)
+				if err != nil || fi.IsDir() {
+					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+					emit()
+					continue
+				}
+				if fi.Size() != f.Size {
+					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+					emit()
+					continue
+				}
+				h, err := md5File(full)
+				if err != nil {
+					if logger != nil {
+						logger.Debug("md5 check failed; will re-download", "path", f.Dest, "err", err)
+					}
+					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+					emit()
+					continue
+				}
+				if h != f.MD5 {
+					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+				}
+				emit()
 			}
-			out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
-			continue
+		}()
+	}
+	wg.Wait()
+
+	out := make([]core.FileTask, 0, total)
+	for _, r := range results {
+		if r != nil {
+			out = append(out, *r)
 		}
-		if h == f.MD5 {
-			continue // identical
-		}
-		out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out

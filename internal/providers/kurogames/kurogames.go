@@ -158,7 +158,19 @@ func (p *Provider) ExeName(gid core.GameID) (string, bool) {
 
 // CheckForUpdate fetches the manifest, filters out files identical to
 // the current install, returns a populated UpdatePlan. M3.A only.
+//
+// Implemented as a thin wrapper around CheckForUpdateWithProgress so the
+// progress-reporting path is the canonical implementation; this method just
+// passes a nil callback for callers that don't care about verify progress.
 func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
+	return p.CheckForUpdateWithProgress(ctx, gid, nil)
+}
+
+// CheckForUpdateWithProgress is the progress-reporting variant. onProgress
+// fires after each local file is examined during filterChangedFiles
+// (`done` files of `total` total examined). Implements
+// core.CheckForUpdateProgress.
+func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
 	p.logger.Debug("kurogames CheckForUpdate: enter", "game", gid)
 	g := findByID(gid)
 	if g == nil {
@@ -212,25 +224,37 @@ func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.Up
 	}
 	p.logger.Debug("kurogames CheckForUpdate: fetchIndexFile done", "game", gid, "resource_count", len(idxFile.Resource))
 
-	// Filter to changed files only
-	files := filterChangedFiles(installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger)
+	// Filter to changed files only — onProgress fires after each file.
+	// Workers honor ctx.Done() between files so cancel mid-verify takes
+	// effect within ~1 file's worth of MD5 (worst case ~30s for biggest .pak).
+	files := filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
+	if ctx.Err() != nil {
+		return core.UpdatePlan{}, ctx.Err()
+	}
 	var totalBytes int64
 	for _, f := range files {
 		totalBytes += f.Size
 	}
 
+	// Plan.Version must be the TARGET (latest) version, not cfg.Version.
+	// In patch mode cfg.Version is the FROM version (the patchConfig is keyed
+	// by current install version), so writing cfg.Version back to
+	// launcherDownloadConfig.json after apply would leave it at the
+	// pre-update value → AvailableUpdate re-flags on next Refresh.
+	targetVersion := idx.Default.Version
 	plan := core.UpdatePlan{
 		GameID:       gid,
 		Kind:         core.PlanUpdate,
 		ManifestETag: idxETag,
-		Version:      cfg.Version,
+		Version:      targetVersion,
 		Files:        files,
 		TotalBytes:   totalBytes,
 	}
 	p.logger.Info("CheckForUpdate complete",
 		"game", gid,
 		"local_version", localVersion,
-		"target_version", cfg.Version,
+		"target_version", targetVersion,
+		"patch_from", cfg.Version,
 		"files_to_update", len(files),
 		"bytes", totalBytes,
 	)
@@ -358,8 +382,9 @@ func IsProcessRunning(exeName string) bool {
 
 // compile-time interface compliance (EDIT 3 — deviation: removed AssetServer)
 var (
-	_ core.Provider     = (*Provider)(nil)
-	_ core.PathProvider = (*Provider)(nil)
-	_ core.ExeNamer     = (*Provider)(nil)
-	_ core.Updater      = (*Provider)(nil) // M3.A: implements update interface
+	_ core.Provider                = (*Provider)(nil)
+	_ core.PathProvider            = (*Provider)(nil)
+	_ core.ExeNamer                = (*Provider)(nil)
+	_ core.Updater                 = (*Provider)(nil) // M3.A: implements update interface
+	_ core.CheckForUpdateProgress  = (*Provider)(nil) // verify-local progress for BottomBar
 )

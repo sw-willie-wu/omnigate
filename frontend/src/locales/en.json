@@ -9,7 +9,13 @@
     "play": "PLAY",
     "play_short": "PLAY",
     "update": "UPDATE",
-    "pause": "PAUSE"
+    "pause": "PAUSE",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No new notifications"
   },
   "status": {
     "ready": "READY",
@@ -35,8 +41,9 @@
   "update": {
     "available": "Update Available",
     "predl_available": "Pre-download Available",
-    "downloading": "Updating {pct}%",
-    "applying": "Applying {cur}/{total}",
+    "verifying_local": "Verifying local files",
+    "downloading": "Downloading {pct}%",
+    "applying": "Applying update {cur}/{total}",
     "predl_downloading": "Pre-downloading {pct}%",
     "predl_ready": "Apply Pre-download",
     "remove_predl": "Remove",

@@ -25,6 +25,17 @@ const progressPct = computed(() => {
   return (ifl.current / ifl.total) * 100;
 });
 const isPredl = computed(() => inFlight.value?.kind === 'predownload');
+const inflightLabel = computed(() => {
+  const ifl = inFlight.value;
+  if (!ifl) return '';
+  if (ifl.stage === 'verifying') {
+    if (ifl.total > 0) return `${t('update.verifying_local')} ${ifl.current} / ${ifl.total}`;
+    return t('update.verifying_local');
+  }
+  if (ifl.kind === 'predownload') return t('update.predl_downloading', { pct: Math.round(progressPct.value) });
+  if (ifl.phase === 'apply') return t('update.applying', { cur: ifl.current, total: ifl.total });
+  return t('update.downloading', { pct: Math.round(progressPct.value) });
+});
 </script>
 
 <template>
@@ -35,9 +46,12 @@ const isPredl = computed(() => inFlight.value?.kind === 'predownload');
     </div>
     <div>
       <div class="game-name">{{ row.display_name[locale as string] || row.display_name.en }}</div>
-      <div class="game-status-mini" :class="status().cls">{{ status().label }}</div>
+      <div v-if="inFlight" class="game-progress" :class="{predl: isPredl}">
+        <span class="game-progress-fill" :style="{width: progressPct + '%'}"></span>
+        <span class="game-progress-label">{{ inflightLabel }}</span>
+      </div>
+      <div v-else class="game-status-mini" :class="status().cls">{{ status().label }}</div>
     </div>
     <span class="game-marker" :class="status().cls"></span>
-    <div v-if="inFlight" class="progress-bar" :class="{predl: isPredl}" :style="{width: progressPct + '%'}"></div>
   </div>
 </template>

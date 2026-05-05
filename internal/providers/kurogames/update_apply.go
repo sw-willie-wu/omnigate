@@ -41,15 +41,27 @@ type applier struct {
 // appends to WAL Done list, deletes WAL on success. ctx.Done() inside the
 // loop is treated as no-op per spec §2.6 (apply is atomic-batch).
 func (a *applier) runApply(ctx context.Context) error {
+	a.logger.Debug("runApply: enter", "game", a.plan.GameID, "files", len(a.plan.Files), "version", a.plan.Version, "game_dir", a.gameDir, "temp_root", a.tempRoot)
+
 	// Cross-volume re-check (spec §5.6): apply phase must be on same volume
 	// as it was at preflight. Extracted to a helper for unit testability
 	// (TestApply_VolumeChangedBetweenPhases — spec §7.2).
 	if err := validateSameVolume(a.tempRoot, a.gameDir); err != nil {
+		a.logger.Warn("runApply: validateSameVolume failed", "game", a.plan.GameID, "err", err)
 		return err
 	}
 
-	// Acquire applyLock (3rd guard; spec §2.7)
-	if err := a.lock.Acquire(a.gameDir); err != nil {
+	// Acquire applyLock (3rd guard; spec §2.7).
+	// Lockfile lives under tempRoot rather than gameDir so non-admin
+	// processes can still coordinate even when gameDir is under Program
+	// Files (which requires elevation to write). The coordination scope
+	// drops from "any launcher writing this gameDir" to "any of our
+	// launcher instances writing this gameDir's temp subtree" — sufficient
+	// for spec §2.7 (we don't coordinate with KRLauncher anyway; different
+	// lockfile names + KRLauncher uses its own apply path).
+	lockDir := a.progress.dir()
+	if err := a.lock.Acquire(lockDir); err != nil {
+		a.logger.Warn("runApply: applyLock acquire failed", "game", a.plan.GameID, "lock_dir", lockDir, "err", err)
 		return &core.UpdateError{
 			Code:      "process_blocked",
 			Retryable: true,
@@ -60,6 +72,7 @@ func (a *applier) runApply(ctx context.Context) error {
 		}
 	}
 	defer a.lock.Release()
+	a.logger.Debug("runApply: applyLock acquired", "game", a.plan.GameID, "lock_dir", lockDir)
 
 	// Initialize WAL with all pending paths
 	pending := make([]string, len(a.plan.Files))
@@ -125,11 +138,51 @@ func (a *applier) runApply(ctx context.Context) error {
 		}
 	}
 
+	// Persist new version to launcherDownloadConfig.json so subsequent
+	// CheckVersion sees Current = Latest. Without this, even a 0-file apply
+	// (already-up-to-date) leaves the config showing the stale local version
+	// → Refresh re-flags AvailableUpdate and BottomBar bounces back to
+	// [更新遊戲]. Failure is non-fatal — files are already in place.
+	configPath := filepath.Join(a.gameDir, "launcherDownloadConfig.json")
+	a.logger.Debug("runApply: writing launcherDownloadConfig.json", "path", configPath, "new_version", a.plan.Version)
+	if err := writeLauncherConfigVersion(configPath, a.plan.Version); err != nil {
+		a.logger.Warn("runApply: update launcherDownloadConfig.json failed (apply otherwise succeeded)", "err", err, "path", configPath)
+	} else {
+		a.logger.Info("runApply: launcherDownloadConfig.json written", "path", configPath, "version", a.plan.Version)
+	}
+
 	// All applied; remove WAL
 	if err := os.Remove(walPath); err != nil {
 		a.logger.Warn("remove apply.wal", "err", err)
 	}
 	return nil
+}
+
+// writeLauncherConfigVersion reads the existing launcherDownloadConfig.json
+// (if any), overwrites only the `version` field, and atomic-renames the
+// updated JSON back. Preserves any other fields KRLauncher writes (we only
+// know about `version` from research). Creates a minimal `{"version":...}`
+// file if none exists.
+func writeLauncherConfigVersion(path, newVersion string) error {
+	doc := map[string]any{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if uerr := json.Unmarshal(data, &doc); uerr != nil {
+			doc = map[string]any{}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	doc["version"] = newVersion
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // resumeApply replays apply.wal: re-applies any Pending entries that

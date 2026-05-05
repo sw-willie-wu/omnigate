@@ -207,7 +207,7 @@ func TestFilterChangedFiles_SkipsIdentical(t *testing.T) {
 		{Dest: "missing.dll", MD5: "x", Size: 100},
 		{Dest: "diff.dll", MD5: "x", Size: 999},
 	}
-	out := filterChangedFiles(tmp, "https://cdn.example/", "base/", files, nil)
+	out := filterChangedFiles(context.Background(), tmp, "https://cdn.example/", "base/", files, nil, nil)
 	if len(out) != 2 {
 		t.Fatalf("got %d, want 2 (missing + size-diff); out = %+v", len(out), out)
 	}

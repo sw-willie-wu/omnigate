@@ -9,7 +9,13 @@
     "play": "开始游戏",
     "play_short": "开始",
     "update": "更新",
-    "pause": "暂停"
+    "pause": "暂停",
+    "confirm": "确认",
+    "cancel": "取消"
+  },
+  "notifications": {
+    "title": "通知",
+    "empty": "没有新通知"
   },
   "status": {
     "ready": "就绪",
@@ -35,8 +41,9 @@
   "update": {
     "available": "更新游戏",
     "predl_available": "可预下载",
-    "downloading": "更新中 {pct}%",
-    "applying": "应用中 {cur}/{total}",
+    "verifying_local": "验证本地文件",
+    "downloading": "下载中 {pct}%",
+    "applying": "应用更新中 {cur}/{total}",
     "predl_downloading": "预下载 {pct}%",
     "predl_ready": "应用预下载",
     "remove_predl": "移除",

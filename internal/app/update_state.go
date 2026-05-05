@@ -41,6 +41,7 @@ type GameUpdateState struct {
 type InFlightOp struct {
 	Plan      core.UpdatePlan
 	Phase     core.Phase
+	Stage     string // "" (use Phase) | "verifying" — set during runStartUpdateAsync's CheckForUpdate so UI can render "驗證本地檔案" before bytes start flowing
 	Current   int64
 	Total     int64
 	cancel    context.CancelFunc
@@ -59,12 +60,13 @@ type GameUpdateSnapshot struct {
 }
 
 type InFlightSnapshot struct {
-	Kind       core.PlanKind `json:"kind"`
-	Phase      core.Phase    `json:"phase"`
-	Current    int64         `json:"current"`
-	Total      int64         `json:"total"`
-	Version    string        `json:"version"`
-	StartedAt  time.Time     `json:"started_at"`
+	Kind      core.PlanKind `json:"kind"`
+	Phase     core.Phase    `json:"phase"`
+	Stage     string        `json:"stage,omitempty"`
+	Current   int64         `json:"current"`
+	Total     int64         `json:"total"`
+	Version   string        `json:"version"`
+	StartedAt time.Time     `json:"started_at"`
 }
 
 // Snapshot returns a value copy of the state under RLock. Safe to send to
@@ -81,6 +83,7 @@ func (s *GameUpdateState) Snapshot() GameUpdateSnapshot {
 		out.InFlight = &InFlightSnapshot{
 			Kind:      s.InFlight.Plan.Kind,
 			Phase:     s.InFlight.Phase,
+			Stage:     s.InFlight.Stage,
 			Current:   s.InFlight.Current,
 			Total:     s.InFlight.Total,
 			Version:   s.InFlight.Plan.Version,

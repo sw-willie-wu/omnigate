@@ -9,7 +9,13 @@
     "play": "開始遊戲",
     "play_short": "開始",
     "update": "更新",
-    "pause": "暫停"
+    "pause": "暫停",
+    "confirm": "確認",
+    "cancel": "取消"
+  },
+  "notifications": {
+    "title": "通知",
+    "empty": "沒有新通知"
   },
   "status": {
     "ready": "就緒",
@@ -35,8 +41,9 @@
   "update": {
     "available": "更新遊戲",
     "predl_available": "可預下載",
-    "downloading": "更新中 {pct}%",
-    "applying": "套用中 {cur}/{total}",
+    "verifying_local": "驗證本地檔案",
+    "downloading": "下載中 {pct}%",
+    "applying": "套用更新中 {cur}/{total}",
     "predl_downloading": "預下載 {pct}%",
     "predl_ready": "套用預下載",
     "remove_predl": "移除",
