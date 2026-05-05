@@ -438,7 +438,7 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 	}
 
 	initialPhase := core.PhaseDownload
-	if rec.Phase == kurogames.RecoveryPhaseApplyResume {
+	if rec.Phase == core.RecoveryPhaseApplyResume {
 		initialPhase = core.PhaseApply
 	}
 	// Verify done — rewrite the in-flight state with the real plan + phase
@@ -706,7 +706,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 	a.logger.Debug("applyRecoveryState: ScanRecovery result", "game", gid, "dir", sidecarDir, "phase", rec.Phase, "wasPredl", rec.WasPredl)
 	state := a.updateRegistry.Get(gid)
 	switch rec.Phase {
-	case kurogames.RecoveryPhaseDownloadResume:
+	case core.RecoveryPhaseDownloadResume:
 		state.mu.Lock()
 		state.LastError = &core.UpdateError{
 			Code:      "interrupted_resume",
@@ -719,7 +719,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryPhaseApplyResume:
+	case core.RecoveryPhaseApplyResume:
 		state.mu.Lock()
 		state.LastError = &core.UpdateError{
 			Code:      "interrupted_resume",
@@ -732,7 +732,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryPhasePredlAwaiting:
+	case core.RecoveryPhasePredlAwaiting:
 		// Spec §2.3 row "Only predl_ready.json": parse → set state.PredlReady, no prompt.
 		predlPath := filepath.Join(sidecarDir, "predl_ready.json")
 		pf, err := kurogames.LoadProgressFromPath(predlPath)
@@ -763,7 +763,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryCorrupt:
+	case core.RecoveryCorrupt:
 		// Spec §2.3 row "Corrupt apply.wal": LastError = unrecoverable.
 		state.mu.Lock()
 		state.LastError = &core.UpdateError{
@@ -774,7 +774,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryNone:
+	case core.RecoveryNone:
 		// nothing to do
 	}
 }

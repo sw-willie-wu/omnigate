@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"launcher-collection-tmp/internal/core"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,23 +13,6 @@ import (
 	"time"
 )
 
-// ProgressEntry is one file's resume metadata after successful download +
-// hash verify + atomic rename. mtime+size exact-equality is the resume
-// trust check (spec §5.1).
-type ProgressEntry struct {
-	Size  int64     `json:"size"`
-	MTime time.Time `json:"mtime"`
-	Hash  string    `json:"hash,omitempty"`
-}
-
-// ProgressFile is the on-disk shape of progress.json (and predl_ready.json
-// after rename — same schema).
-type ProgressFile struct {
-	GameID  string                   `json:"game_id"`
-	Version string                   `json:"version"`
-	ETag    string                   `json:"etag"`
-	Entries map[string]ProgressEntry `json:"entries"`
-}
 
 type progressStore struct {
 	// mu serializes concurrent MarkComplete calls from the download
@@ -55,11 +39,11 @@ func (p *progressStore) Init(etag string) error {
 	if err := os.MkdirAll(p.dir(), 0o755); err != nil {
 		return fmt.Errorf("mkdir progress: %w", err)
 	}
-	pf := ProgressFile{
+	pf := core.ProgressFile{
 		GameID:  p.gameID,
 		Version: p.version,
 		ETag:    etag,
-		Entries: map[string]ProgressEntry{},
+		Entries: map[string]core.ProgressEntry{},
 	}
 	return p.writeAtomic("progress.json", &pf)
 }
@@ -75,7 +59,7 @@ func (p *progressStore) MarkComplete(relPath string, mtime time.Time, size int64
 	if err != nil {
 		return err
 	}
-	pf.Entries[relPath] = ProgressEntry{Size: size, MTime: mtime.Truncate(time.Millisecond)}
+	pf.Entries[relPath] = core.ProgressEntry{Size: size, MTime: mtime.Truncate(time.Millisecond)}
 	return p.writeAtomic("progress.json", pf)
 }
 
@@ -105,14 +89,14 @@ func (p *progressStore) writeAtomic(name string, v any) error {
 }
 
 // LoadProgress parses progress.json from the given dir.
-func LoadProgress(dir string) (*ProgressFile, error) {
+func LoadProgress(dir string) (*core.ProgressFile, error) {
 	return loadProgressFile(filepath.Join(dir, "progress.json"))
 }
 
 // LoadProgressFromPath parses a sidecar ProgressFile (progress.json or
 // predl_ready.json — same schema) from an explicit path. Used by App
 // layer's ResumeInterrupted ETag drift check (spec §2.3).
-func LoadProgressFromPath(path string) (*ProgressFile, error) {
+func LoadProgressFromPath(path string) (*core.ProgressFile, error) {
 	return loadProgressFile(path)
 }
 
@@ -142,41 +126,25 @@ func ReadWALETag(path string) string {
 	return hdr.ETag
 }
 
-func loadProgressFile(path string) (*ProgressFile, error) {
+func loadProgressFile(path string) (*core.ProgressFile, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var pf ProgressFile
+	var pf core.ProgressFile
 	if err := json.Unmarshal(body, &pf); err != nil {
 		return nil, fmt.Errorf("progress json parse: %w", err)
 	}
 	return &pf, nil
 }
 
-// RecoveryPhase identifies the in-progress sidecar a directory contains.
-type RecoveryPhase int
-
-const (
-	RecoveryNone RecoveryPhase = iota
-	RecoveryPhaseDownloadResume
-	RecoveryPhaseApplyResume
-	RecoveryPhasePredlAwaiting
-	RecoveryCorrupt
-)
-
-type RecoveryState struct {
-	Phase    RecoveryPhase
-	WasPredl bool
-	Err      error
-}
 
 // ScanRecovery resolves sidecar collisions per spec §6.3 + §2.3.
 // WasPredl is set from apply.wal's `was_predl` header field (Task 9 writes
 // it via applyWAL.WasPredl) — this distinguishes "interrupted apply that
 // originated from a predl" from "interrupted apply from a fresh download",
 // which spec §3.5 row 4 surfaces in the resume prompt copy.
-func ScanRecovery(dir string) RecoveryState {
+func ScanRecovery(dir string) core.RecoveryState {
 	hasProgress := fileExists(filepath.Join(dir, "progress.json"))
 	hasWAL := fileExists(filepath.Join(dir, "apply.wal"))
 	hasPredl := fileExists(filepath.Join(dir, "predl_ready.json"))
@@ -192,7 +160,7 @@ func ScanRecovery(dir string) RecoveryState {
 		walPath := filepath.Join(dir, "apply.wal")
 		body, err := os.ReadFile(walPath)
 		if err != nil {
-			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
+			return core.RecoveryState{Phase: core.RecoveryCorrupt, Err: err}
 		}
 		// Parse header for was_predl flag. Fall back to RecoveryCorrupt on
 		// malformed JSON — caller surfaces `unrecoverable` per spec §6.3.
@@ -200,34 +168,34 @@ func ScanRecovery(dir string) RecoveryState {
 			WasPredl bool `json:"was_predl"`
 		}
 		if err := json.Unmarshal(body, &hdr); err != nil {
-			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
+			return core.RecoveryState{Phase: core.RecoveryCorrupt, Err: err}
 		}
-		return RecoveryState{Phase: RecoveryPhaseApplyResume, WasPredl: hdr.WasPredl}
+		return core.RecoveryState{Phase: core.RecoveryPhaseApplyResume, WasPredl: hdr.WasPredl}
 
 	case hasProgress && hasPredl:
 		_ = os.Remove(filepath.Join(dir, "progress.json"))
 		if _, err := loadProgressFile(filepath.Join(dir, "predl_ready.json")); err != nil {
 			_ = os.Remove(filepath.Join(dir, "predl_ready.json"))
-			return RecoveryState{Phase: RecoveryNone}
+			return core.RecoveryState{Phase: core.RecoveryNone}
 		}
-		return RecoveryState{Phase: RecoveryPhasePredlAwaiting}
+		return core.RecoveryState{Phase: core.RecoveryPhasePredlAwaiting}
 
 	case hasProgress:
 		if _, err := loadProgressFile(filepath.Join(dir, "progress.json")); err != nil {
 			_ = os.Remove(filepath.Join(dir, "progress.json"))
-			return RecoveryState{Phase: RecoveryNone}
+			return core.RecoveryState{Phase: core.RecoveryNone}
 		}
-		return RecoveryState{Phase: RecoveryPhaseDownloadResume}
+		return core.RecoveryState{Phase: core.RecoveryPhaseDownloadResume}
 
 	case hasPredl:
 		if _, err := loadProgressFile(filepath.Join(dir, "predl_ready.json")); err != nil {
 			_ = os.Remove(filepath.Join(dir, "predl_ready.json"))
-			return RecoveryState{Phase: RecoveryNone}
+			return core.RecoveryState{Phase: core.RecoveryNone}
 		}
-		return RecoveryState{Phase: RecoveryPhasePredlAwaiting}
+		return core.RecoveryState{Phase: core.RecoveryPhasePredlAwaiting}
 
 	default:
-		return RecoveryState{Phase: RecoveryNone}
+		return core.RecoveryState{Phase: core.RecoveryNone}
 	}
 }
 
