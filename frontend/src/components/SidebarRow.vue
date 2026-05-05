@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useGamesStore, type GameRow } from '../stores/games';
+import { useUpdatesStore } from '../stores/updates';
 import { useI18n } from 'vue-i18n';
 
 const props = defineProps<{ row: GameRow }>();
 const games = useGamesStore();
+const updates = useUpdatesStore();
 const { t, locale } = useI18n();
 
 const status = () => {
@@ -13,6 +16,26 @@ const status = () => {
     return { key: 'update', label: `${t('status.update')} · ${props.row.current_version} → ${props.row.latest_version}`, cls: 'update' };
   return { key: 'ready', label: `${t('status.ready')} · v${props.row.current_version || props.row.latest_version || '?'}`, cls: 'ready' };
 };
+
+const snap = computed(() => updates.byGame[props.row.id] ?? null);
+const inFlight = computed(() => snap.value?.in_flight ?? null);
+const progressPct = computed(() => {
+  const ifl = inFlight.value;
+  if (!ifl || ifl.total === 0) return 0;
+  return (ifl.current / ifl.total) * 100;
+});
+const isPredl = computed(() => inFlight.value?.kind === 'predownload');
+const inflightLabel = computed(() => {
+  const ifl = inFlight.value;
+  if (!ifl) return '';
+  if (ifl.stage === 'verifying') {
+    if (ifl.total > 0) return `${t('update.verifying_local')} ${ifl.current} / ${ifl.total}`;
+    return t('update.verifying_local');
+  }
+  if (ifl.kind === 'predownload') return t('update.predl_downloading', { pct: Math.round(progressPct.value) });
+  if (ifl.phase === 'apply') return t('update.applying', { cur: ifl.current, total: ifl.total });
+  return t('update.downloading', { pct: Math.round(progressPct.value) });
+});
 </script>
 
 <template>
@@ -23,7 +46,11 @@ const status = () => {
     </div>
     <div>
       <div class="game-name">{{ row.display_name[locale as string] || row.display_name.en }}</div>
-      <div class="game-status-mini" :class="status().cls">{{ status().label }}</div>
+      <div v-if="inFlight" class="game-progress" :class="{predl: isPredl}">
+        <span class="game-progress-fill" :style="{width: progressPct + '%'}"></span>
+        <span class="game-progress-label">{{ inflightLabel }}</span>
+      </div>
+      <div v-else class="game-status-mini" :class="status().cls">{{ status().label }}</div>
     </div>
     <span class="game-marker" :class="status().cls"></span>
   </div>

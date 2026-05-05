@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"launcher-collection-tmp/internal/providers/hoyoverse"
 	"launcher-collection-tmp/internal/providers/hypergryph"
 	"launcher-collection-tmp/internal/providers/kurogames"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type detectEntry struct {
@@ -22,13 +24,14 @@ type detectEntry struct {
 }
 
 type App struct {
-	ctx       context.Context
-	settings  Settings
-	settingsP string
-	providers []core.Provider
-	detect    map[core.BackendID]detectEntry
-	detectMu  sync.Mutex
-	logger    *slog.Logger
+	ctx            context.Context
+	settings       Settings
+	settingsP      string
+	providers      []core.Provider
+	detect         map[core.BackendID]detectEntry
+	detectMu       sync.Mutex
+	logger         *slog.Logger
+	updateRegistry *UpdateStateRegistry
 }
 
 // New returns an App. settingsPath may be "" → default to alongside the binary.
@@ -53,6 +56,19 @@ func New(settingsPath string, logger *slog.Logger) *App {
 	if err := a.constructProviders(); err != nil {
 		logger.Error("provider construction failed", "err", err)
 	}
+
+	// Construct update state registry; emitter writes to Wails event bus.
+	emit := func(name string, args ...any) {
+		if a.ctx != nil {
+			wruntime.EventsEmit(a.ctx, name, args...)
+		}
+	}
+	a.updateRegistry = NewUpdateStateRegistry(emit, realClock{})
+
+	// Spec §2.3: walk <TempDir>/<gameID-flat>/<version>/ for sidecars left
+	// behind by an interrupted prior run.
+	a.scanForRecovery()
+
 	return a
 }
 
@@ -72,7 +88,10 @@ func (a *App) constructProviders() error {
 		return err
 	}
 	kuro := kurogames.New(
-		kurogames.Settings{Path: a.settings.Backends.Kurogames.Path},
+		kurogames.Settings{
+			Path:    a.settings.Backends.Kurogames.Path,
+			TempDir: a.settings.Backends.Kurogames.TempDir,
+		},
 		a.logger.With("backend", "kurogames"),
 	)
 	if err := a.registerProvider(kuro); err != nil {
@@ -255,11 +274,36 @@ func (a *App) ListBackends() []BackendStatus {
 }
 
 func (a *App) RefreshVersion(gameID string) (core.VersionInfo, error) {
-	p, err := a.provider(core.GameID(gameID))
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
 	if err != nil {
 		return core.VersionInfo{}, err
 	}
-	return p.CheckVersion(a.ctx, core.GameID(gameID))
+	vi, err := p.CheckVersion(a.ctx, gid)
+	if err != nil {
+		return vi, err
+	}
+
+	// Spec §2.4 phantom-predl: PredlReady becomes invalid when the install
+	// version equals the predl version (user reinstalled at that version, or
+	// KRLauncher applied externally). Silently delete sidecar + clear PredlReady.
+	if a.updateRegistry != nil {
+		state := a.updateRegistry.Get(gid)
+		state.mu.RLock()
+		predl := state.PredlReady
+		state.mu.RUnlock()
+		if predl != nil && vi.Current == predl.Version {
+			tempDir := a.kurogamesTempDir(gid)
+			gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
+			versionDir := filepath.Join(tempDir, gameIDFlat, predl.Version)
+			_ = removeAll(versionDir)
+			state.mu.Lock()
+			state.PredlReady = nil
+			state.mu.Unlock()
+			a.updateRegistry.EmitTerminal(gid)
+		}
+	}
+	return vi, err
 }
 
 func (a *App) GetIcon(gameID string) (string, error) {
@@ -279,11 +323,24 @@ func (a *App) GetBackgrounds(gameID string) ([]core.Background, error) {
 }
 
 func (a *App) Launch(gameID string) (int, error) {
-	p, err := a.provider(core.GameID(gameID))
+	gid := core.GameID(gameID)
+
+	// M3.A: refuse if apply phase is in flight (spec §2.7)
+	if a.updateRegistry != nil {
+		state := a.updateRegistry.Get(gid)
+		state.mu.RLock()
+		blocked := state.InFlight != nil && state.InFlight.Phase == core.PhaseApply
+		state.mu.RUnlock()
+		if blocked {
+			return 0, fmt.Errorf("game %s: apply in progress; please wait", gameID)
+		}
+	}
+
+	p, err := a.provider(gid)
 	if err != nil {
 		return 0, err
 	}
-	return p.Launch(a.ctx, core.GameID(gameID), core.LaunchOptions{})
+	return p.Launch(a.ctx, gid, core.LaunchOptions{})
 }
 
 func (a *App) GetSettings() Settings { return a.settings }
@@ -302,6 +359,9 @@ func (a *App) UpdateSettings(s Settings) error {
 func (a *App) Refresh() {
 	a.invalidateDetect()
 }
+
+// scanForRecovery is defined in update_handler.go — moved out of app.go
+// (the stub previously here was incorrect; see commit fix below).
 
 // ErrorCode exposes the core.ErrorCode mapping to the frontend.
 func (a *App) ErrorCode(s string) string {

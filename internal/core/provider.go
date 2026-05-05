@@ -15,6 +15,66 @@ const (
 	PlanPredownload
 )
 
+// MarshalJSON emits the string form ("update"/"predownload") so the frontend
+// can compare with === to literal strings. Default int marshalling broke
+// BottomBar's `inFlight.kind === 'update'` check.
+func (k PlanKind) MarshalJSON() ([]byte, error) {
+	switch k {
+	case PlanUpdate:
+		return []byte(`"update"`), nil
+	case PlanPredownload:
+		return []byte(`"predownload"`), nil
+	}
+	return []byte(`""`), nil
+}
+
+// UnmarshalJSON accepts either the new string form or the legacy int form
+// so existing on-disk sidecars (predl_ready.json / apply.wal) keep loading.
+func (k *PlanKind) UnmarshalJSON(data []byte) error {
+	s := string(data)
+	switch s {
+	case `"update"`, `0`:
+		*k = PlanUpdate
+		return nil
+	case `"predownload"`, `1`:
+		*k = PlanPredownload
+		return nil
+	}
+	return fmt.Errorf("unknown PlanKind JSON: %s", s)
+}
+
+// Phase identifies which sub-phase of RunUpdate is currently active.
+// PhaseDownload progress is reported in bytes; PhaseApply in file count.
+type Phase int
+
+const (
+	PhaseDownload Phase = iota
+	PhaseApply
+)
+
+func (p Phase) MarshalJSON() ([]byte, error) {
+	switch p {
+	case PhaseDownload:
+		return []byte(`"download"`), nil
+	case PhaseApply:
+		return []byte(`"apply"`), nil
+	}
+	return []byte(`""`), nil
+}
+
+func (p *Phase) UnmarshalJSON(data []byte) error {
+	s := string(data)
+	switch s {
+	case `"download"`, `0`:
+		*p = PhaseDownload
+		return nil
+	case `"apply"`, `1`:
+		*p = PhaseApply
+		return nil
+	}
+	return fmt.Errorf("unknown Phase JSON: %s", s)
+}
+
 type GameDescriptor struct {
 	ID               GameID
 	Backend          BackendID

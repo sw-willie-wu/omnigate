@@ -1,0 +1,84 @@
+{
+  "_comment": "Synthetic minimal fixture for unit tests. Entry shape mirrors the live indexFile.json observed at https://hw-pcdownload-qcloud.aki-game.net/launcher/game/G153/50004/3.3.0/<HASH>/resource/50004/3.3.0/indexFile.json on 2026-05-05. MD5 hashes are random hex (not real). Sizes are illustrative (mix of small / medium / 2-chunk / 4-chunk / zero-byte). 12 entries cover: small file (no chunks), spaces in dest, executable, deep nesting, exactly-100-MiB boundary, multi-chunk pak, patch-only with fromFolder, zero-byte. NOT loaded by the launcher; tests only.",
+  "resource": [
+    {
+      "dest": "Wuthering Waves.exe",
+      "md5": "00112233445566778899aabbccddeeff",
+      "size": 483768
+    },
+    {
+      "dest": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
+      "md5": "112233445566778899aabbccddeeff00",
+      "size": 247586816
+    },
+    {
+      "dest": "Client/Binaries/Win64/Client-Win64-ShippingBase.dll",
+      "md5": "2233445566778899aabbccddeeff0011",
+      "size": 12582912
+    },
+    {
+      "dest": "Client/Binaries/Win64/ThirdParty/KrPcSdk_Global/KRSDKRes/KRSDK.bin",
+      "md5": "33445566778899aabbccddeeff001122",
+      "size": 4096
+    },
+    {
+      "dest": "Engine/Content/SmallAsset.uasset",
+      "md5": "445566778899aabbccddeeff00112233",
+      "size": 16384
+    },
+    {
+      "dest": "Engine/Config/EmptyMarker.ini",
+      "md5": "d41d8cd98f00b204e9800998ecf8427e",
+      "size": 0
+    },
+    {
+      "dest": "Client/Content/Paks/pakchunk_exact_100mib.pak",
+      "md5": "5566778899aabbccddeeff0011223344",
+      "size": 104857600,
+      "chunkInfos": [
+        { "start": 0, "end": 104857599, "md5": "deadbeefcafebabefeedfacefacefeed" }
+      ]
+    },
+    {
+      "dest": "Client/Content/Paks/pakchunk_2chunk.pak",
+      "md5": "66778899aabbccddeeff001122334455",
+      "size": 157286400,
+      "chunkInfos": [
+        { "start": 0, "end": 104857599, "md5": "11111111111111111111111111111111" },
+        { "start": 104857600, "end": 157286399, "md5": "22222222222222222222222222222222" }
+      ]
+    },
+    {
+      "dest": "Client/Content/Paks/pakchunk_3chunk_unaligned.pak",
+      "md5": "778899aabbccddeeff00112233445566",
+      "size": 230686720,
+      "chunkInfos": [
+        { "start": 0, "end": 104857599, "md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        { "start": 104857600, "end": 209715199, "md5": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+        { "start": 209715200, "end": 230686719, "md5": "cccccccccccccccccccccccccccccccc" }
+      ]
+    },
+    {
+      "dest": "Client/Content/Paks/pakchunk_large.pak",
+      "md5": "8899aabbccddeeff0011223344556677",
+      "size": 419430400,
+      "chunkInfos": [
+        { "start": 0, "end": 104857599, "md5": "00000000000000000000000000000001" },
+        { "start": 104857600, "end": 209715199, "md5": "00000000000000000000000000000002" },
+        { "start": 209715200, "end": 314572799, "md5": "00000000000000000000000000000003" },
+        { "start": 314572800, "end": 419430399, "md5": "00000000000000000000000000000004" }
+      ]
+    },
+    {
+      "dest": "Client/Content/Paks/pakchunk_patch_with_fromfolder.pak",
+      "md5": "99aabbccddeeff00112233445566778",
+      "size": 52428800,
+      "fromFolder": "launcher/game/G153/50004/3.3.0/<HASH>/resource/50004/3.3.0/3.2.2/resources/"
+    },
+    {
+      "dest": "Plugins/Marketplace/Foo/Bar with Space/baz.dll",
+      "md5": "aabbccddeeff001122334455667788",
+      "size": 65536
+    }
+  ]
+}

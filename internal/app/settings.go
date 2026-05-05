@@ -32,7 +32,10 @@ type HoyoverseSettings struct {
 	Region string `toml:"region"`
 }
 
-type KurogamesSettings  struct{ Path string `toml:"path"` }
+type KurogamesSettings struct {
+	Path    string `toml:"path"`
+	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/launcher-collection/<gameID>
+}
 type HypergryphSettings struct{ Path string `toml:"path"` }
 
 // hoyoverseRawTOML is used for the M1 → M2 migration: M1 wrote
@@ -118,6 +121,9 @@ func LoadSettings(path string) (Settings, error) {
 	// kurogames / hypergryph (no migration; M2 introduces them)
 	if raw.Backends.Kurogames.Path != "" {
 		out.Backends.Kurogames.Path = raw.Backends.Kurogames.Path
+	}
+	if raw.Backends.Kurogames.TempDir != "" {
+		out.Backends.Kurogames.TempDir = raw.Backends.Kurogames.TempDir
 	}
 	if raw.Backends.Hypergryph.Path != "" {
 		out.Backends.Hypergryph.Path = raw.Backends.Hypergryph.Path
