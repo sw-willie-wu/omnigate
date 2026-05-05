@@ -15,6 +15,15 @@ const (
 	PlanPredownload
 )
 
+// Phase identifies which sub-phase of RunUpdate is currently active.
+// PhaseDownload progress is reported in bytes; PhaseApply in file count.
+type Phase int
+
+const (
+	PhaseDownload Phase = iota
+	PhaseApply
+)
+
 type GameDescriptor struct {
 	ID               GameID
 	Backend          BackendID
