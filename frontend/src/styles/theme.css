@@ -244,3 +244,70 @@
   .footbar .ok { color: var(--ok); font-size: 8px; }
   .footbar .bl { animation: blink 2s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0.2; } }
+
+  /* ━━━ PREDL & PROGRESS BUTTONS ━━━ */
+  .predl-area { flex-shrink: 0; margin-right: 16px; }
+  .predl-btn {
+    background: rgba(214, 176, 75, 0.15);
+    color: var(--accent);
+    border: 1px solid rgba(214, 176, 75, 0.4);
+    border-radius: 12px;
+    padding: 0 24px;
+    height: 56px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+  }
+  .progress-btn {
+    position: relative;
+    background: rgba(20, 20, 30, 0.6);
+    color: var(--text);
+    border: 1px solid var(--accent-dim);
+    border-radius: 12px;
+    height: 56px;
+    min-width: 200px;
+    padding: 0 16px;
+    cursor: default;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: inherit;
+    font-weight: 700;
+  }
+  .progress-btn .fill {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    background: rgba(214, 176, 75, 0.3);
+    transition: width 200ms ease-out;
+    z-index: 0;
+  }
+  .progress-btn .label {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    text-align: center;
+  }
+  .progress-btn .cancel-x {
+    position: relative;
+    z-index: 2;
+    margin-left: 12px;
+    padding-left: 12px;
+    border-left: 1px solid rgba(255,255,255,0.2);
+    cursor: pointer;
+    font-size: 18px;
+  }
+
+  /* ━━━ SIDEBAR ROW PROGRESS OVERLAY ━━━ */
+  .game-row { position: relative; }
+  .game-row .row-content { position: relative; z-index: 2; }
+  .game-row .progress-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    background: var(--accent);
+    z-index: 1;
+    transition: width 200ms ease-out;
+  }
+  .game-row .progress-bar.predl { background: var(--accent-dim); }
