@@ -320,6 +320,12 @@ func isProcessRunning(exeName string) bool {
 	return platformIsProcessRunning(exeName)
 }
 
+// IsProcessRunning is exported so app layer can do the 1st-point game-running
+// guard at RPC entry without re-implementing process enumeration.
+func IsProcessRunning(exeName string) bool {
+	return platformIsProcessRunning(exeName)
+}
+
 // compile-time interface compliance (EDIT 3 — deviation: removed AssetServer)
 var (
 	_ core.Provider     = (*Provider)(nil)
