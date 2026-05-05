@@ -125,7 +125,7 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 	plan.Kind = kind
 	a.logger.Debug("runStartUpdateAsync: CheckForUpdate done", "game", gid, "files", len(plan.Files), "bytes", plan.TotalBytes, "version", plan.Version)
 
-	tempDir := a.kurogamesTempDir(gid)
+	tempDir := a.tempDirFor(p.ID(), gid)
 	gameDir := a.gameInstallDir(gid, p)
 	a.logger.Debug("runStartUpdateAsync: preflightChecks", "game", gid, "temp_dir", tempDir, "game_dir", gameDir)
 	if err := a.preflightChecks(tempDir, gameDir, plan.TotalBytes); err != nil {
@@ -293,7 +293,7 @@ func (a *App) RemovePredownload(gameID string) error {
 	state.mu.Unlock()
 
 	if predlVersion != "" {
-		tempDir := a.kurogamesTempDir(gid)
+		tempDir := a.tempDirFor("kurogames", gid)
 		gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 		versionDir := filepath.Join(tempDir, gameIDFlat, predlVersion)
 		// Best-effort cleanup; ignore errors
@@ -414,7 +414,7 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 		return
 	}
 
-	tempRoot := a.kurogamesTempDir(gid)
+	tempRoot := a.tempDirFor(p.ID(), gid)
 	gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 	sidecarDir := filepath.Join(tempRoot, gameIDFlat, plan.Version)
 	rec := core.ScanRecovery(sidecarDir)
@@ -554,13 +554,6 @@ func (a *App) setLastError(gid core.GameID, err *core.UpdateError) {
 	a.updateRegistry.EmitTerminal(gid)
 }
 
-func (a *App) kurogamesTempDir(gid core.GameID) string {
-	td := a.settings.Backends.Kurogames.TempDir
-	if td == "" {
-		return filepath.Join(osTempDir(), "launcher-collection")
-	}
-	return td
-}
 
 func (a *App) gameInstallDir(gid core.GameID, p core.Provider) string {
 	installs, err := p.DetectInstall(context.Background())
@@ -653,7 +646,7 @@ func removeAll(path string) error {
 // Tree shape: <kurogamesTempDir>/<gameID-flat>/<version>/{progress.json|apply.wal|predl_ready.json}
 // where <gameID-flat> = strings.ReplaceAll(string(gid), "/", "-").
 func (a *App) scanForRecovery() {
-	tempRoot := a.kurogamesTempDir("") // empty gid: returns settings.TempDir or default root
+	tempRoot := a.tempDirFor("kurogames", "") // v0.3.1: single-rooted; multi-walk deferred to M3.B
 	a.logger.Debug("scanForRecovery: enter", "temp_root", tempRoot)
 	gameDirs, err := osReadDir(tempRoot)
 	if err != nil {

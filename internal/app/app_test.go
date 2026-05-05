@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"launcher-collection-tmp/internal/core"
@@ -166,4 +167,22 @@ func newAppForTest(t *testing.T, ps ...core.Provider) *App {
 	}
 	a.ctx = context.Background()
 	return a
+}
+
+func TestTempDirFor_KurogamesNoSettings(t *testing.T) {
+	a := newAppForTest(t)
+	got := a.tempDirFor("kurogames", "kurogames/wuwa")
+	want := filepath.Join(osTempDir(), "launcher-collection")
+	if got != want {
+		t.Errorf("tempDirFor(kurogames, ...) = %q, want %q", got, want)
+	}
+}
+
+func TestTempDirFor_DefaultBranch(t *testing.T) {
+	a := newAppForTest(t)
+	got := a.tempDirFor("nonexistent-backend", "any/game")
+	want := filepath.Join(osTempDir(), "launcher-collection", "nonexistent-backend")
+	if got != want {
+		t.Errorf("tempDirFor default = %q, want %q", got, want)
+	}
 }

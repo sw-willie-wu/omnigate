@@ -293,7 +293,7 @@ func (a *App) RefreshVersion(gameID string) (core.VersionInfo, error) {
 		predl := state.PredlReady
 		state.mu.RUnlock()
 		if predl != nil && vi.Current == predl.Version {
-			tempDir := a.kurogamesTempDir(gid)
+			tempDir := a.tempDirFor(kurogames.BackendID, gid)
 			gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 			versionDir := filepath.Join(tempDir, gameIDFlat, predl.Version)
 			_ = removeAll(versionDir)
@@ -415,4 +415,27 @@ func stringIndex(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// tempDirFor resolves the per-backend temp root for sidecar/staging files.
+// In v0.3.1 only kurogames has a configurable TempDir; hoyoverse / hypergryph
+// cases will be added in M3.B / M3.C alongside their respective settings
+// fields. The default branch is currently unreachable in production (no
+// non-kurogames caller exists yet) but exists so future cases can be added
+// without modifying call sites.
+//
+// Bit-exact preservation for kurogames: returns the same value as the legacy
+// kurogamesTempDir helper — settings-override OR <TEMP>/launcher-collection
+// (no backend/gid suffix; per-game flattening happens inside progressStore).
+func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
+	switch backend {
+	case kurogames.BackendID:
+		if td := a.settings.Backends.Kurogames.TempDir; td != "" {
+			return td
+		}
+		return filepath.Join(osTempDir(), "launcher-collection")
+	}
+	// Default for backends without a settings TempDir field: per-backend subdir
+	// to avoid collisions. Unreachable in v0.3.1.
+	return filepath.Join(osTempDir(), "launcher-collection", string(backend))
 }
