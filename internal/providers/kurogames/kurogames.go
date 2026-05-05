@@ -156,6 +156,17 @@ func (p *Provider) ExeName(gid core.GameID) (string, bool) {
 	return g.ExeName, true
 }
 
+// IsGameRunning implements core.ProcessChecker — used by App layer's update
+// flow as the 1st-point game-running guard. Composes ExeName (the existing
+// core.ExeNamer impl) with the build-tag-gated platformIsProcessRunning.
+func (p *Provider) IsGameRunning(gid core.GameID) (bool, error) {
+	exe, ok := p.ExeName(gid)
+	if !ok {
+		return false, nil
+	}
+	return platformIsProcessRunning(exe), nil
+}
+
 // CheckForUpdate fetches the manifest, filters out files identical to
 // the current install, returns a populated UpdatePlan. M3.A only.
 //
@@ -374,12 +385,6 @@ func isProcessRunning(exeName string) bool {
 	return platformIsProcessRunning(exeName)
 }
 
-// IsProcessRunning is exported so app layer can do the 1st-point game-running
-// guard at RPC entry without re-implementing process enumeration.
-func IsProcessRunning(exeName string) bool {
-	return platformIsProcessRunning(exeName)
-}
-
 // compile-time interface compliance (EDIT 3 — deviation: removed AssetServer)
 var (
 	_ core.Provider                = (*Provider)(nil)
@@ -387,4 +392,5 @@ var (
 	_ core.ExeNamer                = (*Provider)(nil)
 	_ core.Updater                 = (*Provider)(nil) // M3.A: implements update interface
 	_ core.CheckForUpdateProgress  = (*Provider)(nil) // verify-local progress for BottomBar
+	_ core.ProcessChecker          = (*Provider)(nil)
 )

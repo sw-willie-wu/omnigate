@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"launcher-collection-tmp/internal/core"
-	"launcher-collection-tmp/internal/providers/kurogames"
 )
 
 // StartUpdate kicks off the update flow for a game. Performs 1st-point
@@ -35,15 +34,13 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 	}
 	upd, ok := p.(core.Updater)
 	if !ok {
-		return fmt.Errorf("provider %s does not support updates (M3.A: only kurogames)", p.ID())
+		return fmt.Errorf("provider %s does not support updates", p.ID())
 	}
 
-	// 1st game-running guard — resolve exe name via core.ExeNamer interface
-	// (NOT core.GameDescriptor.ExeName — GameDescriptor has no such field;
-	// per-provider exe metadata lives in `gameMeta` and is exposed via
-	// the ExeNamer optional interface, same pattern as asset_handler.go:101).
-	if exeName, ok := gameExeName(p, gid); ok {
-		if kurogames.IsProcessRunning(exeName) {
+	// 1st game-running guard — resolve game-running status via core.ProcessChecker interface
+	// (optional capability: not all providers implement it).
+	if pc, ok := p.(core.ProcessChecker); ok {
+		if running, _ := pc.IsGameRunning(gid); running {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -245,9 +242,9 @@ func (a *App) ApplyPredownload(gameID string) error {
 		return fmt.Errorf("provider %s no Updater", p.ID())
 	}
 
-	// 1st game-running guard — see StartUpdate flow for ExeNamer rationale
-	if exeName, ok := gameExeName(p, gid); ok {
-		if kurogames.IsProcessRunning(exeName) {
+	// 1st game-running guard — see StartUpdate flow for ProcessChecker rationale
+	if pc, ok := p.(core.ProcessChecker); ok {
+		if running, _ := pc.IsGameRunning(gid); running {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -339,8 +336,8 @@ func (a *App) ResumeInterrupted(gameID string) error {
 	}
 
 	// 1st game-running guard — same as StartUpdate
-	if exeName, ok := gameExeName(p, gid); ok {
-		if kurogames.IsProcessRunning(exeName) {
+	if pc, ok := p.(core.ProcessChecker); ok {
+		if running, _ := pc.IsGameRunning(gid); running {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -642,18 +639,6 @@ func asUpdateError(err error) *core.UpdateError {
 		Retryable: true,
 		Params:    map[string]string{"detail": err.Error()},
 	}
-}
-
-// gameExeName resolves the .exe filename for gid via the core.ExeNamer
-// optional interface. Returns ("", false) if the provider does not implement
-// ExeNamer or gid is unknown to the provider. Same shape as the lookup in
-// internal/app/asset_handler.go:101.
-func gameExeName(p core.Provider, gid core.GameID) (string, bool) {
-	en, ok := p.(core.ExeNamer)
-	if !ok {
-		return "", false
-	}
-	return en.ExeName(gid)
 }
 
 func removeAll(path string) error {
