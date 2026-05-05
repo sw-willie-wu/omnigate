@@ -72,7 +72,10 @@ func (a *App) constructProviders() error {
 		return err
 	}
 	kuro := kurogames.New(
-		kurogames.Settings{Path: a.settings.Backends.Kurogames.Path},
+		kurogames.Settings{
+			Path:    a.settings.Backends.Kurogames.Path,
+			TempDir: a.settings.Backends.Kurogames.TempDir,
+		},
 		a.logger.With("backend", "kurogames"),
 	)
 	if err := a.registerProvider(kuro); err != nil {
