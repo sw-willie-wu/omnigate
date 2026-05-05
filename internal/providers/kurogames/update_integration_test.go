@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"launcher-collection-tmp/internal/core"
 )
@@ -117,4 +118,85 @@ func TestRunUpdate_ETagDriftRejects(t *testing.T) {
 // testLogger returns a slog.Logger that discards output.
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+// TestPredl_HappyPath: predownload completes, predl_ready.json written,
+// game dir untouched.
+func TestPredl_HappyPath(t *testing.T) {
+	body := "predl-content"
+	hash := md5hex(body)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wutheringwaves", "3.5.0")
+	if err := ps.Init(`"e1"`); err != nil {
+		t.Fatal(err)
+	}
+	plan := core.UpdatePlan{
+		GameID:       "kurogames/wutheringwaves",
+		Kind:         core.PlanPredownload,
+		ManifestETag: `"e1"`,
+		Version:      "3.5.0",
+		Files:        []core.FileTask{{Path: "next.dll", Hash: hash, Size: int64(len(body)), URL: srv.URL}},
+	}
+	d := &downloader{client: srv.Client(), logger: testLogger(), progress: ps, plan: &plan, clock: fakeRetryClock{}}
+	if err := d.runDownload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.RenameToPredlReady(); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(gameDir)
+	if len(entries) != 0 {
+		t.Errorf("game dir touched during predl: %v", entries)
+	}
+	if _, err := os.Stat(filepath.Join(ps.dir(), "predl_ready.json")); err != nil {
+		t.Errorf("predl_ready.json missing")
+	}
+}
+
+// TestApplyPredl_HappyPath: from predl_ready.json → ApplyPredownload →
+// rename to apply.wal → apply phase → completion.
+func TestApplyPredl_HappyPath(t *testing.T) {
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wutheringwaves", "3.5.0")
+	if err := ps.Init(`"e1"`); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "next.dll"), []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.MarkComplete("next.dll", time.Now(), 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.RenameToPredlReady(); err != nil {
+		t.Fatal(err)
+	}
+
+	predlPath := filepath.Join(ps.dir(), "predl_ready.json")
+	walPath := filepath.Join(ps.dir(), "apply.wal")
+	wal := applyWAL{
+		GameID:   "kurogames/wutheringwaves",
+		Version:  "3.5.0",
+		ETag:     `"e1"`,
+		WasPredl: true,
+		Pending:  []string{"next.dll"},
+	}
+	body, _ := json.Marshal(&wal)
+	_ = os.Remove(predlPath)
+	if err := os.WriteFile(walPath, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := resumeApply(context.Background(), walPath, gameDir, newApplyLock(), nil, slog.Default()); err != nil {
+		t.Fatalf("resumeApply: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(gameDir, "next.dll")); err != nil {
+		t.Errorf("next.dll missing in gameDir: %v", err)
+	}
 }
