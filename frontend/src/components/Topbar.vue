@@ -56,25 +56,24 @@ const onRefresh = async () => {
       <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize">─</button>
       <button class="icon-btn window-btn close" @click="Quit()" title="Close">×</button>
     </div>
-  </div>
-
-  <Teleport to="body">
-    <div v-if="panelOpen" class="notif-panel-backdrop" @click="closeNotifPanel"></div>
-    <div v-if="panelOpen" class="notif-panel">
-      <div class="notif-panel-header">
-        <span>{{ t('notifications.title') }}</span>
-        <button class="notif-panel-close" @click="closeNotifPanel" aria-label="Close">×</button>
-      </div>
-      <div v-if="pending.length === 0" class="notif-empty">{{ t('notifications.empty') }}</div>
-      <div v-else class="notif-list">
-        <div v-for="item in pending" :key="item.gameID" class="notif-item">
-          <div class="notif-msg">{{ item.message }}</div>
-          <div class="notif-actions">
-            <button class="notif-btn-cancel" @click="dismiss(item.gameID)">{{ t('buttons.cancel') }}</button>
-            <button class="notif-btn-ok" @click="resume(item.gameID)">{{ t('buttons.confirm') }}</button>
+    <Teleport to="body">
+      <div v-if="panelOpen" class="notif-panel-backdrop" @click="closeNotifPanel"></div>
+      <div v-if="panelOpen" class="notif-panel">
+        <div class="notif-panel-header">
+          <span>{{ t('notifications.title') }}</span>
+          <button class="notif-panel-close" @click="closeNotifPanel" aria-label="Close">×</button>
+        </div>
+        <div v-if="pending.length === 0" class="notif-empty">{{ t('notifications.empty') }}</div>
+        <div v-else class="notif-list">
+          <div v-for="item in pending" :key="item.gameID" class="notif-item">
+            <div class="notif-msg">{{ item.message }}</div>
+            <div class="notif-actions">
+              <button class="notif-btn-cancel" @click="dismiss(item.gameID)">{{ t('buttons.cancel') }}</button>
+              <button class="notif-btn-ok" @click="resume(item.gameID)">{{ t('buttons.confirm') }}</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </Teleport>
+    </Teleport>
+  </div>
 </template>

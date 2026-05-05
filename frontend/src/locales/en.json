@@ -35,8 +35,7 @@
     "predl_pill": "PREDOWNLOAD"
   },
   "footer": {
-    "summary": "{backends} BACKENDS · {games} GAMES",
-    "synced": "SYNCED"
+    "summary": "{games} GAMES"
   },
   "update": {
     "available": "Update Available",

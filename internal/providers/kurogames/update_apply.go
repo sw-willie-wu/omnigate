@@ -155,6 +155,16 @@ func (a *applier) runApply(ctx context.Context) error {
 	if err := os.Remove(walPath); err != nil {
 		a.logger.Warn("remove apply.wal", "err", err)
 	}
+
+	// Clean up the entire version dir so subsequent scanForRecovery doesn't
+	// re-fire on orphan markers (.lc_update.lock, stray .part files, etc).
+	// Release the lock first — Windows can't delete an open file. The
+	// deferred lock.Release() above is a no-op after explicit release
+	// (Release is idempotent: sets w.file = nil).
+	_ = a.lock.Release()
+	if err := os.RemoveAll(a.progress.dir()); err != nil {
+		a.logger.Warn("cleanup version dir post-apply", "dir", a.progress.dir(), "err", err)
+	}
 	return nil
 }
 

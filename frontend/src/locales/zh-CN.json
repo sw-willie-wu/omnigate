@@ -35,8 +35,7 @@
     "predl_pill": "可预下载"
   },
   "footer": {
-    "summary": "{backends} 个后端 · {games} 款游戏",
-    "synced": "已同步"
+    "summary": "{games} 款游戏"
   },
   "update": {
     "available": "更新游戏",
