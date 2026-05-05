@@ -24,6 +24,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"launcher-collection-tmp/internal/core"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,7 +97,7 @@ func BenchmarkSidecarParse_LargeProgress(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
-		pf, err := loadProgressFile(progressPath)
+		pf, err := core.LoadProgressFromPath(progressPath)
 		elapsed := time.Since(start)
 		if err != nil {
 			b.Fatal(err)

@@ -420,7 +420,7 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 	tempRoot := a.kurogamesTempDir(gid)
 	gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 	sidecarDir := filepath.Join(tempRoot, gameIDFlat, plan.Version)
-	rec := kurogames.ScanRecovery(sidecarDir)
+	rec := core.ScanRecovery(sidecarDir)
 
 	sidecarETag := readSidecarETag(sidecarDir)
 	if sidecarETag != "" && sidecarETag != plan.ManifestETag {
@@ -464,16 +464,16 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 // or both are unreadable. apply.wal also records ETag in its first line
 // (per Task 9's WAL format) — read that as fallback.
 func readSidecarETag(dir string) string {
-	if pf, err := kurogames.LoadProgress(dir); err == nil {
+	if pf, err := core.LoadProgress(dir); err == nil {
 		return pf.ETag
 	}
 	// apply.wal has its own ETag; fall back to its parser
-	if etag := kurogames.ReadWALETag(filepath.Join(dir, "apply.wal")); etag != "" {
+	if etag := core.ReadWALETag(filepath.Join(dir, "apply.wal")); etag != "" {
 		return etag
 	}
-	// predl_ready.json — use loadProgressFile via kurogames helper
+	// predl_ready.json — use loadProgressFile via core helper
 	predlPath := filepath.Join(dir, "predl_ready.json")
-	if pf, err := kurogames.LoadProgressFromPath(predlPath); err == nil {
+	if pf, err := core.LoadProgressFromPath(predlPath); err == nil {
 		return pf.ETag
 	}
 	return ""
@@ -702,7 +702,7 @@ func (a *App) scanForRecovery() {
 }
 
 func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
-	rec := kurogames.ScanRecovery(sidecarDir)
+	rec := core.ScanRecovery(sidecarDir)
 	a.logger.Debug("applyRecoveryState: ScanRecovery result", "game", gid, "dir", sidecarDir, "phase", rec.Phase, "wasPredl", rec.WasPredl)
 	state := a.updateRegistry.Get(gid)
 	switch rec.Phase {
@@ -735,7 +735,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 	case core.RecoveryPhasePredlAwaiting:
 		// Spec §2.3 row "Only predl_ready.json": parse → set state.PredlReady, no prompt.
 		predlPath := filepath.Join(sidecarDir, "predl_ready.json")
-		pf, err := kurogames.LoadProgressFromPath(predlPath)
+		pf, err := core.LoadProgressFromPath(predlPath)
 		if err != nil {
 			return // ScanRecovery already deletes corrupt predl_ready.json
 		}
