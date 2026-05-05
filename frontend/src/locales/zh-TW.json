@@ -29,5 +29,35 @@
   "footer": {
     "summary": "{backends} 個後端 · {games} 款遊戲",
     "synced": "已同步"
+  },
+  "update": {
+    "available": "有更新",
+    "predl_available": "可預下載",
+    "downloading": "更新中 {pct}%",
+    "applying": "套用中 {cur}/{total}",
+    "predl_downloading": "預下載 {pct}%",
+    "predl_ready": "套用預下載",
+    "remove_predl": "移除",
+    "cancel": "取消",
+    "errors": {
+      "process_blocked": "請先關閉 {game} 再更新",
+      "manifest_changed": "remote 已更新版本，請重新整理",
+      "manifest_not_found": "找不到更新資訊（伺服器回 404）",
+      "auth_failed": "認證失敗，請聯絡支援",
+      "predl_stale": "預下載已過期 ({version})，清除並更新到 {newVersion}？",
+      "interrupted_resume_download": "上次更新中斷，是否繼續？",
+      "interrupted_resume_apply": "上次套用中斷，重新嘗試？",
+      "interrupted_resume_predl_download": "上次預下載中斷，是否繼續？",
+      "interrupted_resume_predl_apply": "上次套用預下載中斷，重新嘗試？",
+      "disk_full": "磁碟空間不足（需要 {need}，剩餘 {have}）",
+      "cross_volume_temp": "暫存目錄與遊戲位於不同磁碟（M3.A 不支援）",
+      "cross_volume_midrun": "套用中偵測磁碟變更，無法繼續",
+      "unsupported_filesystem": "暫存目錄需位於 NTFS 磁碟（FAT32/exFAT 不支援）",
+      "network": "網路錯誤：{detail}",
+      "corrupt": "下載檔案損毀，請重試",
+      "apply_partial": "套用過程中失敗，請重試",
+      "unrecoverable": "更新狀態已損毀，請使用 KRLauncher 修復後再試",
+      "internal": "內部錯誤：{detail}"
+    }
   }
 }

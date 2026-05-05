@@ -29,5 +29,35 @@
   "footer": {
     "summary": "{backends} BACKENDS · {games} GAMES",
     "synced": "SYNCED"
+  },
+  "update": {
+    "available": "Update Available",
+    "predl_available": "Pre-download Available",
+    "downloading": "Updating {pct}%",
+    "applying": "Applying {cur}/{total}",
+    "predl_downloading": "Pre-downloading {pct}%",
+    "predl_ready": "Apply Pre-download",
+    "remove_predl": "Remove",
+    "cancel": "Cancel",
+    "errors": {
+      "process_blocked": "Please close {game} before updating",
+      "manifest_changed": "Remote version updated; please refresh",
+      "manifest_not_found": "Update manifest not found (server returned 404)",
+      "auth_failed": "Authentication failed; please contact support",
+      "predl_stale": "Pre-download outdated ({version}). Clear and update to {newVersion}?",
+      "interrupted_resume_download": "Last update interrupted. Continue?",
+      "interrupted_resume_apply": "Last apply interrupted. Retry?",
+      "interrupted_resume_predl_download": "Last pre-download interrupted. Continue?",
+      "interrupted_resume_predl_apply": "Last predownload-apply interrupted. Retry?",
+      "disk_full": "Insufficient disk space (need {need}, have {have})",
+      "cross_volume_temp": "Temp dir and game must be on same drive (M3.A limitation)",
+      "cross_volume_midrun": "Drive change detected mid-apply; cannot continue",
+      "unsupported_filesystem": "Temp dir must be on NTFS (FAT32/exFAT not supported)",
+      "network": "Network error: {detail}",
+      "corrupt": "Downloaded file corrupted; please retry",
+      "apply_partial": "Apply phase failed; please retry",
+      "unrecoverable": "Update state corrupted; please use KRLauncher to repair",
+      "internal": "Internal error: {detail}"
+    }
   }
 }

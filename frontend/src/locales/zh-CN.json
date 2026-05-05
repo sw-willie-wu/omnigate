@@ -29,5 +29,35 @@
   "footer": {
     "summary": "{backends} 个后端 · {games} 款游戏",
     "synced": "已同步"
+  },
+  "update": {
+    "available": "有更新",
+    "predl_available": "可预下载",
+    "downloading": "更新中 {pct}%",
+    "applying": "应用中 {cur}/{total}",
+    "predl_downloading": "预下载 {pct}%",
+    "predl_ready": "应用预下载",
+    "remove_predl": "移除",
+    "cancel": "取消",
+    "errors": {
+      "process_blocked": "请先关闭 {game} 再更新",
+      "manifest_changed": "remote 已更新版本，请重新加载",
+      "manifest_not_found": "找不到更新信息（服务器返回 404）",
+      "auth_failed": "认证失败，请联系支持",
+      "predl_stale": "预下载已过期 ({version})，清除并更新到 {newVersion}？",
+      "interrupted_resume_download": "上次更新中断，是否继续？",
+      "interrupted_resume_apply": "上次应用中断，重试？",
+      "interrupted_resume_predl_download": "上次预下载中断，是否继续？",
+      "interrupted_resume_predl_apply": "上次应用预下载中断，重试？",
+      "disk_full": "磁盘空间不足（需要 {need}，剩余 {have}）",
+      "cross_volume_temp": "暂存目录与游戏位于不同磁盘（M3.A 不支持）",
+      "cross_volume_midrun": "应用中检测磁盘变化，无法继续",
+      "unsupported_filesystem": "暂存目录需位于 NTFS 磁盘（FAT32/exFAT 不支持）",
+      "network": "网络错误：{detail}",
+      "corrupt": "下载文件损坏，请重试",
+      "apply_partial": "应用过程中失败，请重试",
+      "unrecoverable": "更新状态已损坏，请使用 KRLauncher 修复后再试",
+      "internal": "内部错误：{detail}"
+    }
   }
 }
