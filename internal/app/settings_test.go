@@ -130,3 +130,50 @@ func TestSettings_FreshInstallSavesVersion1(t *testing.T) {
 		t.Errorf("re-loaded hoyoverse Path = %q", s2.Backends.Hoyoverse.Path)
 	}
 }
+
+func TestSettings_KurogamesTempDir_DefaultEmpty(t *testing.T) {
+	tmp := t.TempDir()
+	s, err := LoadSettings(filepath.Join(tmp, "settings.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Backends.Kurogames.TempDir != "" {
+		t.Errorf("default TempDir = %q, want empty", s.Backends.Kurogames.TempDir)
+	}
+}
+
+func TestSettings_KurogamesTempDir_RoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "settings.toml")
+	s := defaultSettings()
+	s.Backends.Kurogames.TempDir = `D:\my-temp`
+	if err := SaveSettings(p, s); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Backends.Kurogames.TempDir != `D:\my-temp` {
+		t.Errorf("round-trip TempDir = %q", loaded.Backends.Kurogames.TempDir)
+	}
+}
+
+func TestSettings_KurogamesTempDir_BackwardCompat(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "settings.toml")
+	m2 := "version = 1\n\n[app]\nlanguage = \"zh-TW\"\n\n[backends.kurogames]\npath = \"C:\\\\Program Files\\\\Wuthering Waves\"\n"
+	if err := os.WriteFile(p, []byte(m2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Backends.Kurogames.Path != `C:\Program Files\Wuthering Waves` {
+		t.Errorf("path lost during load: %q", s.Backends.Kurogames.Path)
+	}
+	if s.Backends.Kurogames.TempDir != "" {
+		t.Errorf("TempDir = %q on M2-era file", s.Backends.Kurogames.TempDir)
+	}
+}
