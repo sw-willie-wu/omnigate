@@ -360,16 +360,8 @@ func (a *App) Refresh() {
 	a.invalidateDetect()
 }
 
-// scanForRecovery walks the temp directory tree for unfinished updates
-// (sidecars left behind by crash/interrupt). Per spec §2.3, this initializes
-// recovery tracking; the actual recovery state is discovered on-demand by
-// ResumeInterrupted or frontend polling. Stub for now — M3.A refine to
-// proactively surface "resume available" prompts to frontend.
-func (a *App) scanForRecovery() {
-	// TODO: M3.A iter-3+: walk <TempDir>/<gameID-flat>/<version>/ for
-	// sidecars and pre-populate recovery state for frontend polling.
-	// For now, ResumeInterrupted discovers recovery on-demand.
-}
+// scanForRecovery is defined in update_handler.go — moved out of app.go
+// (the stub previously here was incorrect; see commit fix below).
 
 // ErrorCode exposes the core.ErrorCode mapping to the frontend.
 func (a *App) ErrorCode(s string) string {

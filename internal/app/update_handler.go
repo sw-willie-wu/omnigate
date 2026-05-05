@@ -499,3 +499,119 @@ func gameExeName(p core.Provider, gid core.GameID) (string, bool) {
 func removeAll(path string) error {
 	return osRemoveAll(path) // wraps os.RemoveAll for testability
 }
+
+// scanForRecovery walks the kurogames temp tree on App startup and seeds
+// per-game state: interrupted runs become LastError = interrupted_resume
+// (UI shows resume prompt), completed predownloads become PredlReady.
+// Per spec §2.3 + §6.3 sidecar collision rules (handled by ScanRecovery).
+//
+// Tree shape: <kurogamesTempDir>/<gameID-flat>/<version>/{progress.json|apply.wal|predl_ready.json}
+// where <gameID-flat> = strings.ReplaceAll(string(gid), "/", "-").
+func (a *App) scanForRecovery() {
+	tempRoot := a.kurogamesTempDir("") // empty gid: returns settings.TempDir or default root
+	gameDirs, err := osReadDir(tempRoot)
+	if err != nil {
+		return // no temp tree → nothing to recover (normal first-run case)
+	}
+	for _, gameDir := range gameDirs {
+		if !gameDir.IsDir() {
+			continue
+		}
+		gameIDFlat := gameDir.Name()
+		// Reverse the gameID-flat encoding: "kurogames-wutheringwaves" → "kurogames/wutheringwaves"
+		gid := core.GameID(strings.Replace(gameIDFlat, "-", "/", 1))
+		// Verify gid resolves to a known provider; skip foreign dirs
+		if _, err := a.provider(gid); err != nil {
+			continue
+		}
+		gameDirPath := filepath.Join(tempRoot, gameIDFlat)
+		versionDirs, err := osReadDir(gameDirPath)
+		if err != nil {
+			continue
+		}
+		for _, vDir := range versionDirs {
+			if !vDir.IsDir() {
+				continue
+			}
+			sidecarDir := filepath.Join(gameDirPath, vDir.Name())
+			a.applyRecoveryState(gid, sidecarDir)
+		}
+	}
+}
+
+func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
+	rec := kurogames.ScanRecovery(sidecarDir)
+	state := a.updateRegistry.Get(gid)
+	switch rec.Phase {
+	case kurogames.RecoveryPhaseDownloadResume:
+		state.mu.Lock()
+		state.LastError = &core.UpdateError{
+			Code:      "interrupted_resume",
+			Retryable: true,
+			Params: map[string]string{
+				"phase":    "download",
+				"wasPredl": fmt.Sprintf("%t", rec.WasPredl),
+			},
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryPhaseApplyResume:
+		state.mu.Lock()
+		state.LastError = &core.UpdateError{
+			Code:      "interrupted_resume",
+			Retryable: true,
+			Params: map[string]string{
+				"phase":    "apply",
+				"wasPredl": fmt.Sprintf("%t", rec.WasPredl),
+			},
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryPhasePredlAwaiting:
+		// Spec §2.3 row "Only predl_ready.json": parse → set state.PredlReady, no prompt.
+		predlPath := filepath.Join(sidecarDir, "predl_ready.json")
+		pf, err := kurogames.LoadProgressFromPath(predlPath)
+		if err != nil {
+			return // ScanRecovery already deletes corrupt predl_ready.json
+		}
+		// Reconstruct minimal UpdatePlan from ProgressFile. Apply phase only
+		// needs Path (URL/Hash already used during predownload's verify step).
+		files := make([]core.FileTask, 0, len(pf.Entries))
+		var totalBytes int64
+		for relPath, entry := range pf.Entries {
+			files = append(files, core.FileTask{
+				Path: relPath,
+				Hash: entry.Hash,
+				Size: entry.Size,
+			})
+			totalBytes += entry.Size
+		}
+		state.mu.Lock()
+		state.PredlReady = &core.UpdatePlan{
+			GameID:       gid,
+			Kind:         core.PlanPredownload,
+			ManifestETag: pf.ETag,
+			Version:      pf.Version,
+			Files:        files,
+			TotalBytes:   totalBytes,
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryCorrupt:
+		// Spec §2.3 row "Corrupt apply.wal": LastError = unrecoverable.
+		state.mu.Lock()
+		state.LastError = &core.UpdateError{
+			Code:      "unrecoverable",
+			Retryable: false,
+			Params:    map[string]string{"reason": "corrupt apply.wal sidecar"},
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+
+	case kurogames.RecoveryNone:
+		// nothing to do
+	}
+}
