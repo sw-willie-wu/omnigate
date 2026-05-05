@@ -56,6 +56,35 @@ export const useGamesStore = defineStore('games', {
         }
       }
     },
+    async refreshVersionFor(gameID: string) {
+      const idx = this.games.findIndex((g) => g.id === gameID);
+      if (idx < 0 || !this.games[idx].installed) return;
+      try {
+        const v = await RefreshVersion(gameID);
+        this.games[idx].current_version = v.Current;
+        this.games[idx].latest_version = v.Latest;
+        this.games[idx].has_predownload = !!v.Predownload;
+      } catch (e) {
+        console.warn('refreshVersionFor failed', gameID, e);
+      }
+    },
+    async loadAssetsFor(gameID: string) {
+      const idx = this.games.findIndex((g) => g.id === gameID);
+      if (idx < 0 || !this.games[idx].installed) return;
+      try {
+        const g = this.games[idx];
+        if (!g.icon_url) g.icon_url = await GetIcon(gameID);
+        const bgs = await GetBackgrounds(gameID);
+        if (bgs.length) {
+          const withVideo = bgs.find((b) => b.VideoURL);
+          const pick = withVideo ?? bgs[0];
+          g.background_url = pick.ImageURL;
+          g.background_video = pick.VideoURL;
+        }
+      } catch (e) {
+        console.warn('loadAssetsFor failed', gameID, e);
+      }
+    },
     select(id: string) { this.selectedID = id; },
   },
   getters: {

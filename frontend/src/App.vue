@@ -2,6 +2,7 @@
 import { onMounted, computed } from 'vue';
 import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
+import { useUpdatesStore } from './stores/updates';
 import BgLayer from './components/BgLayer.vue';
 import Topbar from './components/Topbar.vue';
 import Sidebar from './components/Sidebar.vue';
@@ -12,6 +13,7 @@ import Footbar from './components/Footbar.vue';
 
 const games = useGamesStore();
 const view = useViewStore();
+const updates = useUpdatesStore();
 
 const appClass = computed(() => ({
   collapsed: view.sidebarCollapsed,
@@ -22,6 +24,8 @@ onMounted(async () => {
   await games.load();
   await games.refreshVersions();
   await games.loadAssets();
+  await updates.loadAll();
+  updates.bind();
 });
 </script>
 
