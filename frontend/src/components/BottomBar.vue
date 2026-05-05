@@ -20,6 +20,25 @@ const availableUpdate = computed(() => selectedSnap.value?.available_update ?? n
 const availablePredl = computed(() => selectedSnap.value?.available_predl ?? null);
 const predlReady = computed(() => selectedSnap.value?.predl_ready ?? null);
 
+// Pill state — priority: update > predl > ready. has_predownload is set by
+// providers (e.g. hoyoverse) directly via CheckVersion; availablePredl is only
+// populated for Updater providers (kurogames in M3.A) — read both to cover
+// non-Updater backends that still surface predl info.
+const hasAnyPredl = computed(() => availablePredl.value !== null || (games.selected?.has_predownload ?? false));
+const pillLabel = computed(() => {
+  if (availableUpdate.value) {
+    const cur = games.selected?.current_version ?? '?';
+    const lat = games.selected?.latest_version ?? availableUpdate.value.version ?? '?';
+    return `${t('labels.update_pill')} · ${cur} → ${lat}`;
+  }
+  if (hasAnyPredl.value) return t('labels.predl_pill');
+  return t('labels.ready_pill');
+});
+const pillClass = computed(() => ({
+  warn: !!availableUpdate.value,
+  info: !availableUpdate.value && hasAnyPredl.value,
+}));
+
 // Progress percentage (Download phase by bytes; Apply phase by file count)
 const progressPct = computed(() => {
   const ifl = inFlight.value;
@@ -63,8 +82,8 @@ async function onCancel() {
 <template>
   <div v-if="games.selected" class="bottom-bar">
     <div class="hero-stats-line">
-      <span class="pill">{{ t('labels.ready_pill') }}</span>
-      <span class="v">v{{ games.selected.current_version || games.selected.latest_version || '?' }}</span>
+      <span class="pill" :class="pillClass">{{ pillLabel }}</span>
+      <span v-if="!availableUpdate" class="v">v{{ games.selected.current_version || games.selected.latest_version || '?' }}</span>
     </div>
 
     <!-- left: predl button OR remove button (when PredlReady) -->

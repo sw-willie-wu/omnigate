@@ -106,7 +106,25 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	}
 	for _, ig := range installs {
 		if ig.GameID == gid {
-			return fetchVersion(ctx, ig.InstallPath, gid)
+			vi, err := fetchVersion(ctx, ig.InstallPath, gid)
+			if err != nil {
+				return vi, err
+			}
+			// Best-effort: fetch index.json (~17 KiB) so vi.Latest reflects
+			// what the server is actually shipping. Network blip → fall back
+			// to local-only (fetchVersion already set Latest = Current).
+			// 10s budget keeps Refresh responsive even on slow connections.
+			fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			if idx, _, ferr := fetchIndex(fetchCtx, p.httpClient, indexJSONURL()); ferr == nil {
+				if idx.Default.Version != "" {
+					vi.Latest = idx.Default.Version
+				}
+				if idx.Predownload != nil && idx.Predownload.Version != "" && idx.Predownload.Version != vi.Current {
+					vi.Predownload = &core.PredownloadInfo{TargetVersion: idx.Predownload.Version}
+				}
+			}
+			return vi, nil
 		}
 	}
 	return core.VersionInfo{}, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
@@ -141,14 +159,17 @@ func (p *Provider) ExeName(gid core.GameID) (string, bool) {
 // CheckForUpdate fetches the manifest, filters out files identical to
 // the current install, returns a populated UpdatePlan. M3.A only.
 func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
+	p.logger.Debug("kurogames CheckForUpdate: enter", "game", gid)
 	g := findByID(gid)
 	if g == nil {
 		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
 
 	// Find install path
+	p.logger.Debug("kurogames CheckForUpdate: DetectInstall", "game", gid, "settings_path", p.settings.Path)
 	installs, err := DetectInstall(ctx, p.settings.Path)
 	if err != nil {
+		p.logger.Warn("kurogames CheckForUpdate: DetectInstall failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
 	}
 	var installPath string
@@ -159,28 +180,37 @@ func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.Up
 		}
 	}
 	if installPath == "" {
+		p.logger.Warn("kurogames CheckForUpdate: install path empty", "game", gid, "installs_count", len(installs))
 		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 	}
+	p.logger.Debug("kurogames CheckForUpdate: install path resolved", "game", gid, "install_path", installPath)
 
 	// AppCred is hardcoded (per research markdown 2026-05-05); no extraction.
 	// Read current local version from launcherDownloadConfig.json.
 	localVersion, _ := readLauncherDownloadConfigVersion(filepath.Join(installPath, "launcherDownloadConfig.json"))
+	p.logger.Debug("kurogames CheckForUpdate: localVersion read", "game", gid, "local_version", localVersion)
 
 	// Two-step manifest fetch:
 	// 1. GET index.json → discover CDN list + per-version indexFile URL
+	p.logger.Debug("kurogames CheckForUpdate: fetchIndex start", "game", gid, "url", indexJSONURL())
 	idx, idxETag, err := fetchIndex(ctx, p.httpClient, indexJSONURL())
 	if err != nil {
+		p.logger.Warn("kurogames CheckForUpdate: fetchIndex failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
 	}
+	p.logger.Debug("kurogames CheckForUpdate: fetchIndex done", "game", gid, "default_version", idx.Default.Version, "etag", idxETag)
 	cfg, _ := pickIndexFileForVersion(idx, localVersion)
 	cdn := pickCDN(idx.Default.CDNList)
 	indexFileURL := cdn + cfg.IndexFile
+	p.logger.Debug("kurogames CheckForUpdate: fetchIndexFile start", "game", gid, "url", indexFileURL)
 
 	// 2. GET indexFile.json → discover file list with MD5 + size
 	idxFile, _, err := fetchIndexFile(ctx, p.httpClient, indexFileURL)
 	if err != nil {
+		p.logger.Warn("kurogames CheckForUpdate: fetchIndexFile failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
 	}
+	p.logger.Debug("kurogames CheckForUpdate: fetchIndexFile done", "game", gid, "resource_count", len(idxFile.Resource))
 
 	// Filter to changed files only
 	files := filterChangedFiles(installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger)

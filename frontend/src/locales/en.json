@@ -24,7 +24,9 @@
     "checked": "CHECKED",
     "minutes_ago": "{n} MIN AGO",
     "days_ago": "{n} DAYS AGO",
-    "ready_pill": "READY"
+    "ready_pill": "READY",
+    "update_pill": "UPDATE AVAILABLE",
+    "predl_pill": "PREDOWNLOAD"
   },
   "footer": {
     "summary": "{backends} BACKENDS · {games} GAMES",

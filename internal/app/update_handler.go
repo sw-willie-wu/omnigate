@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"launcher-collection-tmp/internal/core"
 	"launcher-collection-tmp/internal/providers/kurogames"
@@ -380,6 +381,69 @@ func readSidecarETag(dir string) string {
 		return pf.ETag
 	}
 	return ""
+}
+
+// CheckForUpdate probes the manifest and populates state.AvailableUpdate when
+// the server-reported version differs from the locally-installed version.
+// Frontend calls this from Topbar.onRefresh for each installed game so the
+// BottomBar [更新 ↓] button (spec §3.1) can appear without requiring a click
+// on a button that doesn't exist yet.
+//
+// Spec §1.2.1 says "AvailableUpdate is populated lazily on user click and the
+// result cached on the snapshot" — but no RPC was wired to do the populating
+// before the click. This RPC closes that gap (discovered during M3.A Task 18
+// smoke). Best-effort by design: errors are swallowed so a transient network
+// blip on Refresh doesn't surface a toast; the real error path is via
+// StartUpdate when the user clicks [更新].
+func (a *App) CheckForUpdate(gameID string) error {
+	gid := core.GameID(gameID)
+	a.logger.Debug("CheckForUpdate RPC called", "game", gid)
+	p, err := a.provider(gid)
+	if err != nil {
+		a.logger.Debug("CheckForUpdate skip: unknown game", "game", gid, "err", err)
+		return nil
+	}
+	if _, ok := p.(core.Updater); !ok {
+		a.logger.Debug("CheckForUpdate skip: provider not Updater", "game", gid, "provider", p.ID())
+		return nil
+	}
+
+	state := a.updateRegistry.Get(gid)
+	state.mu.RLock()
+	inFlight := state.InFlight != nil
+	state.mu.RUnlock()
+	if inFlight {
+		a.logger.Debug("CheckForUpdate skip: in-flight", "game", gid)
+		return nil
+	}
+
+	// Lightweight probe: rely on p.CheckVersion (which now fetches index.json
+	// for the real Latest) rather than upd.CheckForUpdate's full two-step
+	// manifest + per-file MD5 computation (which can take 10-30s on disks
+	// with hundreds of GB-sized .pak files). The full plan is fetched lazily
+	// when user clicks [更新] (StartUpdate → upd.CheckForUpdate).
+	probeCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	vi, err := p.CheckVersion(probeCtx, gid)
+	if err != nil {
+		a.logger.Warn("CheckForUpdate probe failed", "game", gid, "err", err)
+		return nil
+	}
+	a.logger.Debug("CheckForUpdate result", "game", gid, "latest", vi.Latest, "current", vi.Current)
+
+	state.mu.Lock()
+	if vi.Latest != "" && vi.Latest != vi.Current {
+		state.AvailableUpdate = &core.UpdatePlan{
+			GameID:  gid,
+			Kind:    core.PlanUpdate,
+			Version: vi.Latest,
+		}
+	} else {
+		state.AvailableUpdate = nil
+	}
+	state.mu.Unlock()
+	a.updateRegistry.EmitTerminal(gid)
+	return nil
 }
 
 // UpdateStatusAll returns per-game state snapshots.

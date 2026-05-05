@@ -13,8 +13,8 @@
   },
   "status": {
     "ready": "就緒",
-    "update": "更新可用",
-    "predownload": "預下載",
+    "update": "可更新",
+    "predownload": "可預下載",
     "downloading": "下載中",
     "applying": "套用中",
     "error": "錯誤"
@@ -24,14 +24,16 @@
     "checked": "檢查於",
     "minutes_ago": "{n} 分鐘前",
     "days_ago": "{n} 天前",
-    "ready_pill": "就緒"
+    "ready_pill": "就緒",
+    "update_pill": "可更新",
+    "predl_pill": "可預下載"
   },
   "footer": {
     "summary": "{backends} 個後端 · {games} 款遊戲",
     "synced": "已同步"
   },
   "update": {
-    "available": "有更新",
+    "available": "更新遊戲",
     "predl_available": "可預下載",
     "downloading": "更新中 {pct}%",
     "applying": "套用中 {cur}/{total}",

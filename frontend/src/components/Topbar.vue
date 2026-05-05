@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { useViewStore } from '../stores/view';
 import { useGamesStore } from '../stores/games';
+import { useUpdatesStore } from '../stores/updates';
 import { i18n, setLang } from '../i18n';
 import { WindowMinimise, Quit } from '../../wailsjs/runtime/runtime';
 import { Refresh } from '../../wailsjs/go/app/App';
 
 const view = useViewStore();
 const games = useGamesStore();
+const updates = useUpdatesStore();
 
 // 2-way toggle: zh-TW ↔ en. zh-CN locale exists but isn't in the toggle.
 const cycleLang = () => {
@@ -19,6 +21,12 @@ const onRefresh = async () => {
     await games.load();
     await games.refreshVersions();
     await games.loadAssets();
+    // Probe for updates so BottomBar [更新 ↓] can appear (spec §1.2.1
+    // missing-trigger gap fixed during M3.A Task 18 smoke). Best-effort,
+    // parallel; errors swallowed in updates.checkForUpdate.
+    await Promise.allSettled(
+      games.games.filter((g) => g.installed).map((g) => updates.checkForUpdate(g.id)),
+    );
   } catch (e) {
     console.error('refresh failed', e);
   }
