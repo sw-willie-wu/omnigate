@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue';
+import { onMounted, computed, ref } from 'vue';
 import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
 import { useUpdatesStore } from './stores/updates';
@@ -10,10 +10,17 @@ import DetailView from './components/DetailView.vue';
 import GridView from './components/GridView.vue';
 import BottomBar from './components/BottomBar.vue';
 import Footbar from './components/Footbar.vue';
+import ConfirmDialog from './components/ConfirmDialog.vue';
+import ToastHost from './components/ToastHost.vue';
+import { registerDialog } from './composables/useDialog';
+import { registerToast } from './composables/useToast';
 
 const games = useGamesStore();
 const view = useViewStore();
 const updates = useUpdatesStore();
+
+const dialogRef = ref(null);
+const toastRef = ref(null);
 
 const appClass = computed(() => ({
   collapsed: view.sidebarCollapsed,
@@ -26,6 +33,8 @@ onMounted(async () => {
   await games.loadAssets();
   await updates.loadAll();
   updates.bind();
+  registerDialog(dialogRef.value);
+  registerToast(toastRef.value);
 });
 </script>
 
@@ -44,5 +53,7 @@ onMounted(async () => {
       </main>
       <Footbar />
     </div>
+    <ConfirmDialog ref="dialogRef" />
+    <ToastHost ref="toastRef" />
   </div>
 </template>
