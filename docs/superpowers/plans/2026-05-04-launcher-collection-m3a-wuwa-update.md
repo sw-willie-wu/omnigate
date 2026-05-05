@@ -1668,15 +1668,255 @@ git commit -m "feat(app): GameUpdateState + ticker-drain Wails event emitter"
 - Create: `internal/providers/kurogames/update_manifest.go`
 - Create: `internal/providers/kurogames/update_manifest_test.go`
 
-**Depends on:** Task 1 research artifacts (`docs/superpowers/research/m3a-kuro-update-protocol.md`). The implementer reads that markdown to fill in:
-- Exact manifest URL template (likely `https://prod-alicdn-gamestarter.kurogame.com/launcher/<accountID>/G153/<...>/<lang>.json`)
-- Manifest JSON struct shape (`Version`, `Files[]`, etc.)
-- Hash algorithm (SHA-256 vs MD5)
-- ETag header presence
-
-**MVP-minus branch**: if research determined "full-file-replace only", `FileTask` has no `Mode` field; this task is unchanged. If research found diff entries (`patchUrl`/`baseHash`), add a `Mode` field to FileTask in core (Task 2 amendment) and parse it here.
+**Depends on:** Task 1 research artifact (`docs/superpowers/research/m3a-kuro-update-protocol.md`). **Read it before starting.** The placeholder code shown below in Steps 2-5 was written speculatively before the research; the research's "Spec deltas" table corrects it. **The implementer MUST apply the corrections in Step 0 below verbatim — they override the placeholder code in Steps 2, 3, 4, 5 wherever they conflict.**
 
 **Sanitization** (per spec §6.5): all logged URLs pass `sanitizeURL` (added in this task as a small helper).
+
+- [ ] **Step 0: Research-derived protocol corrections (apply before Steps 2-5)**
+
+The research markdown reveals four protocol facts that override the placeholder code in the steps below. Wherever the steps below conflict with these, the corrections win.
+
+**Correction A — App credential is a hardcoded constant (NOT cache-scraped)**
+
+Drop the `extractAccountID` function shown in Step 5 entirely. Replace ALL its callers (in Task 7 + Task 10) with the compile-time constant:
+
+```go
+// AppCred is the hardcoded `appId_appKey` for WuWa Global / live channel.
+// Verified per research markdown 2026-05-05; identical on every install.
+// Source-code constant (NOT extracted from KRLauncher cache, NOT per-machine).
+const AppCred = "50004_obOHXFrFanqsaIEOmuKroCcbZkQRBC7c"
+```
+
+Step 5's `extractAccountID` function is REMOVED — do not implement it. The `accountIDRe` regex from Step 1 stays (still used by `sanitizeURL`).
+
+**Correction B — Manifest is two-step (NOT the single `manifestRaw` shown in Step 2)**
+
+The placeholder `manifestRaw` struct in Step 2 must be replaced with these two structs. The flow is: fetch `index.json` → discover the per-version `indexFile.json` URL → fetch that for the file list.
+
+```go
+// indexRaw is the top-level launcher index — list of CDNs + version + the
+// indexFile pointer. URL: https://prod-alicdn-gamestarter.kurogame.com/launcher/game/G153/<AppCred>/index.json
+type indexRaw struct {
+	Default struct {
+		Version  string         `json:"version"`
+		CDNList  []cdnEntry     `json:"cdnList"`
+		Config   indexConfigRaw `json:"config"`
+	} `json:"default"`
+	Predownload      *struct {
+		Version string         `json:"version"`
+		CDNList []cdnEntry     `json:"cdnList"`
+		Config  indexConfigRaw `json:"config"`
+	} `json:"predownload,omitempty"` // present only when active predl is published
+	PredownloadSwitch int               `json:"predownloadSwitch"`
+	KeyFileCheckList  []string          `json:"keyFileCheckList"`
+}
+
+type cdnEntry struct {
+	URL string `json:"url"`
+	P   int    `json:"P"`            // priority; lower = better
+	K1  int    `json:"K1"`
+	K2  int    `json:"K2"`
+}
+
+type indexConfigRaw struct {
+	Version       string                 `json:"version"`
+	IndexFile     string                 `json:"indexFile"`     // path under CDN
+	IndexFileMD5  string                 `json:"indexFileMd5"`  // ETag of indexFile.json
+	BaseURL       string                 `json:"baseUrl"`       // path under CDN where files live
+	Size          int64                  `json:"size"`
+	UnCompressSize int64                 `json:"unCompressSize"`
+	PatchType     string                 `json:"patchType"`     // "patch" → patchConfig has per-source-version entries
+	PatchConfig   []indexConfigRaw       `json:"patchConfig,omitempty"` // recursive: each entry has its own indexFile/baseUrl
+}
+
+// indexFileRaw is the per-version file manifest discovered via indexConfigRaw.IndexFile.
+type indexFileRaw struct {
+	Resource []manifestFileRaw `json:"resource"`
+}
+
+// manifestFileRaw is one file entry. Replaces the spec-assumed shape;
+// no per-entry URL — caller constructs URL = <cdn>/<baseUrl OR fromFolder><dest>.
+type manifestFileRaw struct {
+	Dest       string      `json:"dest"`                 // relative install path; spaces OK; %-encode for URL
+	MD5        string      `json:"md5"`                  // 32-char hex lowercase
+	Size       int64       `json:"size"`
+	ChunkInfos []chunkInfo `json:"chunkInfos,omitempty"` // present iff size > 100 MiB; per-chunk verify
+	FromFolder string      `json:"fromFolder,omitempty"` // patch-only: per-entry baseUrl override
+}
+
+type chunkInfo struct {
+	Start int64  `json:"start"`
+	End   int64  `json:"end"`
+	MD5   string `json:"md5"`
+}
+```
+
+The `manifestRaw` type shown in Step 2 is REMOVED. Anywhere later steps reference `manifestRaw.Files`, replace with `indexFileRaw.Resource`. Anywhere later steps reference `manifestFileRaw.{Path, Hash, URL}`, replace with `manifestFileRaw.{Dest, MD5, /*URL constructed by caller*/}`.
+
+**Correction C — Hash is MD5 (NOT SHA-256 in Step 4)**
+
+Step 4's `sha256File` function is replaced with `md5File`. Imports change `"crypto/sha256"` → `"crypto/md5"` throughout. `core.FileTask.Hash` keeps its name but its semantic is "lowercase hex MD5"; document in `core.FileTask`'s GoDoc that the algo is provider-defined and kurogames uses MD5. (Spec §1.2 said SHA-256; it's wrong. Don't update spec; just document the deviation.)
+
+```go
+// md5File returns the lowercase-hex MD5 of a file's contents. Replaces
+// the placeholder sha256File from Step 4 — kurogames manifests use MD5
+// per research markdown 2026-05-05.
+func md5File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+```
+
+**Correction D — `buildManifestURL` is a real two-step lookup (NOT the placeholder template in Step 4)**
+
+Step 4's `buildManifestURL` placeholder is replaced with the real lookup function:
+
+```go
+// indexJSONURL is the entrypoint for kurogames update protocol. Returns the
+// stable URL for index.json — the catalog of CDNs + the per-version
+// indexFile.json pointer. WuWa Global / live channel only (M3.A scope).
+func indexJSONURL() string {
+	return "https://prod-alicdn-gamestarter.kurogame.com/launcher/game/G153/" + AppCred + "/index.json"
+}
+
+// pickCDN selects the lowest-priority (best) CDN from the list. Stable
+// ordering for tests: ties broken by url string sort.
+func pickCDN(list []cdnEntry) string {
+	if len(list) == 0 {
+		return "https://hw-pcdownload-qcloud.aki-game.net/" // safe default per research
+	}
+	best := list[0]
+	for _, c := range list[1:] {
+		if c.P < best.P || (c.P == best.P && c.URL < best.URL) {
+			best = c
+		}
+	}
+	return best.URL
+}
+
+// pickIndexFileForVersion returns the indexConfigRaw matching the current
+// install's version, falling back to default.config (full install) when no
+// patchConfig entry matches. Per research §"Diff format detection".
+func pickIndexFileForVersion(idx *indexRaw, currentVersion string) (indexConfigRaw, bool) {
+	if idx.Default.Config.PatchType == "patch" && currentVersion != "" {
+		for _, p := range idx.Default.Config.PatchConfig {
+			if p.Version == currentVersion {
+				return p, true // patch path: smaller delta
+			}
+		}
+	}
+	return idx.Default.Config, false // full-install path
+}
+
+// fileURL constructs the download URL for a manifestFileRaw given the
+// chosen CDN and parent baseUrl from indexConfigRaw. Per-entry FromFolder
+// (patch indexFiles) overrides parent baseUrl. Spaces in dest get %-encoded.
+func fileURL(cdn string, parentBaseURL string, entry manifestFileRaw) string {
+	folder := entry.FromFolder
+	if folder == "" {
+		folder = parentBaseURL
+	}
+	// url.PathEscape is too aggressive (escapes /); manually escape only spaces
+	// (the only special char observed in dest fields).
+	dest := strings.ReplaceAll(entry.Dest, " ", "%20")
+	return cdn + folder + dest
+}
+```
+
+**Correction E — ETag is the indexFileMd5 from the parent index (no need to re-fetch HEAD)**
+
+Step 3's `reFetchManifestETag` does a HEAD on the WRONG URL (it would HEAD the index.json, not the indexFile.json). Replace its usage in Task 10's RunUpdate with: refetch `index.json`, compare `default.config.indexFileMd5` to the captured one. If they differ, the manifest changed.
+
+(The actual implementation is small — rather than a HEAD optimization, just re-fetch index.json since it's small (~17 KiB gzipped) and avoids the indirection.)
+
+**Correction F — predownload detection (NEW — replaces spec's assumption)**
+
+When `index.json::predownloadSwitch == 1` AND `index.json::predownload != nil`, a predownload is available. The `predownload` block has the same shape as `default`. M3.A uses `idx.Predownload != nil` as the "AvailablePredl" signal in App layer (Task 11 already handles this state; just need to surface it from Task 7's `CheckForUpdate`).
+
+When predownloadSwitch=1 but Predownload field is absent (typical state when no active predl), no predl plan is produced.
+
+---
+
+**Correction G — `filterChangedFiles` signature change**
+
+Step 4's placeholder:
+```go
+func filterChangedFiles(installDir string, files []manifestFileRaw, logger *slog.Logger) []core.FileTask
+```
+becomes (URL is now constructed inside, requires CDN + parent baseURL):
+```go
+// filterChangedFiles drops manifest entries whose MD5 matches the
+// already-installed file. Reduces plan to actual work. URL for each
+// surviving entry is constructed via fileURL(cdn, parentBaseURL, entry).
+// Per-entry FromFolder overrides parentBaseURL when set.
+func filterChangedFiles(installDir, cdn, parentBaseURL string, files []manifestFileRaw, logger *slog.Logger) []core.FileTask {
+	out := make([]core.FileTask, 0, len(files))
+	for _, f := range files {
+		full := filepath.Join(installDir, f.Dest)
+		fi, err := os.Stat(full)
+		if err != nil || fi.IsDir() {
+			out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
+			continue
+		}
+		if fi.Size() != f.Size {
+			out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
+			continue
+		}
+		h, err := md5File(full)
+		if err != nil {
+			logger.Debug("md5 check failed; will re-download", "path", f.Dest, "err", err)
+			out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
+			continue
+		}
+		if h == f.MD5 {
+			continue // identical
+		}
+		out = append(out, core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+```
+
+**Correction H — `fetchManifest` is split into `fetchIndex` + `fetchIndexFile`**
+
+Step 3's `fetchManifest` (single function returning `manifestRaw + ETag`) is replaced with two separate functions matching the two-step protocol. Both reuse Step 3's status-code → core.UpdateError mapping (4xx → manifest_not_found / auth_failed; 5xx → network).
+
+```go
+// fetchIndex GETs index.json and returns parsed body + an ETag-equivalent
+// (Last-Modified or computed body MD5 — index.json doesn't ship a real ETag
+// per research §"Endpoints/Manifest top-level"). Use the same status-code
+// branching as Step 3's placeholder fetchManifest.
+func fetchIndex(ctx context.Context, client *http.Client, url string) (*indexRaw, string, error) {
+	// (same status-code branching as Step 3's fetchManifest, but unmarshal into indexRaw)
+	// ETag fallback: use Last-Modified header value as the drift token.
+	// Body parse: json.Unmarshal(body, &indexRaw)
+	// ...
+}
+
+// fetchIndexFile GETs the indexFile.json discovered from index.json.
+// Reuses Step 3's status-code branching. The response's ETag header IS
+// the indexFileMd5 (per research); caller can use this to validate against
+// the indexConfigRaw.IndexFileMD5 from the parent index.
+func fetchIndexFile(ctx context.Context, client *http.Client, url string) (*indexFileRaw, string, error) {
+	// (same status-code branching as Step 3's fetchManifest, but unmarshal into indexFileRaw)
+	// ...
+}
+```
+
+The `reFetchManifestETag` HEAD function from Step 3 is REMOVED — superseded by re-calling `fetchIndex` which is small (17 KiB gzipped) and avoids the wrong-URL bug noted in Correction E.
+
+---
+
+**Net effect on Steps 2-5 below:** treat the placeholder code as STRUCTURE (file location, function names, error-handling patterns are valid) but use Corrections A-H's values for protocol specifics. Step 5 (`extractAccountID`) is removed; the `AppCred` const replaces it everywhere.
 
 - [ ] **Step 1: Add sanitizeURL helper**
 
@@ -2124,7 +2364,7 @@ git commit -m "feat(kurogames): manifest fetch + ETag + sanitizeURL + filterChan
 
 ---
 
-## Task 8: update_download.go — worker pool + per-file SHA + retry
+## Task 8: update_download.go — worker pool + per-file MD5 + retry
 
 **Files:**
 - Create: `internal/providers/kurogames/update_download.go`
@@ -2132,7 +2372,13 @@ git commit -m "feat(kurogames): manifest fetch + ETag + sanitizeURL + filterChan
 
 Spec sources: §2.8 retry policy (3x net with 1s/4s/16s backoff, 2x hash mismatch), §5.1 worker pool of 4, §5.3 download phase pseudocode, §7.0 Clock seam for tests.
 
-**MVP-minus reminder** (per spec §1.2.3): if Task 1 escalated to MVP-minus (full-file-replace only, no diff/patch), `core.FileTask` has no `Mode` field — all entries are full-replace, and this task's downloader treats every URL as a whole-file fetch. Skip any patch/delta-format branches.
+**Research-derived overrides** (apply throughout this task — see `docs/superpowers/research/m3a-kuro-update-protocol.md`):
+
+1. **Hash algorithm = MD5**, NOT SHA-256. Replace all `crypto/sha256` imports with `crypto/md5`; replace `sha256.New()` with `md5.New()`; replace `sha256.Sum256(...)` with `md5.Sum(...)`. Hash output is still hex-encoded (32 chars). The test helper `sha(s)` (line ~2376 of this task) renames to `md5hex(s)`.
+2. **`core.FileTask.Hash` is still named `Hash`** (no rename — keeps the cross-task type signature stable), but its semantic is "lowercase-hex MD5". `filterChangedFiles` compares against the manifest's `MD5` field; the downloader's verifier hashes downloaded bytes with MD5.
+3. **`chunkInfos` handling deferred to M3.A.v2.** Per research, files >100 MiB carry a `ChunkInfos []chunkInfo` array enabling per-100-MiB-chunk byte-range resume + per-chunk MD5 verify. M3.A's downloader IGNORES this field — it does single GETs and full-file MD5. Trade-off: a 30 GB pak file that fails at 20 GB re-downloads from 0 (vs. just re-fetching the failed 100 MiB chunk). Acceptable for v1; v2 adds chunked downloader (Task 8b in M3.A.v2 plan). Document this in `update_download.go` as a `// TODO(M3.A.v2): chunkInfos resume` comment.
+
+**MVP-minus reminder** (per spec §1.2.3): the WuWa protocol's `patchType: "patch"` mechanism is JUST per-version indexFile selection — patch entries are still full-replace files (NOT binary deltas). So Task 7 picks the right indexFile and this task downloads its files normally. There's no separate patch/full code path here; spec §1.2.3 MVP-minus is moot for WuWa specifically (per research).
 
 - [ ] **Step 1: Implement worker pool + retry + verify**
 
@@ -3315,27 +3561,32 @@ func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.Up
 		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 	}
 
-	// Extract accountID
-	accountID, err := extractAccountID(p.logger)
-	if err != nil {
-		return core.UpdatePlan{}, &core.UpdateError{
-			Code:      "auth_failed",
-			Retryable: false,
-			Params:    map[string]string{"reason": "accountID extraction failed: " + err.Error()},
-		}
-	}
+	// App credential is HARDCODED per Task 7 Step 0 Correction A — no extraction.
+	// (Spec §4.1's "extract accountID via cache scrape" is wrong; the value is
+	// the same `50004_obOHXFrFanqsaIEOmuKroCcbZkQRBC7c` constant on every install.
+	// See docs/superpowers/research/m3a-kuro-update-protocol.md.)
 
 	// Read current local version from launcherDownloadConfig.json
 	localVersion, _ := readLauncherDownloadConfigVersion(filepath.Join(installPath, "launcherDownloadConfig.json"))
-	manifestURL := buildManifestURL(accountID, "G153", "current") // PLACEHOLDER — replace per research
 
-	mf, etag, err := fetchManifest(ctx, p.httpClient, manifestURL)
+	// Two-step manifest fetch per Task 7 Step 0 Corrections B + D:
+	// 1. GET index.json → discover CDN list + per-version indexFile URL
+	idx, idxETag, err := fetchIndex(ctx, p.httpClient, indexJSONURL())
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	cfg, _ := pickIndexFileForVersion(idx, localVersion) // bool return = "is patch path"
+	cdn := pickCDN(idx.Default.CDNList)
+	indexFileURL := cdn + cfg.IndexFile
+
+	// 2. GET indexFile.json → discover file list with MD5 + size
+	idxFile, _, err := fetchIndexFile(ctx, p.httpClient, indexFileURL)
 	if err != nil {
 		return core.UpdatePlan{}, err
 	}
 
-	// Filter to changed files only
-	files := filterChangedFiles(installPath, mf.Files, p.logger)
+	// Filter to changed files only; construct per-entry FileTask with URL = cdn+folder+dest
+	files := filterChangedFiles(installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger)
 	var totalBytes int64
 	for _, f := range files {
 		totalBytes += f.Size
@@ -3344,17 +3595,18 @@ func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.Up
 	plan := core.UpdatePlan{
 		GameID:       gid,
 		Kind:         core.PlanUpdate, // PlanPredownload set by separate StartPredownload entry
-		ManifestETag: etag,
-		Version:      mf.Version,
+		ManifestETag: idxETag,         // index.json's Last-Modified+Content-MD5 derived; per Task 7 Step 0 Correction E
+		Version:      cfg.Version,
 		Files:        files,
 		TotalBytes:   totalBytes,
 	}
 	p.logger.Info("CheckForUpdate complete",
 		"game", gid,
 		"local_version", localVersion,
-		"target_version", mf.Version,
+		"target_version", cfg.Version,
 		"files_to_update", len(files),
 		"bytes", totalBytes,
+		"path", "patch_or_full",
 	)
 	return plan, nil
 }
@@ -3414,10 +3666,11 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 		}
 	}
 
-	// Re-verify ETag at entry
-	accountID, _ := extractAccountID(p.logger)
-	manifestURL := buildManifestURL(accountID, "G153", plan.Version)
-	if currentETag, _ := reFetchManifestETag(ctx, p.httpClient, manifestURL); currentETag != "" && currentETag != plan.ManifestETag {
+	// Re-verify ETag at entry per Task 7 Step 0 Correction E:
+	// re-fetch index.json (small, ~17 KiB gzipped) and compare ETag.
+	// AppCred is the hardcoded constant (no extractAccountID call).
+	if currentIdx, currentETag, err := fetchIndex(ctx, p.httpClient, indexJSONURL()); err == nil && currentETag != "" && currentETag != plan.ManifestETag {
+		_ = currentIdx
 		return &core.UpdateError{
 			Code:      "manifest_changed",
 			Retryable: true,
