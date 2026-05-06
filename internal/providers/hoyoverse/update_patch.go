@@ -2,6 +2,7 @@ package hoyoverse
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -14,6 +15,42 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+// hdifffilesEntry is one line in Genshin's legacy hdifffiles.txt: a JSON
+// object with a single `remoteName` field. The legacy format does NOT
+// carry source/target MD5 hashes — patch verification is "if hpatchz exits
+// 0 we trust the result". (Modern hdiffmap.json carries hashes; see
+// hdiffmapEntry.)
+type hdifffilesEntry struct {
+	RemoteName string `json:"remoteName"`
+}
+
+// parseHdifffiles parses the legacy `hdifffiles.txt` format: one JSON
+// object per line. Empty lines are skipped. Returns error on malformed
+// JSON or empty remoteName.
+//
+// Reference: HappyGenyuanImsactUpdate (YYHEggEgg) Patch.cs::Hdiff and
+// Hoyo-Hdiff-Patcher (GesthosNetwork) — both confirm one-JSON-per-line
+// with `remoteName` as the only field.
+func parseHdifffiles(data []byte) ([]hdifffilesEntry, error) {
+	var entries []hdifffilesEntry
+	lines := bytes.Split(data, []byte{'\n'})
+	for i, raw := range lines {
+		line := bytes.TrimSpace(raw)
+		if len(line) == 0 {
+			continue
+		}
+		var e hdifffilesEntry
+		if err := json.Unmarshal(line, &e); err != nil {
+			return nil, fmt.Errorf("hdifffiles.txt line %d: %w", i+1, err)
+		}
+		if e.RemoteName == "" {
+			return nil, fmt.Errorf("hdifffiles.txt line %d: empty remoteName", i+1)
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
 
 type hdiffmapEntry struct {
 	SourceFileName  string `json:"sourceFileName"`
@@ -175,16 +212,49 @@ func applyPatchZip(
 		return nil
 	}
 
-	if _, err := os.Stat(filepath.Join(stagingDir, "hdifffiles.txt")); err == nil {
-		// M3.B v1: legacy hdifffiles.txt format encountered (Task 1 research
-		// confirmed this is what HoYoverse currently serves). Implementation
-		// of the legacy parser is deferred — Task 22 smoke will catch this
-		// and a follow-up will land the legacy path.
-		return errors.New("hdifffiles.txt legacy format encountered; v1 implementation pending plan task 1 verification")
+	hdifffilesPath := filepath.Join(stagingDir, "hdifffiles.txt")
+	if data, err := os.ReadFile(hdifffilesPath); err == nil {
+		entries, err := parseHdifffiles(data)
+		if err != nil {
+			return err
+		}
+		// Filter to entries whose source file is actually present in gameDir.
+		// Genshin's hdifffiles.txt may list files from non-installed audio
+		// packs or platform variants — silently skip absent sources (matches
+		// reference impl YYHEggEgg/HappyGenyuanImsactUpdate behavior).
+		type legacyTask struct{ src, patch, target, rel string }
+		tasks := make([]legacyTask, 0, len(entries))
+		for _, entry := range entries {
+			srcPath := filepath.Join(gameDir, entry.RemoteName)
+			if _, statErr := os.Stat(srcPath); statErr != nil {
+				continue
+			}
+			patchPath := filepath.Join(stagingDir, entry.RemoteName+".hdiff")
+			if _, statErr := os.Stat(patchPath); statErr != nil {
+				continue
+			}
+			stagedTargetPath := filepath.Join(stagingDir, entry.RemoteName+".patched")
+			tasks = append(tasks, legacyTask{srcPath, patchPath, stagedTargetPath, entry.RemoteName})
+		}
+
+		emit("patching", 0, len(tasks))
+		for i, lt := range tasks {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(lt.target), 0o755); err != nil {
+				return err
+			}
+			if err := Run(ctx, lt.src, lt.patch, lt.target); err != nil {
+				return fmt.Errorf("hpatchz %s: %w", lt.rel, err)
+			}
+			emit("patching", i+1, len(tasks))
+		}
+		// Legacy format ships no target hashes — skip verifying_patches stage.
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("read hdifffiles.txt: %w", err)
 	}
 
 	return fmt.Errorf("staging missing both hdiffmap.json and hdifffiles.txt")
 }
-
-// silence unused fs import
-var _ = fs.ErrNotExist

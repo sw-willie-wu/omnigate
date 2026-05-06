@@ -37,3 +37,10 @@ func FuzzApplyWALParse(f *testing.F) {
 		_, _ = readApplyWAL(dir)
 	})
 }
+
+func FuzzHdifffilesParse(f *testing.F) {
+	f.Add([]byte(`{"remoteName":"foo.dll"}` + "\n"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = parseHdifffiles(data)
+	})
+}

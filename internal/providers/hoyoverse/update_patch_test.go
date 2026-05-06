@@ -99,6 +99,88 @@ func TestSourceMD5Verify_Mismatch(t *testing.T) {
 	}
 }
 
+func TestParseHdifffiles_JSONPerLine(t *testing.T) {
+	data, err := os.ReadFile("testdata/hdifffiles-sample.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := parseHdifffiles(data)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("entries len = %d want 3 (blank line skipped)", len(entries))
+	}
+	want := []string{
+		"GenshinImpact_Data/Native/Data/foo.dat",
+		"GenshinImpact_Data/StreamingAssets/AudioAssets/Banks0.pck",
+		"GenshinImpact_Data/Plugins/x86_64/UnityPlayer.dll",
+	}
+	for i, w := range want {
+		if entries[i].RemoteName != w {
+			t.Errorf("entries[%d].RemoteName = %q want %q", i, entries[i].RemoteName, w)
+		}
+	}
+}
+
+func TestParseHdifffiles_InvalidJSONLine(t *testing.T) {
+	bad := []byte(`{"remoteName": "ok.dll"}` + "\n" + `{not json}` + "\n")
+	if _, err := parseHdifffiles(bad); err == nil {
+		t.Error("expected parse error on malformed JSON line")
+	}
+}
+
+func TestParseHdifffiles_EmptyRemoteName(t *testing.T) {
+	bad := []byte(`{"remoteName": ""}` + "\n")
+	if _, err := parseHdifffiles(bad); err == nil {
+		t.Error("expected error on empty remoteName")
+	}
+}
+
+func TestApplyPatchZip_Legacy_SkipsMissingSource(t *testing.T) {
+	// Legacy zip: hdifffiles.txt + .hdiff entries; source files are NOT in gameDir
+	// so every entry should be silently skipped (matches reference impl behavior).
+	versionDir := t.TempDir()
+	gameDir := t.TempDir() // empty — no source files
+	stagingDir := filepath.Join(versionDir, "staging")
+
+	zipBlob := makeZipBlob(t, map[string][]byte{
+		"hdifffiles.txt":                                []byte(`{"remoteName": "GenshinImpact_Data/missing.dll"}` + "\n"),
+		"GenshinImpact_Data/missing.dll.hdiff":          []byte("PATCH-DATA"),
+	})
+	zipPath := filepath.Join(versionDir, "patch.zip")
+	if err := os.WriteFile(zipPath, zipBlob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	emitCalls := []struct {
+		stage         string
+		current, total int
+	}{}
+	emit := func(stage string, current, total int) {
+		emitCalls = append(emitCalls, struct {
+			stage          string
+			current, total int
+		}{stage, current, total})
+	}
+
+	if err := applyPatchZip(context.Background(), zipPath, gameDir, stagingDir, emit); err != nil {
+		t.Fatalf("applyPatchZip legacy with missing sources should succeed; got %v", err)
+	}
+
+	// Expect: extracting (0,1) → patching (0,0) — zero entries to patch since
+	// all listed sources are absent. No hpatchz invocation; no error.
+	var sawPatchingZero bool
+	for _, c := range emitCalls {
+		if c.stage == "patching" && c.current == 0 && c.total == 0 {
+			sawPatchingZero = true
+		}
+	}
+	if !sawPatchingZero {
+		t.Errorf("expected patching emit with total=0 (no entries to patch); got %+v", emitCalls)
+	}
+}
+
 func TestExtractAudioOnly_NoHdiffmap(t *testing.T) {
 	versionDir := t.TempDir()
 	zipBlob := makeZipBlob(t, map[string][]byte{
