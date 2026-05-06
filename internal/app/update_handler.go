@@ -638,32 +638,67 @@ func removeAll(path string) error {
 	return osRemoveAll(path) // wraps os.RemoveAll for testability
 }
 
-// scanForRecovery walks the kurogames temp tree on App startup and seeds
-// per-game state: interrupted runs become LastError = interrupted_resume
-// (UI shows resume prompt), completed predownloads become PredlReady.
-// Per spec §2.3 + §6.3 sidecar collision rules (handled by ScanRecovery).
+// knownBackendIDs returns a set of registered backend IDs as plain strings.
+// Used by scanForRecovery to skip <TEMP>/omnigate/<otherBackend>/ subdirs
+// during the kurogames flat-root walk: kurogames root <TEMP>/omnigate/
+// happens to be a parent of hoyoverse's <TEMP>/omnigate/hoyoverse/ subdir,
+// so a naive walker would treat "hoyoverse" as a candidate game directory.
+// Cross-backend gid collision is structurally impossible by ParseGameID
+// strengthening (Task 3); this filter eliminates noise.
+func (a *App) knownBackendIDs() map[string]struct{} {
+	out := make(map[string]struct{}, len(a.providers))
+	for _, p := range a.providers {
+		out[string(p.ID())] = struct{}{}
+	}
+	return out
+}
+
+// scanForRecovery walks every registered backend's per-backend temp root,
+// scanning each <root>/<gameIDFlat>/<version>/ for sidecars and seeding
+// per-game state (interrupted_resume / predl_ready) via applyRecoveryState.
 //
-// Tree shape: <kurogamesTempDir>/<gameID-flat>/<version>/{progress.json|apply.wal|predl_ready.json}
-// where <gameID-flat> = strings.ReplaceAll(string(gid), "/", "-").
+// Tree shape per backend: <tempDirFor(backend, "")>/<gameIDFlat>/<version>/
+// where <gameIDFlat> = strings.Replace(string(gid), "/", "-", 1).
+//
+// kurogames flat root <TEMP>/omnigate/ may contain sibling backend
+// subdirs (e.g. <TEMP>/omnigate/hoyoverse/); knownBackendIDs filter
+// skips them to suppress noise.
 func (a *App) scanForRecovery() {
-	tempRoot := a.tempDirFor("kurogames", "") // v0.3.1: single-rooted; multi-walk deferred to M3.B
-	a.logger.Debug("scanForRecovery: enter", "temp_root", tempRoot)
-	gameDirs, err := osReadDir(tempRoot)
+	skipNames := a.knownBackendIDs()
+	for _, p := range a.providers {
+		root := a.tempDirFor(p.ID(), "")
+		a.scanForRecoveryRoot(p.ID(), root, skipNames)
+	}
+}
+
+func (a *App) scanForRecoveryRoot(backend core.BackendID, root string, skipNames map[string]struct{}) {
+	a.logger.Debug("scanForRecovery: enter", "backend", backend, "root", root)
+	gameDirs, err := osReadDir(root)
 	if err != nil {
-		a.logger.Debug("scanForRecovery: no temp dir (first-run normal)", "err", err)
-		return // no temp tree → nothing to recover (normal first-run case)
+		a.logger.Debug("scanForRecovery: no temp dir (first-run normal)", "backend", backend, "err", err)
+		return
 	}
 	for _, gameDir := range gameDirs {
 		if !gameDir.IsDir() {
 			continue
 		}
 		gameIDFlat := gameDir.Name()
-		gid := core.GameID(strings.Replace(gameIDFlat, "-", "/", 1))
-		if _, err := a.provider(gid); err != nil {
-			a.logger.Debug("scanForRecovery: skip unknown game dir", "dir", gameIDFlat, "err", err)
+		// Skip sibling backends' subdirs (kurogames flat root case only).
+		if _, isBackendName := skipNames[gameIDFlat]; isBackendName {
 			continue
 		}
-		gameDirPath := filepath.Join(tempRoot, gameIDFlat)
+		gid := core.GameID(strings.Replace(gameIDFlat, "-", "/", 1))
+		p, err := a.provider(gid)
+		if err != nil {
+			a.logger.Debug("scanForRecovery: skip unknown game dir", "backend", backend, "dir", gameIDFlat, "err", err)
+			continue
+		}
+		// Defense-in-depth: the resolved provider must own this root.
+		if p.ID() != backend {
+			a.logger.Debug("scanForRecovery: cross-backend dir; skipping", "backend", backend, "gid", gid, "owner", p.ID())
+			continue
+		}
+		gameDirPath := filepath.Join(root, gameIDFlat)
 		versionDirs, err := osReadDir(gameDirPath)
 		if err != nil {
 			continue
@@ -673,13 +708,22 @@ func (a *App) scanForRecovery() {
 				continue
 			}
 			sidecarDir := filepath.Join(gameDirPath, vDir.Name())
-			a.logger.Debug("scanForRecovery: scanning sidecar dir", "game", gid, "dir", sidecarDir)
+			a.logger.Debug("scanForRecovery: scanning sidecar dir", "backend", backend, "game", gid, "dir", sidecarDir)
 			a.applyRecoveryState(gid, sidecarDir)
 		}
 	}
 }
 
+// applyRecoveryStateOverride is a test seam used by scanForRecovery tests
+// to assert which sidecar dirs the walker visits without exercising the
+// full RecoveryPhase routing logic. Production code never sets this.
+var applyRecoveryStateOverride func(gid core.GameID, sidecarDir string)
+
 func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
+	if applyRecoveryStateOverride != nil {
+		applyRecoveryStateOverride(gid, sidecarDir)
+		return
+	}
 	rec := core.ScanRecovery(sidecarDir)
 	a.logger.Debug("applyRecoveryState: ScanRecovery result", "game", gid, "dir", sidecarDir, "phase", rec.Phase, "wasPredl", rec.WasPredl)
 	state := a.updateRegistry.Get(gid)
