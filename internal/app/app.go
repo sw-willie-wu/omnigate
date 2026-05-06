@@ -79,11 +79,15 @@ func (a *App) constructProviders() error {
 	a.providers = nil
 	hoyo := hoyoverse.New(
 		hoyoverse.Settings{
-			Path:   a.settings.Backends.Hoyoverse.Path,
-			Region: a.settings.Backends.Hoyoverse.Region,
+			Path:    a.settings.Backends.Hoyoverse.Path,
+			Region:  a.settings.Backends.Hoyoverse.Region,
+			TempDir: a.settings.Backends.Hoyoverse.TempDir,
 		},
 		a.logger.With("backend", "hoyoverse"),
 	)
+	hoyo.SetTempRootFn(func(gid core.GameID) string {
+		return a.tempDirFor(hoyoverse.BackendID, gid)
+	})
 	if err := a.registerProvider(hoyo); err != nil {
 		return err
 	}

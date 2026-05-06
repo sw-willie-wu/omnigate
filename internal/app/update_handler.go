@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse"
 )
 
 // StartUpdate kicks off the update flow for a game. Performs 1st-point
@@ -539,9 +540,37 @@ func (a *App) CheckForUpdate(gameID string) error {
 	return nil
 }
 
+// predlExposer is the optional capability interface for providers that expose
+// predownload availability and last-apply-target data. Implemented by the
+// hoyoverse Provider (M3.B).
+type predlExposer interface {
+	GetPredownloadAvailable(core.GameID) bool
+	GetLastApplyTarget(core.GameID) *hoyoverse.LastApplyTarget
+}
+
 // UpdateStatusAll returns per-game state snapshots.
 func (a *App) UpdateStatusAll() map[string]GameUpdateSnapshot {
-	return a.updateRegistry.SnapshotAll()
+	snaps := a.updateRegistry.SnapshotAll()
+
+	// Overlay provider-sourced fields that are not tracked in GameUpdateState.
+	for _, p := range a.providers {
+		if pe, ok := p.(predlExposer); ok {
+			for _, g := range p.Games() {
+				gid := g.ID
+				snap := snaps[string(gid)]
+				snap.PredownloadAvailable = pe.GetPredownloadAvailable(gid)
+				if lat := pe.GetLastApplyTarget(gid); lat != nil {
+					snap.LastApplyTarget = &LastApplyTargetSnapshot{
+						TargetVersion:     lat.TargetVersion,
+						ConfigWritebackOK: lat.ConfigWritebackOK,
+					}
+				}
+				snaps[string(gid)] = snap
+			}
+		}
+	}
+
+	return snaps
 }
 
 // --- helpers ---

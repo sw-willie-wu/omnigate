@@ -52,11 +52,20 @@ type InFlightOp struct {
 // UpdateStatusAll RPC. NO pointers into live state — pure value copy
 // to prevent torn reads in the frontend.
 type GameUpdateSnapshot struct {
-	AvailableUpdate *core.UpdatePlan      `json:"available_update,omitempty"`
-	AvailablePredl  *core.UpdatePlan      `json:"available_predl,omitempty"`
-	InFlight        *InFlightSnapshot     `json:"in_flight,omitempty"`
-	LastError       *core.UpdateError     `json:"last_error,omitempty"`
-	PredlReady      *core.UpdatePlan      `json:"predl_ready,omitempty"`
+	AvailableUpdate      *core.UpdatePlan         `json:"available_update,omitempty"`
+	AvailablePredl       *core.UpdatePlan          `json:"available_predl,omitempty"`
+	InFlight             *InFlightSnapshot         `json:"in_flight,omitempty"`
+	LastError            *core.UpdateError         `json:"last_error,omitempty"`
+	PredlReady           *core.UpdatePlan          `json:"predl_ready,omitempty"`
+	PredownloadAvailable bool                      `json:"predownload_available"`
+	LastApplyTarget      *LastApplyTargetSnapshot  `json:"last_apply_target,omitempty"`
+}
+
+// LastApplyTargetSnapshot is the JSON-serializable view of the persisted
+// last_apply_target.json sidecar (M3.B). Surfaced via predlExposer.
+type LastApplyTargetSnapshot struct {
+	TargetVersion     string `json:"target_version"`
+	ConfigWritebackOK bool   `json:"config_writeback_ok"`
 }
 
 type InFlightSnapshot struct {
