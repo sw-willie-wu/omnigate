@@ -294,7 +294,8 @@ func (a *App) RemovePredownload(gameID string) error {
 	state.mu.Unlock()
 
 	if predlVersion != "" {
-		tempDir := a.tempDirFor("kurogames", gid)
+		backendID, _, _ := core.ParseGameID(gid)
+		tempDir := a.tempDirFor(backendID, gid)
 		gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 		versionDir := filepath.Join(tempDir, gameIDFlat, predlVersion)
 		// Best-effort cleanup; ignore errors
