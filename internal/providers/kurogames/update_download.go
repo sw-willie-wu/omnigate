@@ -65,7 +65,7 @@ func (realRetryClock) Sleep(d time.Duration)                  { time.Sleep(d) }
 // Returns nil on success or *core.UpdateError on terminal failure.
 func (d *downloader) runDownload(ctx context.Context) error {
 	// Pre-load existing progress to skip already-completed entries.
-	progress, _ := LoadProgress(d.progress.dir())
+	progress, _ := core.LoadProgress(d.progress.dir())
 	type job struct {
 		index int
 		file  core.FileTask
@@ -126,7 +126,7 @@ func (d *downloader) processFile(ctx context.Context, f core.FileTask) error {
 	finalPath := filepath.Join(d.progress.dir(), f.Path)
 
 	// Resume check: trust mtime+size exact equality
-	progress, _ := LoadProgress(d.progress.dir())
+	progress, _ := core.LoadProgress(d.progress.dir())
 	if progress != nil {
 		if e, ok := progress.Entries[f.Path]; ok {
 			if e.Size == f.Size {

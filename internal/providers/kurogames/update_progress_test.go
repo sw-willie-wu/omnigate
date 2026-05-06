@@ -2,6 +2,7 @@ package kurogames
 
 import (
 	"encoding/json"
+	"launcher-collection-tmp/internal/core"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,7 @@ func TestProgress_WriteAndLoadEntry(t *testing.T) {
 	if err := p.MarkComplete("Engine/foo.dll", mt, 12345); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadProgress(p.dir())
+	loaded, err := core.LoadProgress(p.dir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,20 +51,6 @@ func TestProgress_AtomicWrite(t *testing.T) {
 	}
 }
 
-func TestProgress_LoadCorruptReturnsErr(t *testing.T) {
-	tmp := t.TempDir()
-	dir := filepath.Join(tmp, "kurogames-wutheringwaves", "3.4.0")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "progress.json"), []byte("{not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadProgress(dir); err == nil {
-		t.Error("expected err on corrupt JSON")
-	}
-}
-
 func TestProgress_RenameToPredlReady(t *testing.T) {
 	tmp := t.TempDir()
 	p := newProgressStore(tmp, "kurogames/wutheringwaves", "3.4.0")
@@ -91,103 +78,3 @@ func TestProgress_RenameToPredlReady(t *testing.T) {
 	}
 }
 
-func TestProgress_RecoveryScan_ApplyWalWins(t *testing.T) {
-	tmp := t.TempDir()
-	dir := filepath.Join(tmp, "kurogames-wutheringwaves", "3.4.0")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "apply.wal"), []byte(`{"etag":"e","done":[]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"etag":"e","entries":{}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state := ScanRecovery(dir)
-	if state.Phase != RecoveryPhaseApplyResume {
-		t.Errorf("Phase = %v, want RecoveryPhaseApplyResume", state.Phase)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "progress.json")); err == nil {
-		t.Errorf("progress.json should be deleted")
-	}
-}
-
-func TestProgress_RecoveryScan_PredlOverProgress(t *testing.T) {
-	tmp := t.TempDir()
-	dir := filepath.Join(tmp, "kurogames-wutheringwaves", "3.4.0")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "predl_ready.json"), []byte(`{"etag":"e","entries":{}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"etag":"e","entries":{}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state := ScanRecovery(dir)
-	if state.Phase != RecoveryPhasePredlAwaiting {
-		t.Errorf("Phase = %v, want RecoveryPhasePredlAwaiting", state.Phase)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "progress.json")); err == nil {
-		t.Errorf("progress.json should be deleted")
-	}
-}
-
-// Spec §7.2 mandates 4 RecoveryScan variants for the (phase × wasPredl)
-// matrix referenced by spec §3.5 row 4 (interrupted_resume LastError) +
-// errcode_coverage_test.go.
-
-func TestRecoveryScan_DownloadOnly_NotFromPredl(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "progress.json"), []byte(`{"etag":"e","entries":{}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state := ScanRecovery(tmp)
-	if state.Phase != RecoveryPhaseDownloadResume {
-		t.Errorf("Phase = %v, want RecoveryPhaseDownloadResume", state.Phase)
-	}
-	if state.WasPredl {
-		t.Errorf("WasPredl = true; download-only sidecar has no predl context")
-	}
-}
-
-func TestRecoveryScan_ApplyResume_FromFreshDownload(t *testing.T) {
-	tmp := t.TempDir()
-	wal := `{"etag":"e","was_predl":false,"pending":["a"],"done":[]}`
-	if err := os.WriteFile(filepath.Join(tmp, "apply.wal"), []byte(wal), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state := ScanRecovery(tmp)
-	if state.Phase != RecoveryPhaseApplyResume {
-		t.Errorf("Phase = %v, want RecoveryPhaseApplyResume", state.Phase)
-	}
-	if state.WasPredl {
-		t.Errorf("WasPredl = true; WAL was_predl=false")
-	}
-}
-
-func TestRecoveryScan_ApplyResume_FromPredl(t *testing.T) {
-	tmp := t.TempDir()
-	wal := `{"etag":"e","was_predl":true,"pending":["a"],"done":[]}`
-	if err := os.WriteFile(filepath.Join(tmp, "apply.wal"), []byte(wal), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state := ScanRecovery(tmp)
-	if state.Phase != RecoveryPhaseApplyResume {
-		t.Errorf("Phase = %v, want RecoveryPhaseApplyResume", state.Phase)
-	}
-	if !state.WasPredl {
-		t.Errorf("WasPredl = false; WAL was_predl=true")
-	}
-}
-
-func TestRecoveryScan_CorruptWal(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "apply.wal"), []byte("{not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state := ScanRecovery(tmp)
-	if state.Phase != RecoveryCorrupt {
-		t.Errorf("Phase = %v, want RecoveryCorrupt", state.Phase)
-	}
-}

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"launcher-collection-tmp/internal/core"
-	"launcher-collection-tmp/internal/providers/kurogames"
 )
 
 // StartUpdate kicks off the update flow for a game. Performs 1st-point
@@ -35,15 +34,13 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 	}
 	upd, ok := p.(core.Updater)
 	if !ok {
-		return fmt.Errorf("provider %s does not support updates (M3.A: only kurogames)", p.ID())
+		return fmt.Errorf("provider %s does not support updates", p.ID())
 	}
 
-	// 1st game-running guard — resolve exe name via core.ExeNamer interface
-	// (NOT core.GameDescriptor.ExeName — GameDescriptor has no such field;
-	// per-provider exe metadata lives in `gameMeta` and is exposed via
-	// the ExeNamer optional interface, same pattern as asset_handler.go:101).
-	if exeName, ok := gameExeName(p, gid); ok {
-		if kurogames.IsProcessRunning(exeName) {
+	// 1st game-running guard — resolve game-running status via core.ProcessChecker interface
+	// (optional capability: not all providers implement it).
+	if pc, ok := p.(core.ProcessChecker); ok {
+		if running, _ := pc.IsGameRunning(gid); running {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -128,7 +125,7 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 	plan.Kind = kind
 	a.logger.Debug("runStartUpdateAsync: CheckForUpdate done", "game", gid, "files", len(plan.Files), "bytes", plan.TotalBytes, "version", plan.Version)
 
-	tempDir := a.kurogamesTempDir(gid)
+	tempDir := a.tempDirFor(p.ID(), gid)
 	gameDir := a.gameInstallDir(gid, p)
 	a.logger.Debug("runStartUpdateAsync: preflightChecks", "game", gid, "temp_dir", tempDir, "game_dir", gameDir)
 	if err := a.preflightChecks(tempDir, gameDir, plan.TotalBytes); err != nil {
@@ -245,9 +242,9 @@ func (a *App) ApplyPredownload(gameID string) error {
 		return fmt.Errorf("provider %s no Updater", p.ID())
 	}
 
-	// 1st game-running guard — see StartUpdate flow for ExeNamer rationale
-	if exeName, ok := gameExeName(p, gid); ok {
-		if kurogames.IsProcessRunning(exeName) {
+	// 1st game-running guard — see StartUpdate flow for ProcessChecker rationale
+	if pc, ok := p.(core.ProcessChecker); ok {
+		if running, _ := pc.IsGameRunning(gid); running {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -296,7 +293,7 @@ func (a *App) RemovePredownload(gameID string) error {
 	state.mu.Unlock()
 
 	if predlVersion != "" {
-		tempDir := a.kurogamesTempDir(gid)
+		tempDir := a.tempDirFor("kurogames", gid)
 		gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 		versionDir := filepath.Join(tempDir, gameIDFlat, predlVersion)
 		// Best-effort cleanup; ignore errors
@@ -339,8 +336,8 @@ func (a *App) ResumeInterrupted(gameID string) error {
 	}
 
 	// 1st game-running guard — same as StartUpdate
-	if exeName, ok := gameExeName(p, gid); ok {
-		if kurogames.IsProcessRunning(exeName) {
+	if pc, ok := p.(core.ProcessChecker); ok {
+		if running, _ := pc.IsGameRunning(gid); running {
 			a.setLastError(gid, &core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
@@ -417,10 +414,10 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 		return
 	}
 
-	tempRoot := a.kurogamesTempDir(gid)
+	tempRoot := a.tempDirFor(p.ID(), gid)
 	gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 	sidecarDir := filepath.Join(tempRoot, gameIDFlat, plan.Version)
-	rec := kurogames.ScanRecovery(sidecarDir)
+	rec := core.ScanRecovery(sidecarDir)
 
 	sidecarETag := readSidecarETag(sidecarDir)
 	if sidecarETag != "" && sidecarETag != plan.ManifestETag {
@@ -438,7 +435,7 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 	}
 
 	initialPhase := core.PhaseDownload
-	if rec.Phase == kurogames.RecoveryPhaseApplyResume {
+	if rec.Phase == core.RecoveryPhaseApplyResume {
 		initialPhase = core.PhaseApply
 	}
 	// Verify done — rewrite the in-flight state with the real plan + phase
@@ -464,16 +461,16 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 // or both are unreadable. apply.wal also records ETag in its first line
 // (per Task 9's WAL format) — read that as fallback.
 func readSidecarETag(dir string) string {
-	if pf, err := kurogames.LoadProgress(dir); err == nil {
+	if pf, err := core.LoadProgress(dir); err == nil {
 		return pf.ETag
 	}
 	// apply.wal has its own ETag; fall back to its parser
-	if etag := kurogames.ReadWALETag(filepath.Join(dir, "apply.wal")); etag != "" {
+	if etag := core.ReadWALETag(filepath.Join(dir, "apply.wal")); etag != "" {
 		return etag
 	}
-	// predl_ready.json — use loadProgressFile via kurogames helper
+	// predl_ready.json — use loadProgressFile via core helper
 	predlPath := filepath.Join(dir, "predl_ready.json")
-	if pf, err := kurogames.LoadProgressFromPath(predlPath); err == nil {
+	if pf, err := core.LoadProgressFromPath(predlPath); err == nil {
 		return pf.ETag
 	}
 	return ""
@@ -557,13 +554,6 @@ func (a *App) setLastError(gid core.GameID, err *core.UpdateError) {
 	a.updateRegistry.EmitTerminal(gid)
 }
 
-func (a *App) kurogamesTempDir(gid core.GameID) string {
-	td := a.settings.Backends.Kurogames.TempDir
-	if td == "" {
-		return filepath.Join(osTempDir(), "launcher-collection")
-	}
-	return td
-}
 
 func (a *App) gameInstallDir(gid core.GameID, p core.Provider) string {
 	installs, err := p.DetectInstall(context.Background())
@@ -644,18 +634,6 @@ func asUpdateError(err error) *core.UpdateError {
 	}
 }
 
-// gameExeName resolves the .exe filename for gid via the core.ExeNamer
-// optional interface. Returns ("", false) if the provider does not implement
-// ExeNamer or gid is unknown to the provider. Same shape as the lookup in
-// internal/app/asset_handler.go:101.
-func gameExeName(p core.Provider, gid core.GameID) (string, bool) {
-	en, ok := p.(core.ExeNamer)
-	if !ok {
-		return "", false
-	}
-	return en.ExeName(gid)
-}
-
 func removeAll(path string) error {
 	return osRemoveAll(path) // wraps os.RemoveAll for testability
 }
@@ -668,7 +646,7 @@ func removeAll(path string) error {
 // Tree shape: <kurogamesTempDir>/<gameID-flat>/<version>/{progress.json|apply.wal|predl_ready.json}
 // where <gameID-flat> = strings.ReplaceAll(string(gid), "/", "-").
 func (a *App) scanForRecovery() {
-	tempRoot := a.kurogamesTempDir("") // empty gid: returns settings.TempDir or default root
+	tempRoot := a.tempDirFor("kurogames", "") // v0.3.1: single-rooted; multi-walk deferred to M3.B
 	a.logger.Debug("scanForRecovery: enter", "temp_root", tempRoot)
 	gameDirs, err := osReadDir(tempRoot)
 	if err != nil {
@@ -702,11 +680,11 @@ func (a *App) scanForRecovery() {
 }
 
 func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
-	rec := kurogames.ScanRecovery(sidecarDir)
+	rec := core.ScanRecovery(sidecarDir)
 	a.logger.Debug("applyRecoveryState: ScanRecovery result", "game", gid, "dir", sidecarDir, "phase", rec.Phase, "wasPredl", rec.WasPredl)
 	state := a.updateRegistry.Get(gid)
 	switch rec.Phase {
-	case kurogames.RecoveryPhaseDownloadResume:
+	case core.RecoveryPhaseDownloadResume:
 		state.mu.Lock()
 		state.LastError = &core.UpdateError{
 			Code:      "interrupted_resume",
@@ -719,7 +697,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryPhaseApplyResume:
+	case core.RecoveryPhaseApplyResume:
 		state.mu.Lock()
 		state.LastError = &core.UpdateError{
 			Code:      "interrupted_resume",
@@ -732,10 +710,10 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryPhasePredlAwaiting:
+	case core.RecoveryPhasePredlAwaiting:
 		// Spec §2.3 row "Only predl_ready.json": parse → set state.PredlReady, no prompt.
 		predlPath := filepath.Join(sidecarDir, "predl_ready.json")
-		pf, err := kurogames.LoadProgressFromPath(predlPath)
+		pf, err := core.LoadProgressFromPath(predlPath)
 		if err != nil {
 			return // ScanRecovery already deletes corrupt predl_ready.json
 		}
@@ -763,7 +741,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryCorrupt:
+	case core.RecoveryCorrupt:
 		// Spec §2.3 row "Corrupt apply.wal": LastError = unrecoverable.
 		state.mu.Lock()
 		state.LastError = &core.UpdateError{
@@ -774,7 +752,7 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		state.mu.Unlock()
 		a.updateRegistry.EmitTerminal(gid)
 
-	case kurogames.RecoveryNone:
+	case core.RecoveryNone:
 		// nothing to do
 	}
 }
