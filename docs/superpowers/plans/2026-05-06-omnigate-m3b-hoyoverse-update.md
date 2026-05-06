@@ -3255,6 +3255,7 @@ type genshinPlan struct {
 	sourceVersion   string         // for predl-hit reuse comparison; empty for flavorFull/flavorAudioOnly/flavorNone
 	manifestETag    string         // populated from HTTP ETag or computed fingerprint
 	audioLanguages  []string       // sorted API codes (e.g. ["zh-cn","en-us"]) selected for this plan; used by RunUpdate.RenameToPredlReady's planSnapshot
+	predlAvailable  bool           // mirrors buildPlan's predlAvailable return; surfaced to frontend via Provider.GetPredownloadAvailable
 }
 
 // manifestCache is a per-process map from gid to the most-recent genshinPlan
@@ -4500,6 +4501,8 @@ git commit -m "feat(m3b/hoyoverse): update_download.go 4-worker pool + byte-rang
 
 **Depends on:** Tasks 8 (hpatchz.Run), 13 (progressStore).
 
+**Spec deviation**: spec §2 Stage E step 4 says "Success → `progressStore.MarkPatched(targetFileName)`". M3.B v1 does NOT persist per-patch state — Stage E is idempotent (re-runnable from staged zip), so per-patch progress is reported only via the `emit("patching", x, y)` callback to UI. If patch loop is interrupted, recovery wipes staging and re-runs Stage E from scratch (small cost since zips are already on disk). Spec wording will be updated post-merge to remove `MarkPatched`.
+
 **Files:**
 - Create: `internal/providers/hoyoverse/update_patch.go`
 - Test: `internal/providers/hoyoverse/update_patch_test.go`
@@ -5331,6 +5334,15 @@ func runApplyPlanPatch(
 	versionDir := versionSidecarDir(tempRoot, gid, version)
 	stagingDir := filepath.Join(versionDir, "staging")
 
+	// Cross-process exclusion via apply.lock. Acquired for the duration of
+	// Stage F; released via defer. Failure to acquire means another process
+	// is mid-apply on the same versionDir.
+	lock := newApplyLock()
+	if err := lock.Acquire(versionDir); err != nil {
+		return fmt.Errorf("acquire apply.lock: %w", err)
+	}
+	defer lock.Release()
+
 	// Build Pending from staging contents.
 	pending, err := scanStagingForApplyTargets(stagingDir, gameDir)
 	if err != nil {
@@ -5416,6 +5428,13 @@ func runApplyPlanFull(
 	emit func(stage string, current, total int),
 ) error {
 	versionDir := versionSidecarDir(tempRoot, gid, version)
+
+	// Cross-process exclusion via apply.lock (mirrors PlanPatch path).
+	lock := newApplyLock()
+	if err := lock.Acquire(versionDir); err != nil {
+		return fmt.Errorf("acquire apply.lock: %w", err)
+	}
+	defer lock.Release()
 
 	// Read or initialize extract_progress.json.
 	ep, _ := readExtractProgress(versionDir)
@@ -5727,17 +5746,29 @@ func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.Up
 	if err != nil {
 		return core.UpdatePlan{}, err
 	}
+	gp.predlAvailable = predlAvail
 	p.manifestCache.put(gid, gp)
-	if predlAvail {
-		// App layer is responsible for setting GameUpdateState.PredownloadAvailable
-		// based on a separate Provider-exposed signal; M3.B v1 simplification:
-		// expose via a field on the wrapped genshinPlan that App reads via a new
-		// method `GetPredownloadAvailable(gid)`.
-		// (Wiring detail deferred to App-layer integration in Task 18-frontend
-		// + spec; for the Provider's contract here, returning gp.UpdatePlan is
-		// sufficient.)
-	}
 	return gp.UpdatePlan, nil
+}
+
+// GetPredownloadAvailable is a Provider-exposed accessor used by App layer
+// to populate GameUpdateSnapshot.PredownloadAvailable for the frontend.
+// Read after CheckForUpdate; cache miss returns false.
+func (p *Provider) GetPredownloadAvailable(gid core.GameID) bool {
+	gp := p.manifestCache.get(gid)
+	if gp == nil {
+		return false
+	}
+	return gp.predlAvailable
+}
+
+// GetLastApplyTarget returns the persistent last_apply_target.json contents
+// for use in GameUpdateSnapshot wiring. Returns nil if no prior apply.
+func (p *Provider) GetLastApplyTarget(gid core.GameID) *lastApplyTarget {
+	tempRoot := p.tempRoot(gid)
+	latPath := filepath.Join(gameSidecarDir(tempRoot, gid), "last_apply_target.json")
+	lat, _ := loadJSONSidecar[lastApplyTarget](latPath)
+	return lat
 }
 
 // RunUpdate implements core.Updater.
@@ -5768,20 +5799,42 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 		}
 	}
 
-	// Decision table.
+	// Decision table. WAL / extract_progress recovery does NOT require
+	// in-memory cache: the sidecar carries enough state to resume after
+	// process restart.
 	if walExists(versionDir) {
-		gp := p.manifestCache.get(gid)
-		if gp == nil {
-			return fmt.Errorf("apply.wal present but no cached genshinPlan; CheckForUpdate must run first")
+		wal, err := readApplyWAL(versionDir)
+		if err != nil {
+			return fmt.Errorf("read apply.wal: %w", err)
 		}
-		return runApplyPlanPatch(ctx, tempRoot, gameDir, gid, plan.Version, false /* WAL has WasPredl */, plan.ManifestETag, emit)
+		if wal == nil {
+			// loadJSONSidecar returned (nil, nil) — file went missing between
+			// stat and read (rare race). Fall through to fresh dispatch.
+		} else {
+			// Use WAL fields if cache miss; otherwise plan's fields.
+			ver := wal.Version
+			etag := wal.ManifestETag
+			if ver == "" {
+				ver = plan.Version
+			}
+			if etag == "" {
+				etag = plan.ManifestETag
+			}
+			return runApplyPlanPatch(ctx, tempRoot, gameDir, gid, ver, wal.WasPredl, etag, emit)
+		}
 	}
 	if extractProgressExists(versionDir) {
-		gp := p.manifestCache.get(gid)
-		if gp == nil {
-			return fmt.Errorf("extract_progress.json present but no cached genshinPlan")
+		ep, err := readExtractProgress(versionDir)
+		if err != nil {
+			return fmt.Errorf("read extract_progress: %w", err)
 		}
-		return runApplyPlanFull(ctx, tempRoot, gameDir, gid, plan.Version, plan.ManifestETag, plan.Files, emit)
+		if ep != nil {
+			etag := ep.ManifestETag
+			if etag == "" {
+				etag = plan.ManifestETag
+			}
+			return runApplyPlanFull(ctx, tempRoot, gameDir, gid, plan.Version, etag, plan.Files, emit)
+		}
 	}
 
 	gp := p.manifestCache.get(gid)
@@ -6071,6 +6124,73 @@ hyoProvider.SetTempRootFn(func(gid core.GameID) string {
 ```
 
 (Adjust to the existing M2 NewProvider signature — add SetTempRootFn method to Provider.)
+
+### Step 17.5b: Wire GameUpdateSnapshot fields in App.UpdateStatusAll
+
+The App-layer `UpdateStatusAll` builds `GameUpdateSnapshot` per game and ships it to the frontend. M3.B adds three new fields (mirrored to the TS interface in Task 18):
+
+```go
+// internal/app/update_state.go (or wherever GameUpdateSnapshot is defined)
+type GameUpdateSnapshot struct {
+	// ... existing M3.A fields ...
+	PredlReady          bool             `json:"predl_ready"`
+	PredownloadAvailable bool            `json:"predownload_available"`
+	LastApplyTarget     *LastApplyTargetSnapshot `json:"last_apply_target,omitempty"`
+}
+
+type LastApplyTargetSnapshot struct {
+	TargetVersion     string `json:"target_version"`
+	ConfigWritebackOK bool   `json:"config_writeback_ok"`
+}
+```
+
+In `internal/app/update_handler.go::UpdateStatusAll`, when building each per-game snapshot, after the existing M3.A field population add:
+
+```go
+// M3.B: surface hoyoverse-specific predl + last-apply-target state.
+if upd, ok := provider.(core.Updater); ok {
+	// PredlReady is M3.A-existing on the App-side state machine.
+	// PredownloadAvailable is M3.B-new; only hoyoverse Provider implements it.
+	type predlExposer interface {
+		GetPredownloadAvailable(core.GameID) bool
+		GetLastApplyTarget(core.GameID) *hoyoverse.LastApplyTarget
+	}
+	if pe, ok := provider.(predlExposer); ok {
+		snap.PredownloadAvailable = pe.GetPredownloadAvailable(gid)
+		if lat := pe.GetLastApplyTarget(gid); lat != nil {
+			snap.LastApplyTarget = &LastApplyTargetSnapshot{
+				TargetVersion:     lat.TargetVersion,
+				ConfigWritebackOK: lat.ConfigWritebackOK,
+			}
+		}
+	}
+	_ = upd
+}
+```
+
+The `hoyoverse.LastApplyTarget` type must be EXPORTED for App to reference it (rename `lastApplyTarget` → `LastApplyTarget` in Task 12; or add a typed accessor returning a copy). Recommend: keep `lastApplyTarget` lowercase, add `Provider.GetLastApplyTarget(gid)` returning a struct with only the App-needed fields:
+
+```go
+type LastApplyTarget struct {
+	TargetVersion     string
+	ConfigWritebackOK bool
+}
+
+func (p *Provider) GetLastApplyTarget(gid core.GameID) *LastApplyTarget {
+	tempRoot := p.tempRoot(gid)
+	latPath := filepath.Join(gameSidecarDir(tempRoot, gid), "last_apply_target.json")
+	internal, _ := loadJSONSidecar[lastApplyTarget](latPath)
+	if internal == nil {
+		return nil
+	}
+	return &LastApplyTarget{
+		TargetVersion:     internal.TargetVersion,
+		ConfigWritebackOK: internal.ConfigWritebackOK,
+	}
+}
+```
+
+Replace the earlier `GetLastApplyTarget` implementation (in Step 17.4) with this typed-export version.
 
 ### Step 17.6: Run; verify PASS (existing tests + new IsGameRunning test)
 
