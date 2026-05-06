@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 type Settings struct {

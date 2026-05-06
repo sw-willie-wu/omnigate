@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // fakeUpdater satisfies core.Updater for testing the App layer.

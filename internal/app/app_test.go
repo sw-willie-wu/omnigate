@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // fakeProvider satisfies core.Provider with configurable behavior for tests.
@@ -172,7 +172,7 @@ func newAppForTest(t *testing.T, ps ...core.Provider) *App {
 func TestTempDirFor_KurogamesNoSettings(t *testing.T) {
 	a := newAppForTest(t)
 	got := a.tempDirFor("kurogames", "kurogames/wuwa")
-	want := filepath.Join(osTempDir(), "launcher-collection")
+	want := filepath.Join(osTempDir(), "omnigate")
 	if got != want {
 		t.Errorf("tempDirFor(kurogames, ...) = %q, want %q", got, want)
 	}
@@ -181,7 +181,7 @@ func TestTempDirFor_KurogamesNoSettings(t *testing.T) {
 func TestTempDirFor_DefaultBranch(t *testing.T) {
 	a := newAppForTest(t)
 	got := a.tempDirFor("nonexistent-backend", "any/game")
-	want := filepath.Join(osTempDir(), "launcher-collection", "nonexistent-backend")
+	want := filepath.Join(osTempDir(), "omnigate", "nonexistent-backend")
 	if got != want {
 		t.Errorf("tempDirFor default = %q, want %q", got, want)
 	}

@@ -3,7 +3,7 @@ package hypergryph
 import (
 	"context"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // fetchVersion: no clean local-FS version source surfaced during pre-spec

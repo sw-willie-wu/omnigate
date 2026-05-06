@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 func TestDetectInstall_FindsWuwa(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 func TestFetchVersion_AlwaysEmpty_M2Limitation(t *testing.T) {

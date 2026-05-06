@@ -24,7 +24,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 	"os"
 	"path/filepath"
 	"testing"

@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // Launch starts the game via Windows ShellExecute so the exe's manifest can

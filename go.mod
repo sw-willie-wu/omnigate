@@ -1,4 +1,4 @@
-module launcher-collection-tmp
+module omnigate
 
 go 1.23.0
 

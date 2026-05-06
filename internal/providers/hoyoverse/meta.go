@@ -1,12 +1,12 @@
 package hoyoverse
 
-import "launcher-collection-tmp/internal/core"
+import "omnigate/internal/core"
 
 const (
 	BackendID  core.BackendID = "hoyoverse"
 	LauncherID                = "VYTpXlbWo8"
 	APIBase                   = "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api"
-	UserAgent                 = "launcher-collection/0.1 (+https://github.com/willie/launcher-collection)"
+	UserAgent                 = "omnigate/0.1 (+https://github.com/willie/omnigate)"
 )
 
 // gameMeta holds compile-time constants per supported game.

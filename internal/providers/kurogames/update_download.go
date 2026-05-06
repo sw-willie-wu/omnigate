@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 const (

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 type apiClient struct {

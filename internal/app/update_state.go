@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // Clock abstracts time.Now / time.NewTicker for tests. Production wires

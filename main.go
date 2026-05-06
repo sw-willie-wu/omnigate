@@ -8,7 +8,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"launcher-collection-tmp/internal/app"
+	"omnigate/internal/app"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -39,7 +39,7 @@ func main() {
 	assetMux.Handle("/_asset/", app.AssetHandlerForApp(a))
 
 	err := wails.Run(&options.App{
-		Title:            "launcher-collection",
+		Title:            "Omnigate",
 		Width:            1280, Height: 720,
 		MinWidth:         1280, MinHeight: 720,
 		MaxWidth:         1280, MaxHeight: 720,

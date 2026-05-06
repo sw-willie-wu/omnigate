@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // TestRefresh_PhantomPredlSilentInvalidate validates spec §2.4 phantom-predl

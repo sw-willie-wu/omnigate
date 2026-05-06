@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
-	"launcher-collection-tmp/internal/providers/hoyoverse"
-	"launcher-collection-tmp/internal/providers/hypergryph"
-	"launcher-collection-tmp/internal/providers/kurogames"
+	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse"
+	"omnigate/internal/providers/hypergryph"
+	"omnigate/internal/providers/kurogames"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -425,7 +425,7 @@ func stringIndex(s, sub string) int {
 // without modifying call sites.
 //
 // Bit-exact preservation for kurogames: returns the same value as the legacy
-// kurogamesTempDir helper — settings-override OR <TEMP>/launcher-collection
+// kurogamesTempDir helper — settings-override OR <TEMP>/omnigate
 // (no backend/gid suffix; per-game flattening happens inside progressStore).
 func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 	switch backend {
@@ -433,9 +433,9 @@ func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 		if td := a.settings.Backends.Kurogames.TempDir; td != "" {
 			return td
 		}
-		return filepath.Join(osTempDir(), "launcher-collection")
+		return filepath.Join(osTempDir(), "omnigate")
 	}
 	// Default for backends without a settings TempDir field: per-backend subdir
 	// to avoid collisions. Unreachable in v0.3.1.
-	return filepath.Join(osTempDir(), "launcher-collection", string(backend))
+	return filepath.Join(osTempDir(), "omnigate", string(backend))
 }

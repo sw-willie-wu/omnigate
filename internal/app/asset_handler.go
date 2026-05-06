@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"launcher-collection-tmp/internal/core"
-	"launcher-collection-tmp/internal/providers/iconext"
+	"omnigate/internal/core"
+	"omnigate/internal/providers/iconext"
 )
 
 // newAssetHandler returns the http.Handler mounted at /_asset/* on the

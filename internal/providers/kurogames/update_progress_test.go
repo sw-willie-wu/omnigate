@@ -2,7 +2,7 @@ package kurogames
 
 import (
 	"encoding/json"
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 	"os"
 	"path/filepath"
 	"testing"

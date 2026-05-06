@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 type Settings struct {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // TestApply_HappyPath: apply phase end-to-end with no recovery state.
@@ -70,10 +70,10 @@ func TestApply_VolumeChangedBetweenPhases(t *testing.T) {
 	if filepath.VolumeName(`C:\foo`) == "" {
 		t.Skip("filepath.VolumeName behaves only on Windows hosts")
 	}
-	if err := validateSameVolume(`C:\temp\launcher-collection`, `C:\Program Files\Wuthering Waves`); err != nil {
+	if err := validateSameVolume(`C:\temp\omnigate`, `C:\Program Files\Wuthering Waves`); err != nil {
 		t.Errorf("same volume returned err: %v", err)
 	}
-	err := validateSameVolume(`C:\temp\launcher-collection`, `D:\Games\Wuthering Waves`)
+	err := validateSameVolume(`C:\temp\omnigate`, `D:\Games\Wuthering Waves`)
 	if err == nil {
 		t.Fatal("different volume: expected cross_volume_midrun error, got nil")
 	}

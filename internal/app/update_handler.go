@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // StartUpdate kicks off the update flow for a game. Performs 1st-point
