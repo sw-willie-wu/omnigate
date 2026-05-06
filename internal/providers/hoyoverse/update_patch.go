@@ -1,0 +1,190 @@
+package hoyoverse
+
+import (
+	"archive/zip"
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type hdiffmapEntry struct {
+	SourceFileName  string `json:"sourceFileName"`
+	TargetFileName  string `json:"targetFileName"`
+	PatchFileName   string `json:"patchFileName"`
+	SourceFileSize  int64  `json:"sourceFileSize"`
+	SourceMD5Hash   string `json:"sourceMD5Hash"`
+	TargetFileSize  int64  `json:"targetFileSize"`
+	TargetMD5Hash   string `json:"targetMD5Hash"`
+	CanDeleteSource bool   `json:"canDeleteSource"`
+}
+
+type hdiffmap struct {
+	Entries []hdiffmapEntry `json:"entries"`
+}
+
+func parseHdiffmap(data []byte) (*hdiffmap, error) {
+	var hm hdiffmap
+	if err := json.Unmarshal(data, &hm); err != nil {
+		return nil, fmt.Errorf("hdiffmap parse: %w", err)
+	}
+	return &hm, nil
+}
+
+// extractZipToStaging extracts every file in <zipPath> to <stagingDir>,
+// preserving directory structure. ctx-cancellable between entries.
+func extractZipToStaging(ctx context.Context, zipPath, stagingDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("open zip %s: %w", zipPath, err)
+	}
+	defer r.Close()
+
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		return err
+	}
+
+	for _, f := range r.File {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		clean := filepath.Clean(f.Name)
+		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+			return fmt.Errorf("unsafe zip entry: %s", f.Name)
+		}
+		dst := filepath.Join(stagingDir, clean)
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(dst, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("zip entry open: %w", err)
+		}
+		out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		if _, err := io.Copy(out, rc); err != nil {
+			rc.Close()
+			out.Close()
+			return err
+		}
+		rc.Close()
+		out.Close()
+	}
+	return nil
+}
+
+func hasHdiffMetadata(stagingDir string) bool {
+	for _, name := range []string{"hdiffmap.json", "hdifffiles.txt"} {
+		if _, err := os.Stat(filepath.Join(stagingDir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func verifySourceMD5(path, expectedHex string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("read source: %w", err)
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, expectedHex) {
+		return fmt.Errorf("md5 mismatch: got %s want %s", got, expectedHex)
+	}
+	return nil
+}
+
+func verifyTargetMD5(path, expectedHex string) error {
+	return verifySourceMD5(path, expectedHex)
+}
+
+// applyPatchZip orchestrates Stage E for one patch zip blob.
+func applyPatchZip(
+	ctx context.Context,
+	zipPath, gameDir, stagingDir string,
+	emit func(stage string, progress, total int),
+) error {
+	emit("extracting", 0, 1)
+	if err := extractZipToStaging(ctx, zipPath, stagingDir); err != nil {
+		return err
+	}
+
+	if !hasHdiffMetadata(stagingDir) {
+		emit("extracting_audio", 1, 1)
+		return nil
+	}
+
+	hdiffmapPath := filepath.Join(stagingDir, "hdiffmap.json")
+	if data, err := os.ReadFile(hdiffmapPath); err == nil {
+		hm, err := parseHdiffmap(data)
+		if err != nil {
+			return err
+		}
+		emit("patching", 0, len(hm.Entries))
+		for i, entry := range hm.Entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			srcPath := filepath.Join(gameDir, entry.SourceFileName)
+			patchPath := filepath.Join(stagingDir, entry.PatchFileName)
+			stagedTargetPath := filepath.Join(stagingDir, entry.TargetFileName+".patched")
+
+			if err := verifySourceMD5(srcPath, entry.SourceMD5Hash); err != nil {
+				return fmt.Errorf("source verify %s: %w", entry.SourceFileName, err)
+			}
+			if err := os.MkdirAll(filepath.Dir(stagedTargetPath), 0o755); err != nil {
+				return err
+			}
+			if err := Run(ctx, srcPath, patchPath, stagedTargetPath); err != nil {
+				return fmt.Errorf("hpatchz %s: %w", entry.SourceFileName, err)
+			}
+			emit("patching", i+1, len(hm.Entries))
+		}
+		emit("verifying_patches", 0, len(hm.Entries))
+		for i, entry := range hm.Entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			stagedTargetPath := filepath.Join(stagingDir, entry.TargetFileName+".patched")
+			if err := verifyTargetMD5(stagedTargetPath, entry.TargetMD5Hash); err != nil {
+				return fmt.Errorf("target verify %s: %w", entry.TargetFileName, err)
+			}
+			emit("verifying_patches", i+1, len(hm.Entries))
+		}
+		return nil
+	}
+
+	if _, err := os.Stat(filepath.Join(stagingDir, "hdifffiles.txt")); err == nil {
+		// M3.B v1: legacy hdifffiles.txt format encountered (Task 1 research
+		// confirmed this is what HoYoverse currently serves). Implementation
+		// of the legacy parser is deferred — Task 22 smoke will catch this
+		// and a follow-up will land the legacy path.
+		return errors.New("hdifffiles.txt legacy format encountered; v1 implementation pending plan task 1 verification")
+	}
+
+	return fmt.Errorf("staging missing both hdiffmap.json and hdifffiles.txt")
+}
+
+// silence unused fs import
+var _ = fs.ErrNotExist
