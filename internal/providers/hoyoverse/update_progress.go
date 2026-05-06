@@ -88,9 +88,13 @@ func (ps *progressStore) MarkComplete(relPath string, size int64, mtime time.Tim
 }
 
 func (ps *progressStore) Persist() error {
+	// Hold the lock across the entire write so concurrent MarkComplete callers
+	// (e.g. Task 14's 4-worker download pool) don't collide on the shared
+	// `<versionDir>/progress.json.tmp` path during Rename. progress.json is
+	// small (a few KB) so the serialization cost is negligible.
 	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	data, err := json.MarshalIndent(ps.pf, "", "  ")
-	ps.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("marshal progress.json: %w", err)
 	}
