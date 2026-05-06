@@ -261,6 +261,7 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 		Files:        files,
 		TotalBytes:   totalBytes,
 	}
+	plan.Reason = core.ReasonVersionChanged // M3.B forward-consistency: kurogames is always version-change driven
 	p.logger.Info("CheckForUpdate complete",
 		"game", gid,
 		"local_version", localVersion,
