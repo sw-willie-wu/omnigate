@@ -19,6 +19,7 @@ const status = () => {
 
 const snap = computed(() => updates.byGame[props.row.id] ?? null);
 const inFlight = computed(() => snap.value?.in_flight ?? null);
+const staleConfigWarn = computed(() => snap.value?.last_apply_target?.config_writeback_ok === false);
 const progressPct = computed(() => {
   const ifl = inFlight.value;
   if (!ifl || ifl.total === 0) return 0;
@@ -45,7 +46,11 @@ const inflightLabel = computed(() => {
       <span v-else>{{ (row.display_name['zh-TW'] || row.display_name.en)[0] }}</span>
     </div>
     <div>
-      <div class="game-name">{{ row.display_name[locale as string] || row.display_name.en }}</div>
+      <div class="game-name">
+        {{ row.display_name[locale as string] || row.display_name.en }}
+        <span v-if="snap?.predl_ready" class="icon-predl-ready" :title="t('update.predl_ready_tooltip')">☁✓</span>
+        <span v-if="staleConfigWarn" class="icon-stale-warn" :title="t('update.stale_config_tooltip')">i</span>
+      </div>
       <div v-if="inFlight" class="game-progress" :class="{predl: isPredl}">
         <span class="game-progress-fill" :style="{width: progressPct + '%'}"></span>
         <span class="game-progress-label">{{ inflightLabel }}</span>

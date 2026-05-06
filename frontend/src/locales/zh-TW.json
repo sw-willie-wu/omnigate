@@ -40,6 +40,9 @@
   "update": {
     "available": "更新遊戲",
     "predl_available": "可預下載",
+    "predl_available_size": "預下載 {size} ↓",
+    "predl_ready_tooltip": "預下載檔已備妥",
+    "stale_config_tooltip": "版本顯示未更新",
     "verifying_local": "驗證本地檔案",
     "downloading": "下載中 {pct}%",
     "applying": "套用更新中 {cur}/{total}",
@@ -47,6 +50,25 @@
     "predl_ready": "套用預下載",
     "remove_predl": "移除",
     "cancel": "取消",
+    "cancel_apply_disabled": "套用中無法取消",
+    "cancel_apply_disabled_eta": "套用中無法取消（預估還有 {minutes} 分鐘）",
+    "stage": {
+      "predownloading": "預下載中…",
+      "skipping_download_predl_hit": "使用預下載檔（跳過下載）",
+      "extracting": "解壓更新檔…",
+      "extracting_audio": "展開語音包…",
+      "patching": "套用差分修補… {x} / {y}",
+      "verifying_patches": "驗證修補檔案… {x} / {y}",
+      "applying": "套用更新（不可中斷）",
+      "applying_full": "正在套用更新（不可中斷，預估 {minutes} 分鐘）",
+      "cleanup": "清理暫存檔…"
+    },
+    "reason": {
+      "version_changed": "{currentVer} → {targetVer}",
+      "audio_pack_added": "新增語音包：{langs}",
+      "version_and_audio": "{currentVer} → {targetVer}（含新增語音包）",
+      "predownload": "預下載 {targetVer}（patch day 套用）"
+    },
     "errors": {
       "process_blocked": "請先關閉 {game} 再更新",
       "manifest_changed": "remote 已更新版本，請重新整理",
@@ -66,6 +88,33 @@
       "apply_partial": "套用過程中失敗，請重試",
       "unrecoverable": "更新狀態已損毀，請使用 KRLauncher 修復後再試",
       "internal": "內部錯誤：{detail}"
+    },
+    "error": {
+      "insufficient_space": "需要 {required}，可用 {available}；請清理後重試",
+      "cross_volume_setup": "暫存與遊戲目錄不同磁碟；請至設定變更",
+      "cross_volume_midrun": "磁碟狀態變化，更新中止",
+      "unsupported_manifest": "不支援的更新封包格式",
+      "source_corrupted": "本機檔案被修改；建議全量重灌",
+      "source_corrupted_legacy": "本機檔案大小異常；建議全量重灌",
+      "source_size_mismatch": "源檔案大小不一致；請重試",
+      "patch_corrupted": "修補檔案校驗失敗；請重試",
+      "apply_failed": "套用失敗（{file}）；請重試",
+      "apply_partial": "部分檔案無法更新（{file}）；請關閉遊戲後重試",
+      "permission_denied": "寫入遊戲目錄需要管理員；請以管理員身份重啟",
+      "version_unknown": "無法讀取本地版本"
+    },
+    "bell": {
+      "predl_complete": {
+        "title": "{game} 預下載完成",
+        "body": "{version} 已備妥；patch day 將跳過下載",
+        "dismiss": "我知道了",
+        "switch_to": "切換到此遊戲"
+      },
+      "config_writeback_warning": {
+        "title": "{game} 已更新到 {version}",
+        "body": "版本顯示需管理員權限才能更新；遊戲檔已是最新可正常啟動。如需修正，請以管理員身份重啟 Omnigate。",
+        "dismiss": "我知道了"
+      }
     }
   }
 }
