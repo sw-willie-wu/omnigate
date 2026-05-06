@@ -27,6 +27,7 @@ type Provider struct {
 	tempRootFn    func(core.GameID) string
 	httpClient    *http.Client
 	manifestCache *manifestCache
+	apiBaseURL    string
 }
 
 // New returns a new HoYoverse Provider. logger may be nil; falls back to
@@ -323,7 +324,11 @@ func (p *Provider) fetchGetGamePackages(ctx context.Context, gid core.GameID) (*
 		return nil, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
 	apiID := g.APIGameID
-	urlStr := fmt.Sprintf("%s/getGamePackages?launcher_id=%s&game_ids[]=%s", APIBase, LauncherID, apiID)
+	base := p.apiBaseURL
+	if base == "" {
+		base = APIBase
+	}
+	urlStr := fmt.Sprintf("%s/getGamePackages?launcher_id=%s&game_ids[]=%s", base, LauncherID, apiID)
 	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return nil, err
@@ -386,6 +391,12 @@ func (p *Provider) tempRoot(gid core.GameID) string {
 // provider. Called by App.constructProviders immediately after New.
 func (p *Provider) SetTempRootFn(fn func(core.GameID) string) {
 	p.tempRootFn = fn
+}
+
+// SetAPIBaseURL overrides the default HoYoverse API base URL. Used by integration
+// tests to point at httptest servers.
+func (p *Provider) SetAPIBaseURL(url string) {
+	p.apiBaseURL = url
 }
 
 func (p *Provider) freeSpaceProbe() freeSpaceProbe {
