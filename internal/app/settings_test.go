@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestSettings_LoadDefaultsWhenMissing(t *testing.T) {
@@ -175,5 +177,46 @@ func TestSettings_KurogamesTempDir_BackwardCompat(t *testing.T) {
 	}
 	if s.Backends.Kurogames.TempDir != "" {
 		t.Errorf("TempDir = %q on M2-era file", s.Backends.Kurogames.TempDir)
+	}
+}
+
+func TestSettings_HoyoverseSettings_TempDir_RoundTrip(t *testing.T) {
+	s := Settings{
+		Version: 1,
+		Backends: BackendSettings{
+			Hoyoverse: HoyoverseSettings{
+				Path:    `C:\Program Files\HoYoPlay`,
+				Region:  "global",
+				TempDir: `D:\genshin-temp`,
+			},
+		},
+	}
+	data, err := toml.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var s2 Settings
+	if err := toml.Unmarshal(data, &s2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if s2.Backends.Hoyoverse.TempDir != `D:\genshin-temp` {
+		t.Errorf("TempDir round-trip lost: %q", s2.Backends.Hoyoverse.TempDir)
+	}
+}
+
+func TestSettings_HoyoverseSettings_TempDir_Omitempty(t *testing.T) {
+	s := Settings{
+		Version: 1,
+		Backends: BackendSettings{
+			Hoyoverse: HoyoverseSettings{Path: `C:\Program Files\HoYoPlay`, Region: "global"},
+			// TempDir omitted → zero value ""
+		},
+	}
+	data, err := toml.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "temp_dir") {
+		t.Errorf("zero-value TempDir should be omitted; got:\n%s", string(data))
 	}
 }
