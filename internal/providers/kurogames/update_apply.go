@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // applyWAL is the on-disk shape of apply.wal (spec §2.2). Embeds the

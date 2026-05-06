@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 func TestFetchBasicInfo_ParsesBackgrounds(t *testing.T) {

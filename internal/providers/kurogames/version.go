@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // fetchVersion returns version info for one game. Reads the launcher's

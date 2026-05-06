@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // AppCred is the hardcoded `appId_appKey` for WuWa Global / live channel.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // fakeClock is a controllable Clock for tests.

@@ -3,12 +3,12 @@ package hypergryph
 import (
 	"path/filepath"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 const (
 	BackendID core.BackendID = "hypergryph"
-	UserAgent                = "launcher-collection/0.2 (+https://github.com/willie/launcher-collection)"
+	UserAgent                = "omnigate/0.2 (+https://github.com/willie/omnigate)"
 )
 
 type gameMeta struct {

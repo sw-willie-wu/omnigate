@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // Launch via ShellExecute — same pattern as hoyoverse/kurogames.

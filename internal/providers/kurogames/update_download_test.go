@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // fakeRetryClock makes Sleep instant for fast tests.

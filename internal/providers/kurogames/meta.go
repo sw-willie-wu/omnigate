@@ -1,10 +1,10 @@
 package kurogames
 
-import "launcher-collection-tmp/internal/core"
+import "omnigate/internal/core"
 
 const (
 	BackendID core.BackendID = "kurogames"
-	UserAgent                = "launcher-collection/0.2 (+https://github.com/willie/launcher-collection)"
+	UserAgent                = "omnigate/0.2 (+https://github.com/willie/omnigate)"
 )
 
 // gameMeta holds compile-time per-game constants for kurogames.

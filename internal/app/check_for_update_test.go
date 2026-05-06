@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // checkUpdaterFake is a minimal Provider+Updater that lets tests inject the

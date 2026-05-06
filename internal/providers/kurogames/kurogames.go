@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 type Settings struct {
@@ -334,7 +334,7 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	// Determine TempDir — root only; newProgressStore.dir() appends gameID/version.
 	tempDir := p.settings.TempDir
 	if tempDir == "" {
-		tempDir = filepath.Join(os.TempDir(), "launcher-collection")
+		tempDir = filepath.Join(os.TempDir(), "omnigate")
 	}
 
 	progress := newProgressStore(tempDir, string(plan.GameID), plan.Version)

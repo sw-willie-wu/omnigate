@@ -69,7 +69,7 @@ func TestMaxIn_EmptyReturnsEmpty(t *testing.T) {
 }
 
 func TestMaxIn_NonExistentReturnsEmpty(t *testing.T) {
-	got, err := MaxIn(filepath.Join(os.TempDir(), "definitely-does-not-exist-launcher-collection"))
+	got, err := MaxIn(filepath.Join(os.TempDir(), "definitely-does-not-exist-omnigate"))
 	if err != nil {
 		t.Errorf("unexpected error on non-existent dir: %v", err)
 	}

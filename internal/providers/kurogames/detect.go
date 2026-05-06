@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // DetectInstall scans the kurogames launcher install root and returns each

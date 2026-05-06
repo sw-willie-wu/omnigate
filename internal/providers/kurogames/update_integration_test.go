@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"launcher-collection-tmp/internal/core"
+	"omnigate/internal/core"
 )
 
 // TestUpdate_HappyPath_E2E: drives downloader + applier through a synthetic

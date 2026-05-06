@@ -34,7 +34,7 @@ type HoyoverseSettings struct {
 
 type KurogamesSettings struct {
 	Path    string `toml:"path"`
-	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/launcher-collection/<gameID>
+	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/<gameID>
 }
 type HypergryphSettings struct{ Path string `toml:"path"` }
 
