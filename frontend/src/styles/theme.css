@@ -462,19 +462,25 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .settings-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.45); }
-  /* Slide-over drawer enter/leave: panel slides from the right edge, backdrop fades. */
-  .settings-slide-enter-active, .settings-slide-leave-active { transition: transform 0.25s ease; }
-  .settings-slide-enter-from, .settings-slide-leave-to { transform: translateX(100%); }
+  /* Full-page overlay: blurs the app behind (like grid mode), fades in/out.
+     A centered card holds the settings; clicking the blurred area closes. */
+  .settings-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(8, 8, 12, 0.55);
+    backdrop-filter: blur(16px) brightness(0.85);
+    display: flex; align-items: center; justify-content: center;
+    padding: 48px 24px;
+  }
   .settings-fade-enter-active, .settings-fade-leave-active { transition: opacity 0.2s ease; }
   .settings-fade-enter-from, .settings-fade-leave-to { opacity: 0; }
-  .settings-panel {
-    position: fixed; top: 0; right: 0; bottom: 0; z-index: 1001;
-    width: 420px; max-width: 90vw;
-    background: rgba(15, 15, 25, 0.97); backdrop-filter: blur(12px);
-    border-left: 1px solid rgba(255,255,255,0.08);
+  .settings-card {
+    width: 100%; max-width: 760px; max-height: 100%;
+    background: rgba(15, 15, 25, 0.92);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 12px;
     display: flex; flex-direction: column;
-    box-shadow: -8px 0 30px rgba(0,0,0,0.5);
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.55);
   }
   .settings-header {
     display: flex; align-items: center; justify-content: space-between;
