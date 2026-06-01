@@ -40,6 +40,9 @@
   "update": {
     "available": "Update Available",
     "predl_available": "Pre-download Available",
+    "predl_available_size": "Predownload {size} ↓",
+    "predl_ready_tooltip": "Predownload ready",
+    "stale_config_tooltip": "Version label out-of-date",
     "verifying_local": "Verifying local files",
     "downloading": "Downloading {pct}%",
     "applying": "Applying update {cur}/{total}",
@@ -47,6 +50,25 @@
     "predl_ready": "Apply Pre-download",
     "remove_predl": "Remove",
     "cancel": "Cancel",
+    "cancel_apply_disabled": "Cancel disabled during apply",
+    "cancel_apply_disabled_eta": "Cancel disabled during apply (~{minutes} min remaining)",
+    "stage": {
+      "predownloading": "Predownloading…",
+      "skipping_download_predl_hit": "Using predownloaded files (skipping download)",
+      "extracting": "Extracting update…",
+      "extracting_audio": "Extracting audio packs…",
+      "patching": "Applying patches… {x} / {y}",
+      "verifying_patches": "Verifying patches… {x} / {y}",
+      "applying": "Applying update (cannot cancel)",
+      "applying_full": "Applying update (cannot cancel; ~{minutes} min remaining)",
+      "cleanup": "Cleaning up temp files…"
+    },
+    "reason": {
+      "version_changed": "{currentVer} → {targetVer}",
+      "audio_pack_added": "Adding audio packs: {langs}",
+      "version_and_audio": "{currentVer} → {targetVer} (with new audio packs)",
+      "predownload": "Predownload {targetVer} (patch day apply)"
+    },
     "errors": {
       "process_blocked": "Please close {game} before updating",
       "manifest_changed": "Remote version updated; please refresh",
@@ -66,6 +88,34 @@
       "apply_partial": "Apply phase failed; please retry",
       "unrecoverable": "Update state corrupted; please use KRLauncher to repair",
       "internal": "Internal error: {detail}"
+    },
+    "error": {
+      "insufficient_space": "Needs {required}, {available} available; free up space and retry",
+      "cross_volume_setup": "Temp dir and game dir on different drives; change in Settings",
+      "cross_volume_midrun": "Drive state changed; update aborted",
+      "unsupported_manifest": "Unsupported manifest format",
+      "source_corrupted": "Local files modified; recommend full reinstall",
+      "source_corrupted_legacy": "Local file size anomaly; recommend full reinstall",
+      "source_size_mismatch": "Source file size mismatch; please retry",
+      "patch_corrupted": "Patch verification failed; please retry",
+      "apply_failed": "Apply failed ({file}); please retry",
+      "apply_partial": "Some files could not be updated ({file}); close game and retry",
+      "permission_denied": "Writing game dir requires admin; restart as administrator",
+      "version_unknown": "Cannot read local version",
+      "sophon_not_supported": "Genshin 6.0+ uses HoYoverse's Sophon protocol; Omnigate v1 doesn't support it yet — please update via HoYoPlay launcher for now (M3.B v2 in progress)"
+    },
+    "bell": {
+      "predl_complete": {
+        "title": "{game} predownload complete",
+        "body": "{version} is ready; download will be skipped on patch day",
+        "dismiss": "Got it",
+        "switch_to": "Switch to this game"
+      },
+      "config_writeback_warning": {
+        "title": "{game} updated to {version}",
+        "body": "Version metadata writeback needs admin; game files are up to date and runnable. To fix the displayed version, restart Omnigate as administrator.",
+        "dismiss": "Got it"
+      }
     }
   }
 }

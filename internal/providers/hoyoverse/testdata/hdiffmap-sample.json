@@ -1,0 +1,14 @@
+{
+  "entries": [
+    {
+      "sourceFileName": "GenshinImpact_Data/Native/Data/foo.dat",
+      "targetFileName": "GenshinImpact_Data/Native/Data/foo.dat",
+      "patchFileName": "GenshinImpact_Data/Native/Data/foo.dat.hdiff",
+      "sourceFileSize": 1024,
+      "sourceMD5Hash": "5eb63bbbe01eeed093cb22bb8f5acdc3",
+      "targetFileSize": 2048,
+      "targetMD5Hash": "098f6bcd4621d373cade4e832627b4f6",
+      "canDeleteSource": true
+    }
+  ]
+}

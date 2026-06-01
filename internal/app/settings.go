@@ -28,8 +28,9 @@ type BackendSettings struct {
 }
 
 type HoyoverseSettings struct {
-	Path   string `toml:"path"`
-	Region string `toml:"region"`
+	Path    string `toml:"path"`
+	Region  string `toml:"region"`
+	TempDir string `toml:"temp_dir,omitempty"` // M3.B: empty → runtime default <TEMP>/omnigate/hoyoverse/
 }
 
 type KurogamesSettings struct {

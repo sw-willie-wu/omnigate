@@ -11,9 +11,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func osTempDir() string                               { return os.TempDir() }
-func osRemoveAll(path string) error                   { return os.RemoveAll(path) }
-func osReadDir(path string) ([]os.DirEntry, error)    { return os.ReadDir(path) }
+var osTempDir = func() string { return os.TempDir() }
+var osRemoveAll = func(path string) error { return os.RemoveAll(path) }
+var osReadDir = func(path string) ([]os.DirEntry, error) { return os.ReadDir(path) }
 
 func platformHasFreeSpace(dir string, need int64) bool {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")

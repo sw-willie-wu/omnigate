@@ -79,11 +79,15 @@ func (a *App) constructProviders() error {
 	a.providers = nil
 	hoyo := hoyoverse.New(
 		hoyoverse.Settings{
-			Path:   a.settings.Backends.Hoyoverse.Path,
-			Region: a.settings.Backends.Hoyoverse.Region,
+			Path:    a.settings.Backends.Hoyoverse.Path,
+			Region:  a.settings.Backends.Hoyoverse.Region,
+			TempDir: a.settings.Backends.Hoyoverse.TempDir,
 		},
 		a.logger.With("backend", "hoyoverse"),
 	)
+	hoyo.SetTempRootFn(func(gid core.GameID) string {
+		return a.tempDirFor(hoyoverse.BackendID, gid)
+	})
 	if err := a.registerProvider(hoyo); err != nil {
 		return err
 	}
@@ -418,15 +422,12 @@ func stringIndex(s, sub string) int {
 }
 
 // tempDirFor resolves the per-backend temp root for sidecar/staging files.
-// In v0.3.1 only kurogames has a configurable TempDir; hoyoverse / hypergryph
-// cases will be added in M3.B / M3.C alongside their respective settings
-// fields. The default branch is currently unreachable in production (no
-// non-kurogames caller exists yet) but exists so future cases can be added
-// without modifying call sites.
 //
-// Bit-exact preservation for kurogames: returns the same value as the legacy
-// kurogamesTempDir helper — settings-override OR <TEMP>/omnigate
-// (no backend/gid suffix; per-game flattening happens inside progressStore).
+// kurogames returns <TEMP>/omnigate (flat, bit-exact preservation per
+// the legacy kurogamesTempDir helper).
+// hoyoverse returns <TEMP>/omnigate/hoyoverse (subdir-per-backend; M3.B).
+// Future backends (M3.C hypergryph, M3.D HSR/ZZZ) follow the default
+// branch unless they add a settings TempDir field.
 func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 	switch backend {
 	case kurogames.BackendID:
@@ -434,8 +435,13 @@ func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 			return td
 		}
 		return filepath.Join(osTempDir(), "omnigate")
+	case hoyoverse.BackendID:
+		if td := a.settings.Backends.Hoyoverse.TempDir; td != "" {
+			return td
+		}
+		return filepath.Join(osTempDir(), "omnigate", "hoyoverse")
 	}
 	// Default for backends without a settings TempDir field: per-backend subdir
-	// to avoid collisions. Unreachable in v0.3.1.
+	// to avoid collisions.
 	return filepath.Join(osTempDir(), "omnigate", string(backend))
 }

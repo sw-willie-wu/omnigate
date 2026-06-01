@@ -5,6 +5,7 @@ import { useUpdatesStore } from '../stores/updates';
 import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
 import { Launch } from '../../wailsjs/go/app/App';
+import { formatSize } from '../utils/format';
 
 const games = useGamesStore();
 const updates = useUpdatesStore();
@@ -23,6 +24,36 @@ const inFlight = computed(() => selectedSnap.value?.in_flight ?? null);
 const availableUpdate = computed(() => selectedSnap.value?.available_update ?? null);
 const availablePredl = computed(() => selectedSnap.value?.available_predl ?? null);
 const predlReady = computed(() => selectedSnap.value?.predl_ready ?? null);
+
+// Stage label from in_flight.stage + params (M3.B i18n)
+const stageLabel = computed<string>(() => {
+  const stage = inFlight.value?.stage;
+  if (!stage) return '';
+  return t(`update.stage.${stage}`, (inFlight.value as any)?.params || {});
+});
+
+// Cancel tooltip when in apply phase — shows ETA if available
+const cancelDisabledTooltip = computed<string>(() => {
+  const eta = (inFlight.value as any)?.estimated_seconds_remaining;
+  if (eta && eta > 0) {
+    return t('update.cancel_apply_disabled_eta', { minutes: Math.ceil(eta / 60) });
+  }
+  return t('update.cancel_apply_disabled');
+});
+
+// Tooltip on Update button explaining why the update is needed
+const planReasonTooltip = computed<string>(() => {
+  const reason = (availableUpdate.value as any)?.reason;
+  if (!reason) return '';
+  return t(`update.reason.${reason}`, (availableUpdate.value as any)?.params || {});
+});
+
+// Predl button label with size
+const predlSizeLabel = computed<string>(() => {
+  const total = (availablePredl.value as any)?.total_bytes ?? 0;
+  if (total > 0) return t('update.predl_available_size', { size: formatSize(total) });
+  return t('update.predl_available');
+});
 
 // Pill state — priority: update > predl > ready. has_predownload is set by
 // providers (e.g. hoyoverse) directly via CheckVersion; availablePredl is only
@@ -104,7 +135,7 @@ async function onCancel() {
 
     <!-- left: predl button OR remove button (when PredlReady) -->
     <div v-if="!inFlight && availablePredl" class="predl-area">
-      <button class="predl-btn" @click="onPredl">{{ t('update.predl_available') }} ↓</button>
+      <button class="predl-btn" @click="onPredl">{{ predlSizeLabel }}</button>
     </div>
     <div v-else-if="!inFlight && predlReady" class="predl-area">
       <button class="predl-btn" @click="onRemovePredl">{{ t('update.remove_predl') }}</button>
@@ -112,7 +143,7 @@ async function onCancel() {
     <div v-else-if="inFlight && inFlight.kind === 'predownload'" class="predl-area">
       <button class="progress-btn predl">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ isVerifying ? verifyLabel : t('update.predl_downloading', { pct: progressPct }) }}</span>
+        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || t('update.predl_downloading', { pct: progressPct })) }}</span>
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
     </div>
@@ -122,7 +153,7 @@ async function onCancel() {
       <button v-if="!inFlight && !availableUpdate && !predlReady" class="launch-btn" @click="onLaunch" :disabled="!games.selected.installed">
         <span class="play-tri"></span>{{ t('buttons.play') }}
       </button>
-      <button v-else-if="!inFlight && availableUpdate" class="launch-btn update-btn" @click="onUpdate" :disabled="isStarting">
+      <button v-else-if="!inFlight && availableUpdate" class="launch-btn update-btn" @click="onUpdate" :disabled="isStarting" :title="planReasonTooltip || undefined">
         {{ t('update.available') }} ↓
       </button>
       <button v-else-if="!inFlight && predlReady" class="launch-btn" @click="onApplyPredl">
@@ -130,13 +161,14 @@ async function onCancel() {
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'download'" class="progress-btn update">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ isVerifying ? verifyLabel : t('update.downloading', { pct: progressPct }) }}</span>
+        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || t('update.downloading', { pct: progressPct })) }}</span>
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'apply'" class="progress-btn update apply">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ t('update.applying', { cur: inFlight.current, total: inFlight.total }) }}</span>
-        <!-- no cancel-x: spec §2.6 -->
+        <span class="label">{{ stageLabel || t('update.applying', { cur: inFlight.current, total: inFlight.total }) }}</span>
+        <!-- cancel disabled in apply phase; show tooltip instead of ×: spec §2.6 -->
+        <span class="cancel-x disabled" :title="cancelDisabledTooltip">×</span>
       </button>
     </div>
   </div>

@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -182,6 +185,133 @@ func (p *panickyUpdater) CheckForUpdate(ctx context.Context, gid core.GameID) (c
 }
 func (p *panickyUpdater) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent func(core.UpdateEvent)) error {
 	return p.fn(ctx, plan, onEvent)
+}
+
+// buildAppForTest creates an *App with both kurogames and hoyoverse
+// providers registered (each with one canonical game ID). Used by
+// scanForRecovery cross-backend tests.
+func buildAppForTest(t *testing.T) *App {
+	t.Helper()
+	a := &App{
+		settings: Settings{Version: 1},
+		logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+	}
+	if err := a.registerProvider(&minimalProviderForScan{
+		id:   "kurogames",
+		gids: []core.GameID{"kurogames/wutheringwaves"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.registerProvider(&minimalProviderForScan{
+		id:   "hoyoverse",
+		gids: []core.GameID{"hoyoverse/genshin"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+// minimalProviderForScan is the Provider stub for buildAppForTest.
+type minimalProviderForScan struct {
+	id   core.BackendID
+	gids []core.GameID
+}
+
+func (m *minimalProviderForScan) ID() core.BackendID            { return m.id }
+func (m *minimalProviderForScan) DisplayName() core.LocalizedString { return core.LocalizedString{} }
+func (m *minimalProviderForScan) Games() []core.GameDescriptor {
+	out := make([]core.GameDescriptor, len(m.gids))
+	for i, g := range m.gids {
+		out[i] = core.GameDescriptor{ID: g}
+	}
+	return out
+}
+func (m *minimalProviderForScan) SettingsSchema() []core.SettingField                                       { return nil }
+func (m *minimalProviderForScan) DetectInstall(ctx context.Context) ([]core.InstalledGame, error)           { return nil, nil }
+func (m *minimalProviderForScan) GetIcon(ctx context.Context, gid core.GameID) (string, error)              { return "", nil }
+func (m *minimalProviderForScan) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.Background, error) { return nil, nil }
+func (m *minimalProviderForScan) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error)     { return core.VersionInfo{}, nil }
+func (m *minimalProviderForScan) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) { return 0, nil }
+
+func TestScanForRecovery_CrossBackend_FiltersBackendNames(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Layout simulating real:
+	//   <tmp>/omnigate/                                          ← kurogames root (flat)
+	//   <tmp>/omnigate/kurogames-wutheringwaves/3.0.0/progress.json  (kuro game)
+	//   <tmp>/omnigate/hoyoverse/                                ← hoyoverse root (subdir)
+	//   <tmp>/omnigate/hoyoverse/hoyoverse-genshin/5.6.0/progress.json (hoyo game)
+	for _, p := range []string{
+		filepath.Join(tmp, "omnigate", "kurogames-wutheringwaves", "3.0.0"),
+		filepath.Join(tmp, "omnigate", "hoyoverse", "hoyoverse-genshin", "5.6.0"),
+	} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "progress.json"),
+			[]byte(`{"game_id":"","version":"","etag":"","entries":{}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prevTempDir := osTempDir
+	osTempDir = func() string { return tmp }
+	defer func() { osTempDir = prevTempDir }()
+
+	a := buildAppForTest(t)
+
+	visited := []string{}
+	prevApply := applyRecoveryStateOverride
+	applyRecoveryStateOverride = func(gid core.GameID, dir string) {
+		visited = append(visited, string(gid)+":"+filepath.Base(dir))
+	}
+	defer func() { applyRecoveryStateOverride = prevApply }()
+
+	a.scanForRecovery()
+
+	// Expect exactly 2 visited dirs: one kuro, one hoyo. NOT 3 (no extra
+	// "hoyoverse" treated as kurogames-flat gameDir).
+	if len(visited) != 2 {
+		t.Fatalf("expected 2 visited dirs, got %d: %v", len(visited), visited)
+	}
+}
+
+func TestScanForRecovery_KurogamesPrefixDirSurvives(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Layout: only a kurogames-prefixed dir exists; hoyoverse provider
+	// is registered but no hoyoverse temp tree. The scan must still
+	// visit the kurogames game dir.
+	for _, p := range []string{
+		filepath.Join(tmp, "omnigate", "kurogames-wutheringwaves", "3.0.0"),
+	} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "progress.json"),
+			[]byte(`{"game_id":"","version":"","etag":"","entries":{}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prevTempDir := osTempDir
+	osTempDir = func() string { return tmp }
+	defer func() { osTempDir = prevTempDir }()
+
+	a := buildAppForTest(t)
+
+	visited := []string{}
+	prevApply := applyRecoveryStateOverride
+	applyRecoveryStateOverride = func(gid core.GameID, dir string) {
+		visited = append(visited, string(gid))
+	}
+	defer func() { applyRecoveryStateOverride = prevApply }()
+
+	a.scanForRecovery()
+
+	if len(visited) != 1 || visited[0] != "kurogames/wutheringwaves" {
+		t.Fatalf("expected 1 visit to kurogames/wutheringwaves, got %v", visited)
+	}
 }
 
 // More tests in Task 16 integration phase — this file establishes wiring.

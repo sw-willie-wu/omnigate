@@ -33,11 +33,18 @@ export type InFlightSnapshot = {
   kind: PlanKind;
   phase: Phase;
   stage?: string; // "verifying" during runStartUpdateAsync's CheckForUpdate; empty during real download/apply
+  params?: Record<string, string | number>; // interpolation params for update.stage.* i18n keys
+  estimated_seconds_remaining?: number; // optional ETA for apply phase
   current: number;
   total: number;
   version: string;
   started_at: string;
 };
+
+export type BellEntry =
+  | { kind: 'interrupted_resume'; gid: string; phase: string; was_predl: boolean }
+  | { kind: 'predl_complete'; gid: string; version: string }
+  | { kind: 'config_writeback_warning'; gid: string; version: string };
 
 export type GameUpdateSnapshot = {
   available_update?: UpdatePlan | null;
@@ -45,6 +52,12 @@ export type GameUpdateSnapshot = {
   in_flight?: InFlightSnapshot | null;
   last_error?: UpdateError | null;
   predl_ready?: UpdatePlan | null;
+  // M3.B fields
+  predownload_available?: boolean;
+  last_apply_target?: {
+    target_version: string;
+    config_writeback_ok: boolean;
+  } | null;
 };
 
 // justCompletedUpdate (spec §3.8): true iff transitioning from in-flight
@@ -72,6 +85,8 @@ export const useUpdatesStore = defineStore('updates', {
     byGame: {} as Record<string, GameUpdateSnapshot>,
     pendingFrame: null as number | null,
     pendingPatches: {} as Record<string, GameUpdateSnapshot>,
+    // Bell drawer entries (predl_complete / config_writeback_warning)
+    bellEntries: [] as Array<BellEntry & { id: string }>,
   }),
 
   actions: {
@@ -114,6 +129,16 @@ export const useUpdatesStore = defineStore('updates', {
     async resumeInterrupted(gameID: string): Promise<void> { await ResumeInterrupted(gameID); },
     async checkForUpdate(gameID: string): Promise<void> {
       try { await CheckForUpdate(gameID); } catch (e) { console.warn('checkForUpdate failed', gameID, e); }
+    },
+
+    // Bell drawer actions (M3.B)
+    dismiss(entryId: string): void {
+      this.bellEntries = this.bellEntries.filter(e => e.id !== entryId);
+    },
+    switchTo(gid: string, entryId: string): void {
+      const games = useGamesStore();
+      games.select(gid);
+      this.dismiss(entryId);
     },
   },
 

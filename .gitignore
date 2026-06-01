@@ -19,6 +19,9 @@ frontend/package.json.md5
 # Exceptions for test fixtures
 !internal/providers/iconext/testdata/*.exe
 
+# Exceptions for vendored binaries
+!internal/providers/hoyoverse/third_party_hpatchz/hpatchz.exe
+
 # runtime state (portable mode)
 downloads/
 logs/

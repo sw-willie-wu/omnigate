@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useViewStore } from '../stores/view';
 import { useGamesStore } from '../stores/games';
@@ -14,6 +14,9 @@ const view = useViewStore();
 const games = useGamesStore();
 const updates = useUpdatesStore();
 const { pending, pendingCount, resume, dismiss } = useResumePrompt();
+
+// Bell badge: spinner when any game has an in-flight operation (lower priority than red dot)
+const anyInFlight = computed(() => Object.values(updates.byGame).some(s => s.in_flight != null));
 
 const panelOpen = ref(false);
 function toggleNotifPanel() { panelOpen.value = !panelOpen.value; }
@@ -47,9 +50,10 @@ const onRefresh = async () => {
     <div class="toolbar">
       <button class="icon-btn" @click="cycleLang" title="Language"><span class="material-symbols-outlined">translate</span></button>
       <button class="icon-btn" @click="onRefresh" title="Refresh"><span class="material-symbols-outlined">refresh</span></button>
-      <button class="icon-btn notif-btn" :class="{active: pendingCount > 0, open: panelOpen}" @click="toggleNotifPanel" title="Notifications">
+      <button class="icon-btn notif-btn" :class="{active: pendingCount > 0, open: panelOpen, inflight: anyInFlight && pendingCount === 0}" @click="toggleNotifPanel" title="Notifications">
         <span class="material-symbols-outlined">{{ pendingCount > 0 ? 'notifications_active' : 'notifications' }}</span>
         <span v-if="pendingCount > 0" class="notif-badge">{{ pendingCount }}</span>
+        <span v-else-if="anyInFlight" class="badge spinner"></span>
       </button>
       <button class="icon-btn" :class="{active: view.viewMode === 'grid'}" @click="view.setView(view.viewMode === 'grid' ? 'detail' : 'grid')"><span class="material-symbols-outlined">grid_view</span></button>
       <button class="icon-btn"><span class="material-symbols-outlined">settings</span></button>

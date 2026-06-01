@@ -40,6 +40,9 @@
   "update": {
     "available": "更新游戏",
     "predl_available": "可预下载",
+    "predl_available_size": "预下载 {size} ↓",
+    "predl_ready_tooltip": "预下载文件已就绪",
+    "stale_config_tooltip": "版本显示未更新",
     "verifying_local": "验证本地文件",
     "downloading": "下载中 {pct}%",
     "applying": "应用更新中 {cur}/{total}",
@@ -47,6 +50,25 @@
     "predl_ready": "应用预下载",
     "remove_predl": "移除",
     "cancel": "取消",
+    "cancel_apply_disabled": "应用中无法取消",
+    "cancel_apply_disabled_eta": "应用中无法取消（预估还有 {minutes} 分钟）",
+    "stage": {
+      "predownloading": "预下载中…",
+      "skipping_download_predl_hit": "使用预下载文件（跳过下载）",
+      "extracting": "解压更新文件…",
+      "extracting_audio": "展开语音包…",
+      "patching": "应用差分补丁… {x} / {y}",
+      "verifying_patches": "验证补丁文件… {x} / {y}",
+      "applying": "应用更新（不可中断）",
+      "applying_full": "正在应用更新（不可中断，预计 {minutes} 分钟）",
+      "cleanup": "清理临时文件…"
+    },
+    "reason": {
+      "version_changed": "{currentVer} → {targetVer}",
+      "audio_pack_added": "新增语音包：{langs}",
+      "version_and_audio": "{currentVer} → {targetVer}（含新增语音包）",
+      "predownload": "预下载 {targetVer}（patch day 应用）"
+    },
     "errors": {
       "process_blocked": "请先关闭 {game} 再更新",
       "manifest_changed": "remote 已更新版本，请重新加载",
@@ -66,6 +88,34 @@
       "apply_partial": "应用过程中失败，请重试",
       "unrecoverable": "更新状态已损坏，请使用 KRLauncher 修复后再试",
       "internal": "内部错误：{detail}"
+    },
+    "error": {
+      "insufficient_space": "需要 {required}，可用 {available}；请清理后重试",
+      "cross_volume_setup": "暂存与游戏目录不同磁盘；请至设置变更",
+      "cross_volume_midrun": "磁盘状态变化，更新中止",
+      "unsupported_manifest": "不支持的更新包格式",
+      "source_corrupted": "本地文件被修改；建议全量重装",
+      "source_corrupted_legacy": "本地文件大小异常；建议全量重装",
+      "source_size_mismatch": "源文件大小不一致；请重试",
+      "patch_corrupted": "补丁文件校验失败；请重试",
+      "apply_failed": "应用失败（{file}）；请重试",
+      "apply_partial": "部分文件无法更新（{file}）；请关闭游戏后重试",
+      "permission_denied": "写入游戏目录需要管理员；请以管理员身份重启",
+      "version_unknown": "无法读取本地版本",
+      "sophon_not_supported": "原神 6.0+ 已切换 HoYoverse Sophon 协议；Omnigate v1 尚未支持，请暂用 HoYoPlay 启动器更新（M3.B v2 进行中）"
+    },
+    "bell": {
+      "predl_complete": {
+        "title": "{game} 预下载完成",
+        "body": "{version} 已就绪；patch day 将跳过下载",
+        "dismiss": "我知道了",
+        "switch_to": "切换到此游戏"
+      },
+      "config_writeback_warning": {
+        "title": "{game} 已更新到 {version}",
+        "body": "版本显示需管理员权限才能更新；游戏文件已是最新可正常启动。如需修正，请以管理员身份重启 Omnigate。",
+        "dismiss": "我知道了"
+      }
     }
   }
 }
