@@ -467,6 +467,12 @@ func (p *Provider) SetGameDirFn(fn func(core.GameID) (string, error)) {
 	p.gameDirFn = fn
 }
 
+// SetHpatchzRun overrides the hpatchz invocation. Used by integration tests
+// to avoid requiring a valid hpatchz diff blob in the fixture.
+func (p *Provider) SetHpatchzRun(fn func(ctx context.Context, oldFile, diffFile, newFile string) error) {
+	p.hpatchzRun = fn
+}
+
 // SetSophonAPIBaseURL overrides the getBuild/getPatchBuild base URL. Test seam
 // ([DEV-3]); defaults to sophonChunkAPIBase.
 func (p *Provider) SetSophonAPIBaseURL(u string) { p.sophonAPIBase = u }
