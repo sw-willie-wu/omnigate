@@ -269,7 +269,8 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	// Sophon dispatch: routes Sophon flavors to runUpdateSophon; v1 games fall
 	// through unchanged. Check both cached flavor AND on-disk sidecar presence
 	// so a resume after a restart (cold cache) also routes correctly.
-	if gp := p.manifestCache.get(gid); gp != nil && isSophonFlavor(gp.flavor) || sophonSidecarsExist(versionDir) {
+	gp := p.manifestCache.get(gid)
+	if (gp != nil && isSophonFlavor(gp.flavor)) || sophonSidecarsExist(versionDir) {
 		return p.runUpdateSophon(ctx, plan, gameDir, tempRoot, versionDir, emit)
 	}
 
@@ -304,7 +305,6 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 		}
 	}
 
-	gp := p.manifestCache.get(gid)
 	if gp == nil {
 		return fmt.Errorf("RunUpdate called without prior CheckForUpdate; manifestCache miss")
 	}
@@ -643,7 +643,6 @@ func (p *Provider) runUpdateSophon(ctx context.Context, plan core.UpdatePlan, ga
 		gp.sophonPatches = gp.predlSnapshot.SophonPatches
 		gp.sophonDeletes = gp.predlSnapshot.SophonDeletes
 		gp.sophonCategories = gp.predlSnapshot.Categories
-		branchKind = "predl"
 
 		// OVERRIDE 3: verify predl staging before reusing; discard if too eroded.
 		predlStagingRoot := sophonStagingDir(tempRoot, gid, gp.Version, "predl", gp.sophonBuildID)

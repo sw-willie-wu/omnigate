@@ -231,6 +231,15 @@ func TestVerifyPredlStaging_Threshold(t *testing.T) {
 	if discard {
 		t.Fatalf("24%% CDN fail: want discard=false, got true")
 	}
+	// exactly 25% corrupt → keep (threshold is strict > 0.25, so 25/100 must NOT discard)
+	corrupt(25)
+	discard, err = verifyPredlStaging(root, srcs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discard {
+		t.Fatalf("25%% CDN fail: want discard=false (not > 0.25), got true")
+	}
 	// 26% corrupt → discard (discard==true)
 	corrupt(26)
 	discard, err = verifyPredlStaging(root, srcs, nil)
