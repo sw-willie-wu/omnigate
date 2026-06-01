@@ -49,11 +49,12 @@ type CheckForUpdateProgress interface {
 type ReasonCode string
 
 const (
-	ReasonUnspecified     ReasonCode = ""
-	ReasonVersionChanged  ReasonCode = "version_changed"
-	ReasonAudioPackAdded  ReasonCode = "audio_pack_added"
-	ReasonVersionAndAudio ReasonCode = "version_and_audio"
-	ReasonPredownload     ReasonCode = "predownload"
+	ReasonUnspecified       ReasonCode = ""
+	ReasonVersionChanged    ReasonCode = "version_changed"
+	ReasonAudioPackAdded    ReasonCode = "audio_pack_added"
+	ReasonVersionAndAudio   ReasonCode = "version_and_audio"
+	ReasonPredownload       ReasonCode = "predownload"
+	ReasonResumeInterrupted ReasonCode = "resume_interrupted"
 )
 
 // UpdatePlan describes the work needed to bring an installed game from
@@ -94,6 +95,7 @@ type UpdateEvent struct {
 	Current     int64  // bytes done in PhaseDownload, file count applied in PhaseApply
 	Total       int64  // TotalBytes (PhaseDownload) or len(plan.Files) (PhaseApply)
 	CurrentFile string // optional: name of file currently being processed
+	Stage       string // optional fine-grained stage (e.g. extracting/patching) for the UI label; "" → use Phase
 }
 
 // UpdateError is the structured error type returned by RunUpdate /

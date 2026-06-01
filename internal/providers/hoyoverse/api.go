@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse/sophon"
 )
 
 type apiClient struct {
@@ -123,46 +125,59 @@ type rawGameBranches struct {
 	} `json:"game_branches"`
 }
 
-// fetchBranchTag calls /getGameBranches and returns the main branch's `tag`
-// for the given API game id. Used for Sophon-migrated games where
-// /getGamePackages reports stale data. Returns ErrUnknownGame if the API
-// response omits the requested game.
-func (c *apiClient) fetchBranchTag(ctx context.Context, apiGameID string) (string, error) {
+// fetchBranchInfo calls /getGameBranches on p.branchAPIBase and returns the
+// full {Main, PreDownload} branch info via sophon.ParseBranches. It is a
+// *Provider method (not *apiClient) so SetBranchAPIBaseURL can redirect it to
+// an httptest server independently of SetAPIBaseURL ([DEV-3]). Uses
+// p.httpClient with the same nil-fallback as fetchGetGamePackages.
+func (p *Provider) fetchBranchInfo(ctx context.Context, apiGameID string) (*sophon.BranchInfo, error) {
+	base := p.branchAPIBase
+	if base == "" {
+		base = APIBase
+	}
 	qs := "launcher_id=" + url.QueryEscape(LauncherID) + "&game_ids[]=" + url.QueryEscape(apiGameID)
-	req, err := http.NewRequestWithContext(ctx, "GET", c.base+"/getGameBranches?"+qs, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", base+"/getGameBranches?"+qs, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
-	resp, err := c.http.Do(req)
+	hc := p.httpClient
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := hc.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("getGameBranches: http %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("getGameBranches: http %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	var env apiEnvelope
 	if err := json.Unmarshal(body, &env); err != nil {
-		return "", err
+		return nil, err
 	}
 	if env.Retcode != 0 {
-		return "", fmt.Errorf("getGameBranches retcode=%d msg=%q", env.Retcode, env.Message)
+		return nil, fmt.Errorf("getGameBranches retcode=%d msg=%q", env.Retcode, env.Message)
 	}
-	var raw rawGameBranches
-	if err := json.Unmarshal(env.Data, &raw); err != nil {
+	return sophon.ParseBranches(env.Data, apiGameID)
+}
+
+// fetchBranchTag returns the main branch's tag for apiGameID. Delegates to
+// fetchBranchInfo so CheckVersion keeps working ([DEV-3]).
+func (p *Provider) fetchBranchTag(ctx context.Context, apiGameID string) (string, error) {
+	bi, err := p.fetchBranchInfo(ctx, apiGameID)
+	if err != nil {
 		return "", err
 	}
-	for _, b := range raw.GameBranches {
-		if b.Game.ID == apiGameID {
-			return b.Main.Tag, nil
-		}
+	if bi.Main.IsEmpty() {
+		return "", fmt.Errorf("getGameBranches: game id %q has empty main branch", apiGameID)
 	}
-	return "", fmt.Errorf("getGameBranches: game id %q not in response", apiGameID)
+	return bi.Main.Tag, nil
 }
 
 func (c *apiClient) fetchGameIcon(ctx context.Context, biz, lang string) (string, error) {

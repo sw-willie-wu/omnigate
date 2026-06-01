@@ -14,7 +14,48 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"omnigate/internal/providers/hoyoverse/hpatchz"
+	"omnigate/internal/providers/hoyoverse/sevenzip"
 )
+
+// sevenZipMagic is the 6-byte 7-Zip signature ("7z\xBC\xAF\x27\x1C").
+var sevenZipMagic = []byte{0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C}
+
+// isSevenZip reports whether the file at path begins with the 7-Zip signature.
+func isSevenZip(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	head := make([]byte, len(sevenZipMagic))
+	n, err := io.ReadFull(f, head)
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		return false, nil // too short to be a 7z archive
+	}
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(head[:n], sevenZipMagic), nil
+}
+
+// extractArchiveToStaging extracts the package at archivePath into stagingDir,
+// auto-detecting the container: HoYoverse legacy packages (HSR/ZZZ) ship as
+// 7-Zip (LZMA2+BCJ); older/ZIP packages go through the archive/zip path.
+func extractArchiveToStaging(ctx context.Context, archivePath, stagingDir string) error {
+	is7z, err := isSevenZip(archivePath)
+	if err != nil {
+		return fmt.Errorf("probe archive %s: %w", archivePath, err)
+	}
+	if is7z {
+		if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+			return err
+		}
+		return sevenzip.Extract(ctx, archivePath, stagingDir)
+	}
+	return extractZipToStaging(ctx, archivePath, stagingDir)
+}
 
 // hdifffilesEntry is one line in Genshin's legacy hdifffiles.txt: a JSON
 // object with a single `remoteName` field. The legacy format does NOT
@@ -52,19 +93,25 @@ func parseHdifffiles(data []byte) ([]hdifffilesEntry, error) {
 	return entries, nil
 }
 
+// hdiffmapEntry is one entry of the modern HoYoverse hdiffmap.json. Field names
+// are snake_case and the array is keyed `diff_map` (verified live against a real
+// HSR 4.2.0→4.3.0 patch package, 2026-06-01). The patch file is applied to
+// <gameDir>/source_file_name to produce target_file_name; source/target are
+// verified by MD5 before/after.
 type hdiffmapEntry struct {
-	SourceFileName  string `json:"sourceFileName"`
-	TargetFileName  string `json:"targetFileName"`
-	PatchFileName   string `json:"patchFileName"`
-	SourceFileSize  int64  `json:"sourceFileSize"`
-	SourceMD5Hash   string `json:"sourceMD5Hash"`
-	TargetFileSize  int64  `json:"targetFileSize"`
-	TargetMD5Hash   string `json:"targetMD5Hash"`
-	CanDeleteSource bool   `json:"canDeleteSource"`
+	SourceFileName string `json:"source_file_name"`
+	SourceFileMD5  string `json:"source_file_md5"`
+	SourceFileSize int64  `json:"source_file_size"`
+	TargetFileName string `json:"target_file_name"`
+	TargetFileMD5  string `json:"target_file_md5"`
+	TargetFileSize int64  `json:"target_file_size"`
+	PatchFileName  string `json:"patch_file_name"`
+	PatchFileMD5   string `json:"patch_file_md5"`
+	PatchFileSize  int64  `json:"patch_file_size"`
 }
 
 type hdiffmap struct {
-	Entries []hdiffmapEntry `json:"entries"`
+	Entries []hdiffmapEntry `json:"diff_map"`
 }
 
 func parseHdiffmap(data []byte) (*hdiffmap, error) {
@@ -163,7 +210,7 @@ func applyPatchZip(
 	emit func(stage string, progress, total int),
 ) error {
 	emit("extracting", 0, 1)
-	if err := extractZipToStaging(ctx, zipPath, stagingDir); err != nil {
+	if err := extractArchiveToStaging(ctx, zipPath, stagingDir); err != nil {
 		return err
 	}
 
@@ -187,13 +234,13 @@ func applyPatchZip(
 			patchPath := filepath.Join(stagingDir, entry.PatchFileName)
 			stagedTargetPath := filepath.Join(stagingDir, entry.TargetFileName+".patched")
 
-			if err := verifySourceMD5(srcPath, entry.SourceMD5Hash); err != nil {
+			if err := verifySourceMD5(srcPath, entry.SourceFileMD5); err != nil {
 				return fmt.Errorf("source verify %s: %w", entry.SourceFileName, err)
 			}
 			if err := os.MkdirAll(filepath.Dir(stagedTargetPath), 0o755); err != nil {
 				return err
 			}
-			if err := Run(ctx, srcPath, patchPath, stagedTargetPath); err != nil {
+			if err := hpatchz.Run(ctx, srcPath, patchPath, stagedTargetPath); err != nil {
 				return fmt.Errorf("hpatchz %s: %w", entry.SourceFileName, err)
 			}
 			emit("patching", i+1, len(hm.Entries))
@@ -204,7 +251,7 @@ func applyPatchZip(
 				return err
 			}
 			stagedTargetPath := filepath.Join(stagingDir, entry.TargetFileName+".patched")
-			if err := verifyTargetMD5(stagedTargetPath, entry.TargetMD5Hash); err != nil {
+			if err := verifyTargetMD5(stagedTargetPath, entry.TargetFileMD5); err != nil {
 				return fmt.Errorf("target verify %s: %w", entry.TargetFileName, err)
 			}
 			emit("verifying_patches", i+1, len(hm.Entries))
@@ -245,7 +292,7 @@ func applyPatchZip(
 			if err := os.MkdirAll(filepath.Dir(lt.target), 0o755); err != nil {
 				return err
 			}
-			if err := Run(ctx, lt.src, lt.patch, lt.target); err != nil {
+			if err := hpatchz.Run(ctx, lt.src, lt.patch, lt.target); err != nil {
 				return fmt.Errorf("hpatchz %s: %w", lt.rel, err)
 			}
 			emit("patching", i+1, len(tasks))

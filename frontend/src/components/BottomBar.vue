@@ -9,7 +9,7 @@ import { formatSize } from '../utils/format';
 
 const games = useGamesStore();
 const updates = useUpdatesStore();
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 // Re-entrancy guard for [更新遊戲]: prevents double-clicks during the
 // short gap between RPC dispatch and the snapshot's InFlight propagation.
@@ -24,6 +24,29 @@ const inFlight = computed(() => selectedSnap.value?.in_flight ?? null);
 const availableUpdate = computed(() => selectedSnap.value?.available_update ?? null);
 const availablePredl = computed(() => selectedSnap.value?.available_predl ?? null);
 const predlReady = computed(() => selectedSnap.value?.predl_ready ?? null);
+
+const lastError = computed(() => selectedSnap.value?.last_error ?? null);
+
+// [DEV-4] Generic last_error.code → update.error.<code> renderer. v1 had no
+// such path (only useResumePrompt handled interrupted_resume); Sophon error
+// codes (sophon_no_install / sophon_manifest_fetch_failed /
+// sophon_chunk_verify_failed / sophon_apply_failed) flow through here.
+// interrupted_resume is excluded — it is surfaced by the bell drawer via
+// useResumePrompt, not the inline error line.
+const errorLabel = computed<string>(() => {
+  const err = lastError.value;
+  if (!err || !err.code) return '';
+  if (err.code === 'interrupted_resume') return '';
+  const params = (err.params as any) || {};
+  // Codes live in two locale blocks: update.error.* (newer) and update.errors.*
+  // (M3.A-era). Try both, then fall back to the generic internal template with
+  // the raw code as detail so an unknown code never leaks as a raw i18n key.
+  const singular = `update.error.${err.code}`;
+  if (te(singular)) return t(singular, params);
+  const plural = `update.errors.${err.code}`;
+  if (te(plural)) return t(plural, params);
+  return t('update.errors.internal', { detail: params.detail || err.code });
+});
 
 // Stage label from in_flight.stage + params (M3.B i18n)
 const stageLabel = computed<string>(() => {
@@ -128,6 +151,7 @@ async function onCancel() {
 
 <template>
   <div v-if="games.selected" class="bottom-bar">
+    <div v-if="errorLabel" class="update-error">{{ errorLabel }}</div>
     <div class="hero-stats-line">
       <span class="pill" :class="pillClass">{{ pillLabel }}</span>
       <span v-if="!availableUpdate" class="v">v{{ games.selected.current_version || games.selected.latest_version || '?' }}</span>

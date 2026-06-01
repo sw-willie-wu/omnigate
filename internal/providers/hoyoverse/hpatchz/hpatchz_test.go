@@ -1,4 +1,4 @@
-package hoyoverse
+package hpatchz
 
 import (
 	"context"

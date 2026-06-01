@@ -61,13 +61,15 @@
       "verifying_patches": "Verifying patches… {x} / {y}",
       "applying": "Applying update (cannot cancel)",
       "applying_full": "Applying update (cannot cancel; ~{minutes} min remaining)",
-      "cleanup": "Cleaning up temp files…"
+      "cleanup": "Cleaning up temp files…",
+      "config_writeback_warning": "Version writeback needs admin"
     },
     "reason": {
       "version_changed": "{currentVer} → {targetVer}",
       "audio_pack_added": "Adding audio packs: {langs}",
       "version_and_audio": "{currentVer} → {targetVer} (with new audio packs)",
-      "predownload": "Predownload {targetVer} (patch day apply)"
+      "predownload": "Predownload {targetVer} (patch day apply)",
+      "resume_interrupted": "Resume interrupted update"
     },
     "errors": {
       "process_blocked": "Please close {game} before updating",
@@ -102,7 +104,10 @@
       "apply_partial": "Some files could not be updated ({file}); close game and retry",
       "permission_denied": "Writing game dir requires admin; restart as administrator",
       "version_unknown": "Cannot read local version",
-      "sophon_not_supported": "Genshin 6.0+ uses HoYoverse's Sophon protocol; Omnigate v1 doesn't support it yet — please update via HoYoPlay launcher for now (M3.B v2 in progress)"
+      "sophon_no_install": "Use HoYoPlay for initial install",
+      "sophon_manifest_fetch_failed": "Failed to fetch Sophon manifest",
+      "sophon_chunk_verify_failed": "Chunk verification failed ({file})",
+      "sophon_apply_failed": "Apply failed: {file}"
     },
     "bell": {
       "predl_complete": {

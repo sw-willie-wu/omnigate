@@ -1,0 +1,25 @@
+{
+  "data": {
+    "game_branches": [
+      {
+        "game": {
+          "biz": "hk4e_global",
+          "id": "gopR6Cufr3"
+        },
+        "main": {
+          "branch": "main",
+          "categories": [],
+          "diff_tags": [
+            "6.5.0"
+          ],
+          "package_id": "pkg-main",
+          "password": "",
+          "tag": "6.6.0"
+        },
+        "pre_download": {}
+      }
+    ]
+  },
+  "message": "",
+  "retcode": 0
+}

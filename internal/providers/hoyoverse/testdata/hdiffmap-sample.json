@@ -1,14 +1,15 @@
 {
-  "entries": [
+  "diff_map": [
     {
-      "sourceFileName": "GenshinImpact_Data/Native/Data/foo.dat",
-      "targetFileName": "GenshinImpact_Data/Native/Data/foo.dat",
-      "patchFileName": "GenshinImpact_Data/Native/Data/foo.dat.hdiff",
-      "sourceFileSize": 1024,
-      "sourceMD5Hash": "5eb63bbbe01eeed093cb22bb8f5acdc3",
-      "targetFileSize": 2048,
-      "targetMD5Hash": "098f6bcd4621d373cade4e832627b4f6",
-      "canDeleteSource": true
+      "source_file_name": "GenshinImpact_Data/Native/Data/foo.dat",
+      "source_file_md5": "5eb63bbbe01eeed093cb22bb8f5acdc3",
+      "source_file_size": 1024,
+      "target_file_name": "GenshinImpact_Data/Native/Data/foo.dat",
+      "target_file_md5": "098f6bcd4621d373cade4e832627b4f6",
+      "target_file_size": 2048,
+      "patch_file_name": "GenshinImpact_Data/Native/Data/foo.dat.hdiff",
+      "patch_file_md5": "e1684a03e567183f3b1f12d46e44557a",
+      "patch_file_size": 260
     }
   ]
 }

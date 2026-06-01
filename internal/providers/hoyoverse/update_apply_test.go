@@ -1,6 +1,7 @@
 package hoyoverse
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -10,6 +11,31 @@ import (
 
 	"omnigate/internal/core"
 )
+
+func TestRunApplyPlanPatch_CleansVersionDirIncludingLock(t *testing.T) {
+	// Regression: cleanup os.RemoveAll(versionDir) must succeed even though the
+	// apply held apply.lock. On Windows the still-open lock handle blocks
+	// deletion (unlinkat "being used by another process") unless the lock is
+	// released BEFORE the cleanup (defer Release fires too late).
+	tempRoot := t.TempDir()
+	gameDir := t.TempDir()
+	gid := core.GameID("hoyoverse/starrail")
+	version := "1.0.0"
+
+	versionDir := versionSidecarDir(tempRoot, gid, version)
+	stagingDir := filepath.Join(versionDir, "staging")
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	emit := func(string, int, int) {}
+	if err := runApplyPlanPatch(context.Background(), tempRoot, gameDir, gid, version, false, "", emit); err != nil {
+		t.Fatalf("runApplyPlanPatch: %v", err)
+	}
+	if _, err := os.Stat(versionDir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("versionDir should be fully removed after apply; stat err = %v", err)
+	}
+}
 
 func TestApplyWAL_WriteAndReplay(t *testing.T) {
 	versionDir := t.TempDir()

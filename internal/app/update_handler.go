@@ -175,6 +175,9 @@ func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Upd
 			state.InFlight.Phase = e.Phase
 			state.InFlight.Current = e.Current
 			state.InFlight.Total = e.Total
+			// Fine-grained stage (extract/patch/verify/apply) drives the UI label;
+			// "" falls back to the Phase-based label (e.g. download progress).
+			state.InFlight.Stage = e.Stage
 		}
 		state.mu.Unlock()
 		a.updateRegistry.EmitChanged(gid)
@@ -212,7 +215,9 @@ func (a *App) CancelInFlight(gameID string) error {
 		return nil // no-op; UI shouldn't allow cancel during apply (spec §2.6)
 	}
 	cancelFn := state.InFlight.cancel
+	stage := state.InFlight.Stage
 	state.mu.RUnlock()
+	a.logger.Info("CancelInFlight invoked", "game", gid, "stage", stage)
 	cancelFn()
 	return nil
 }
@@ -584,7 +589,6 @@ func (a *App) setLastError(gid core.GameID, err *core.UpdateError) {
 	a.updateRegistry.EmitTerminal(gid)
 }
 
-
 func (a *App) gameInstallDir(gid core.GameID, p core.Provider) string {
 	installs, err := p.DetectInstall(context.Background())
 	if err != nil {
@@ -735,6 +739,11 @@ func (a *App) scanForRecoveryRoot(backend core.BackendID, root string, skipNames
 		}
 		for _, vDir := range versionDirs {
 			if !vDir.IsDir() {
+				continue
+			}
+			// Skip cross-version sidecar dirs (e.g. ".sophon/"); they are not
+			// version dirs and must not be passed to ScanRecovery (spec §1).
+			if strings.HasPrefix(vDir.Name(), ".") {
 				continue
 			}
 			sidecarDir := filepath.Join(gameDirPath, vDir.Name())

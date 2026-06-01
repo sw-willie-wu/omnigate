@@ -212,6 +212,11 @@ func runApplyPlanPatch(
 		return fmt.Errorf("write last_apply_target: %w", err)
 	}
 
+	// Release the apply lock BEFORE removing versionDir: on Windows the held,
+	// open apply.lock handle blocks deletion of the file (unlinkat "being used
+	// by another process"). Release is idempotent, so the deferred Release above
+	// is a safe no-op afterward.
+	_ = lock.Release()
 	if err := os.RemoveAll(versionDir); err != nil {
 		return fmt.Errorf("cleanup versionDir: %w", err)
 	}
@@ -255,7 +260,7 @@ func runApplyPlanFull(
 			continue
 		}
 		zipPath := filepath.Join(versionDir, blob.Path)
-		if err := extractZipToStaging(ctx, zipPath, gameDir); err != nil {
+		if err := extractArchiveToStaging(ctx, zipPath, gameDir); err != nil {
 			return err
 		}
 		ep.Blobs[blob.URL] = extractedBlob{Extracted: true, ExtractedAt: time.Now().UTC()}
@@ -280,6 +285,8 @@ func runApplyPlanFull(
 	if err := writeLastApplyTarget(tempRoot, gid, &lat); err != nil {
 		return err
 	}
+	// Release the apply lock before cleanup (see runApplyPlanPatch note).
+	_ = lock.Release()
 	return os.RemoveAll(versionDir)
 }
 

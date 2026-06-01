@@ -32,15 +32,27 @@ func downloadAll(ctx context.Context, ps *progressStore, tasks []core.FileTask, 
 	}
 
 	pf := ps.snapshot()
+	// Seed the running total with bytes already on disk so the percentage is
+	// accurate across a resume and across multi-file plans where some files are
+	// already done: fully-completed files contribute their whole size; a
+	// partially-downloaded file contributes its .part prefix (downloadOneAttempt
+	// resumes from that offset and streams only the remaining bytes).
+	var bytesDone int64
 	pending := make([]core.FileTask, 0, len(tasks))
 	for _, t := range tasks {
 		if e, ok := pf.Entries[t.Path]; ok && e.Hash == t.Hash && e.Size == t.Size {
-			if onProgress != nil {
-				onProgress(t.Size)
-			}
+			bytesDone += t.Size
 			continue
 		}
+		if stat, err := os.Stat(filepath.Join(ps.versionDir(), t.Path+".part")); err == nil {
+			if sz := stat.Size(); sz <= t.Size {
+				bytesDone += sz
+			}
+		}
 		pending = append(pending, t)
+	}
+	if onProgress != nil {
+		onProgress(bytesDone)
 	}
 	if len(pending) == 0 {
 		return nil
@@ -48,7 +60,6 @@ func downloadAll(ctx context.Context, ps *progressStore, tasks []core.FileTask, 
 
 	taskCh := make(chan core.FileTask)
 	errCh := make(chan error, workerCount)
-	var bytesDone int64
 	var bytesMu sync.Mutex
 	progress := func(delta int64) {
 		bytesMu.Lock()
@@ -182,12 +193,17 @@ func downloadOneAttempt(ctx context.Context, ps *progressStore, task core.FileTa
 	}
 
 	w := io.MultiWriter(f, hasher)
-	written, err := io.Copy(w, resp.Body)
+	var src io.Reader = resp.Body
+	if progress != nil {
+		// Stream progress as bytes flow so the bar advances during a single
+		// large file. HoYoverse legacy plans (HSR/ZZZ) are a few huge package
+		// files; reporting only at completion left the UI stuck at 0% for the
+		// whole multi-GB download.
+		src = &progressReader{r: resp.Body, report: progress}
+	}
+	written, err := io.Copy(w, src)
 	if err != nil {
 		return fmt.Errorf("download body: %w", err)
-	}
-	if progress != nil {
-		progress(written)
 	}
 
 	if err := f.Close(); err != nil {
@@ -208,6 +224,22 @@ func downloadOneAttempt(ctx context.Context, ps *progressStore, task core.FileTa
 	}
 	stat, _ := os.Stat(finalPath)
 	return ps.MarkComplete(task.Path, totalSize, stat.ModTime(), gotHash)
+}
+
+// progressReader wraps an io.Reader, invoking report with the number of bytes
+// read on each Read. Used to stream download progress during io.Copy (delta per
+// read; downloadAll accumulates the deltas into a running total).
+type progressReader struct {
+	r      io.Reader
+	report func(int64)
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
+	if n > 0 && pr.report != nil {
+		pr.report(int64(n))
+	}
+	return n, err
 }
 
 func sanitizeURL(u string) string {
