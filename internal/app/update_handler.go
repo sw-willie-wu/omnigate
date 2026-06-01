@@ -737,6 +737,11 @@ func (a *App) scanForRecoveryRoot(backend core.BackendID, root string, skipNames
 			if !vDir.IsDir() {
 				continue
 			}
+			// Skip cross-version sidecar dirs (e.g. ".sophon/"); they are not
+			// version dirs and must not be passed to ScanRecovery (spec §1).
+			if strings.HasPrefix(vDir.Name(), ".") {
+				continue
+			}
 			sidecarDir := filepath.Join(gameDirPath, vDir.Name())
 			a.logger.Debug("scanForRecovery: scanning sidecar dir", "backend", backend, "game", gid, "dir", sidecarDir)
 			a.applyRecoveryState(gid, sidecarDir)

@@ -49,11 +49,12 @@ type CheckForUpdateProgress interface {
 type ReasonCode string
 
 const (
-	ReasonUnspecified     ReasonCode = ""
-	ReasonVersionChanged  ReasonCode = "version_changed"
-	ReasonAudioPackAdded  ReasonCode = "audio_pack_added"
-	ReasonVersionAndAudio ReasonCode = "version_and_audio"
-	ReasonPredownload     ReasonCode = "predownload"
+	ReasonUnspecified       ReasonCode = ""
+	ReasonVersionChanged    ReasonCode = "version_changed"
+	ReasonAudioPackAdded    ReasonCode = "audio_pack_added"
+	ReasonVersionAndAudio   ReasonCode = "version_and_audio"
+	ReasonPredownload       ReasonCode = "predownload"
+	ReasonResumeInterrupted ReasonCode = "resume_interrupted"
 )
 
 // UpdatePlan describes the work needed to bring an installed game from
