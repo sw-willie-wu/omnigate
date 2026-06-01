@@ -13,3 +13,19 @@ Unified desktop launcher for several Chinese live-service games (Genshin / Star 
 - HDiff patches via bundled [`hpatchz`](https://github.com/sisong/HDiffPatch).
 
 **Design spec:** `docs/superpowers/specs/2026-05-03-launcher-collection-design.md`.
+
+### Sophon protobuf regeneration
+
+The Sophon manifest/patch parsers use generated Go from
+`internal/providers/hoyoverse/sophon/proto/*.proto`. The generated
+`*.pb.go` files are **committed**, so a fresh checkout builds without `protoc`.
+
+Regenerate only when editing a `.proto`:
+
+```bash
+cd internal/providers/hoyoverse/sophon/proto
+go install google.golang.org/protobuf/cmd/protoc-gen-go
+go generate ./...   # runs: protoc --go_out=. --go_opt=paths=source_relative *.proto
+```
+
+Requires `protoc` on PATH. `wails build` does NOT run `go generate`.
