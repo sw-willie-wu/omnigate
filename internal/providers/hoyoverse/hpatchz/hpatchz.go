@@ -93,7 +93,9 @@ func extractHpatchzOnce(ctx context.Context) (string, error) {
 // newHpatchzCmd is a test seam for constructing the exec.Cmd. Keeps tests
 // from binding to specific CommandContext flags.
 func newHpatchzCmd(ctx context.Context, hpatchzPath string, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, hpatchzPath, args...)
+	cmd := exec.CommandContext(ctx, hpatchzPath, args...)
+	hideConsoleWindow(cmd) // Windows: suppress the console window flash per invocation.
+	return cmd
 }
 
 // Run invokes hpatchz to apply <diffFile> to <oldFile>, producing <newFile>.
