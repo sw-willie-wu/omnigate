@@ -34,6 +34,30 @@ func versionSidecarDir(tempRoot string, gid core.GameID, version string) string 
 	return filepath.Join(tempRoot, flatGameID(gid), version)
 }
 
+// sophonSubdir returns the cross-version Sophon sidecar root:
+// <gameSidecarDir>/.sophon. The dot-prefix keeps App.scanForRecoveryRoot from
+// misclassifying it as a version dir (see internal/app/update_handler.go skip
+// guard). Holds manifests/ + applied.json (§4.1, §A.8).
+func sophonSubdir(tempRoot string, gid core.GameID) string {
+	return filepath.Join(gameSidecarDir(tempRoot, gid), ".sophon")
+}
+
+// sophonManifestsDir returns <…/.sophon>/manifests — raw <build_id>__<cat>.manifest.pb.zst blobs.
+func sophonManifestsDir(tempRoot string, gid core.GameID) string {
+	return filepath.Join(sophonSubdir(tempRoot, gid), "manifests")
+}
+
+// sophonAppliedJSONPath returns <…/.sophon>/applied.json — the applied-manifest index (§4.1).
+func sophonAppliedJSONPath(tempRoot string, gid core.GameID) string {
+	return filepath.Join(sophonSubdir(tempRoot, gid), "applied.json")
+}
+
+// sophonStagingDir returns the branch-split staging dir
+// <versionSidecarDir>/staging/<branchKind>/<buildID> (branchKind ∈ {"main","predl"}, §A.8).
+func sophonStagingDir(tempRoot string, gid core.GameID, version, branchKind, buildID string) string {
+	return filepath.Join(versionSidecarDir(tempRoot, gid, version), "staging", branchKind, buildID)
+}
+
 // loadJSONSidecar reads and parses a JSON sidecar at path with corrupt-file
 // recovery semantics:
 //   - ENOENT (file absent) returns (nil, nil) — caller treats as no sidecar

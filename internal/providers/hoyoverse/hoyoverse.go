@@ -28,6 +28,8 @@ type Provider struct {
 	httpClient    *http.Client
 	manifestCache *manifestCache
 	apiBaseURL    string
+	branchAPIBase string // default APIBase; getGameBranches ([DEV-3])
+	sophonAPIBase string // default sophonChunkAPIBase; getBuild/getPatchBuild ([DEV-3])
 }
 
 // New returns a new HoYoverse Provider. logger may be nil; falls back to
@@ -42,6 +44,8 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 		logger:   logger,
 	}
 	p.manifestCache = newManifestCache()
+	p.branchAPIBase = APIBase
+	p.sophonAPIBase = sophonChunkAPIBase
 	return p
 }
 
@@ -118,7 +122,7 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	// the correct number. The actual update flow is gated separately in
 	// CheckForUpdate (returns sophon_not_supported until M3.B v2 lands).
 	if g.UsesSophon {
-		tag, err := p.api.fetchBranchTag(ctx, g.APIGameID)
+		tag, err := p.fetchBranchTag(ctx, g.APIGameID)
 		if err != nil {
 			return core.VersionInfo{}, err
 		}
@@ -439,6 +443,14 @@ func (p *Provider) SetTempRootFn(fn func(core.GameID) string) {
 func (p *Provider) SetAPIBaseURL(url string) {
 	p.apiBaseURL = url
 }
+
+// SetBranchAPIBaseURL overrides the getGameBranches base URL. Test seam
+// ([DEV-3]); defaults to APIBase.
+func (p *Provider) SetBranchAPIBaseURL(u string) { p.branchAPIBase = u }
+
+// SetSophonAPIBaseURL overrides the getBuild/getPatchBuild base URL. Test seam
+// ([DEV-3]); defaults to sophonChunkAPIBase.
+func (p *Provider) SetSophonAPIBaseURL(u string) { p.sophonAPIBase = u }
 
 func (p *Provider) freeSpaceProbe() freeSpaceProbe {
 	return defaultFreeSpaceProbe{}

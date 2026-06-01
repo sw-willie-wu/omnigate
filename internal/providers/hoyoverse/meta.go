@@ -7,6 +7,10 @@ const (
 	LauncherID                = "VYTpXlbWo8"
 	APIBase                   = "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api"
 	UserAgent                 = "omnigate/0.1 (+https://github.com/willie/omnigate)"
+
+	// sophonChunkAPIBase is the getBuild / getPatchBuild host for the Sophon
+	// chunk protocol (§2.1 / §A.4). Distinct from APIBase (getGameBranches).
+	sophonChunkAPIBase = "https://sg-public-api.hoyoverse.com/downloader/sophon_chunk/api"
 )
 
 // gameMeta holds compile-time constants per supported game.
@@ -28,6 +32,10 @@ type gameMeta struct {
 	// HSR/ZZZ stay on the legacy getGamePackages flow until HoYoverse
 	// migrates them too.
 	UsesSophon bool
+
+	// PlatApp is the Sophon getBuild/getPatchBuild plat_app query param
+	// (§2.1). Genshin global = "ddxf6vlr1reo"; HSR/ZZZ leave it "" (legacy).
+	PlatApp string
 }
 
 var games = []gameMeta{
@@ -36,6 +44,7 @@ var games = []gameMeta{
 		FolderName: "Genshin Impact game", ExeName: "GenshinImpact.exe",
 		Display:    core.LocalizedString{"zh-TW": "原神", "en": "Genshin Impact"},
 		UsesSophon: true,
+		PlatApp:    "ddxf6vlr1reo",
 	},
 	{
 		ID: "hoyoverse/starrail", APIGameID: "4ziysqXOQ8", Biz: "hkrpg_global",

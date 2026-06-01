@@ -72,3 +72,35 @@ func TestLoadJSONSidecar_Valid(t *testing.T) {
 		t.Errorf("expected X=42, got %+v", got)
 	}
 }
+
+func TestSophonSubdir(t *testing.T) {
+	got := sophonSubdir(`C:\temp\og\hoyo`, core.GameID("hoyoverse/genshin"))
+	want := filepath.Join(`C:\temp\og\hoyo`, "hoyoverse-genshin", ".sophon")
+	if got != want {
+		t.Errorf("sophonSubdir: got %q want %q", got, want)
+	}
+}
+
+func TestSophonManifestsDir(t *testing.T) {
+	got := sophonManifestsDir(`C:\temp\og\hoyo`, core.GameID("hoyoverse/genshin"))
+	want := filepath.Join(`C:\temp\og\hoyo`, "hoyoverse-genshin", ".sophon", "manifests")
+	if got != want {
+		t.Errorf("sophonManifestsDir: got %q want %q", got, want)
+	}
+}
+
+func TestSophonAppliedJSONPath(t *testing.T) {
+	got := sophonAppliedJSONPath(`C:\temp\og\hoyo`, core.GameID("hoyoverse/genshin"))
+	want := filepath.Join(`C:\temp\og\hoyo`, "hoyoverse-genshin", ".sophon", "applied.json")
+	if got != want {
+		t.Errorf("sophonAppliedJSONPath: got %q want %q", got, want)
+	}
+}
+
+func TestSophonStagingDir(t *testing.T) {
+	got := sophonStagingDir(`C:\temp\og\hoyo`, core.GameID("hoyoverse/genshin"), "6.6.0", "main", "buildXYZ")
+	want := filepath.Join(`C:\temp\og\hoyo`, "hoyoverse-genshin", "6.6.0", "staging", "main", "buildXYZ")
+	if got != want {
+		t.Errorf("sophonStagingDir: got %q want %q", got, want)
+	}
+}
