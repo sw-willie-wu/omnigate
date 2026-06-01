@@ -20,7 +20,7 @@ frontend/package.json.md5
 !internal/providers/iconext/testdata/*.exe
 
 # Exceptions for vendored binaries
-!internal/providers/hoyoverse/third_party_hpatchz/hpatchz.exe
+!internal/providers/hoyoverse/hpatchz/third_party_hpatchz/hpatchz.exe
 
 # runtime state (portable mode)
 downloads/

@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"omnigate/internal/providers/hoyoverse/hpatchz"
 )
 
 // hdifffilesEntry is one line in Genshin's legacy hdifffiles.txt: a JSON
@@ -193,7 +195,7 @@ func applyPatchZip(
 			if err := os.MkdirAll(filepath.Dir(stagedTargetPath), 0o755); err != nil {
 				return err
 			}
-			if err := Run(ctx, srcPath, patchPath, stagedTargetPath); err != nil {
+			if err := hpatchz.Run(ctx, srcPath, patchPath, stagedTargetPath); err != nil {
 				return fmt.Errorf("hpatchz %s: %w", entry.SourceFileName, err)
 			}
 			emit("patching", i+1, len(hm.Entries))
@@ -245,7 +247,7 @@ func applyPatchZip(
 			if err := os.MkdirAll(filepath.Dir(lt.target), 0o755); err != nil {
 				return err
 			}
-			if err := Run(ctx, lt.src, lt.patch, lt.target); err != nil {
+			if err := hpatchz.Run(ctx, lt.src, lt.patch, lt.target); err != nil {
 				return fmt.Errorf("hpatchz %s: %w", lt.rel, err)
 			}
 			emit("patching", i+1, len(tasks))
