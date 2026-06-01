@@ -72,6 +72,95 @@ func TestDownload_FullDownload_Happy(t *testing.T) {
 	}
 }
 
+func TestDownload_StreamsProgressForLargeFile(t *testing.T) {
+	// A single large blob must report progress INCREMENTALLY during the copy,
+	// not just once at completion. HoYoverse legacy plans (HSR/ZZZ) are a few
+	// huge package files; a one-shot end-of-file report leaves the UI stuck at
+	// 0% for the entire multi-GB download (the HSR 0%-forever bug).
+	payload := make([]byte, 256*1024) // 256 KB → many io.Copy (32 KB) iterations
+	for i := range payload {
+		payload[i] = byte(i)
+	}
+	srv := makeBlobServer(t, payload)
+	defer srv.Close()
+
+	ps := newProgressStoreForTest(t)
+	tasks := []core.FileTask{{
+		URL:  srv.URL + "/blob.zip",
+		Hash: md5hex(payload),
+		Size: int64(len(payload)),
+		Path: "blob.zip",
+	}}
+
+	var reports []int64 // single worker → serial, no lock needed
+	err := downloadAll(context.Background(), ps, tasks, 1, func(cum int64) {
+		reports = append(reports, cum)
+	})
+	if err != nil {
+		t.Fatalf("downloadAll: %v", err)
+	}
+
+	if len(reports) < 2 {
+		t.Fatalf("expected incremental progress during copy, got %d report(s): %v", len(reports), reports)
+	}
+	sawIntermediate := false
+	for _, r := range reports {
+		if r > 0 && r < int64(len(payload)) {
+			sawIntermediate = true
+			break
+		}
+	}
+	if !sawIntermediate {
+		t.Errorf("no intermediate progress (all reports 0 or full size): %v", reports)
+	}
+	if got := reports[len(reports)-1]; got != int64(len(payload)) {
+		t.Errorf("final cumulative = %d, want %d", got, len(payload))
+	}
+}
+
+func TestDownload_ResumeProgressAccountsForPrefix(t *testing.T) {
+	// On resume, the already-downloaded .part prefix must count toward the
+	// running total so the final cumulative equals the full size — not just the
+	// freshly-transferred remainder (which would cap the bar below 100%).
+	payload := make([]byte, 200*1024)
+	for i := range payload {
+		payload[i] = byte(i * 7)
+	}
+	srv := makeBlobServer(t, payload)
+	defer srv.Close()
+
+	ps := newProgressStoreForTest(t)
+	if err := os.MkdirAll(ps.versionDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const prefix = 120 * 1024
+	if err := os.WriteFile(filepath.Join(ps.versionDir(), "blob.zip.part"), payload[:prefix], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tasks := []core.FileTask{{
+		URL:  srv.URL + "/blob.zip",
+		Hash: md5hex(payload),
+		Size: int64(len(payload)),
+		Path: "blob.zip",
+	}}
+
+	var reports []int64 // single worker → serial, no lock needed
+	if err := downloadAll(context.Background(), ps, tasks, 1, func(cum int64) {
+		reports = append(reports, cum)
+	}); err != nil {
+		t.Fatalf("downloadAll: %v", err)
+	}
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	if reports[0] < int64(prefix) {
+		t.Errorf("initial report %d should include the %d-byte .part prefix", reports[0], prefix)
+	}
+	if got := reports[len(reports)-1]; got != int64(len(payload)) {
+		t.Errorf("final cumulative = %d, want %d (full size)", got, len(payload))
+	}
+}
+
 func TestDownload_RangeResume(t *testing.T) {
 	payload := []byte("0123456789ABCDEF0123456789ABCDEF") // 32 bytes
 	srv := makeBlobServer(t, payload)
