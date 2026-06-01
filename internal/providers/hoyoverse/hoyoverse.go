@@ -30,6 +30,8 @@ type Provider struct {
 	apiBaseURL    string
 	branchAPIBase string // default APIBase; getGameBranches ([DEV-3])
 	sophonAPIBase string // default sophonChunkAPIBase; getBuild/getPatchBuild ([DEV-3])
+	// hpatchzRun is a test seam for hpatchz invocation (T20-E). nil → hpatchz.Run.
+	hpatchzRun func(ctx context.Context, oldFile, diffFile, newFile string) error
 }
 
 // New returns a new HoYoverse Provider. logger may be nil; falls back to
