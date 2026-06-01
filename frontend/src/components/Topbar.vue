@@ -6,6 +6,7 @@ import { i18n, setLang } from '../i18n';
 import { WindowMinimise, Quit } from '../../wailsjs/runtime/runtime';
 import { useResumePrompt } from '../composables/useResumePrompt';
 import { refreshAll } from '../composables/useRefreshAll';
+import SettingsPanel from './SettingsPanel.vue';
 
 const { t } = useI18n();
 const view = useViewStore();
@@ -39,7 +40,7 @@ const onRefresh = async () => {
         <span v-if="pendingCount > 0" class="notif-badge">{{ pendingCount }}</span>
       </button>
       <button class="icon-btn" :class="{active: view.viewMode === 'grid'}" @click="view.setView(view.viewMode === 'grid' ? 'detail' : 'grid')"><span class="material-symbols-outlined">grid_view</span></button>
-      <button class="icon-btn"><span class="material-symbols-outlined">settings</span></button>
+      <button class="icon-btn" @click="view.openSettings()" title="Settings"><span class="material-symbols-outlined">settings</span></button>
       <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize">─</button>
       <button class="icon-btn window-btn close" @click="Quit()" title="Close">×</button>
     </div>
@@ -62,5 +63,6 @@ const onRefresh = async () => {
         </div>
       </div>
     </Teleport>
+    <SettingsPanel />
   </div>
 </template>
