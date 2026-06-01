@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -44,17 +42,19 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 }
 
 // DownloadChunk fetches src from the CDN, decompresses (if UseCompress), verifies
-// integrity, and atomically writes the decompressed bytes to out. Verification
-// uses xxh64 of the decompressed bytes when ChunkName's first 16 hex chars parse
-// as a uint64; otherwise MD5 vs src.ExpectMD5 (spec §0). If out already exists and
-// verifies, the download is skipped. Retries per chunkRetryBackoff; on exhaustion
-// returns ErrChunkVerify.
+// integrity, and atomically writes the decompressed bytes to out. Verification is
+// MD5 of the DECOMPRESSED bytes vs src.ExpectMD5 (= ChunkDecompressedHashMd5).
+//
+// NOTE: the ChunkName's 16-hex prefix is the xxh64 of the COMPRESSED on-wire bytes
+// (verified against the live HoYoverse CDN 2026-06-01), NOT the decompressed
+// content — so it must NOT be used to verify the decompressed/staged bytes. The
+// decompressed-content MD5 is authoritative. If out already exists and verifies,
+// the download is skipped. Retries per chunkRetryBackoff; on exhaustion returns
+// ErrChunkVerify.
 func DownloadChunk(ctx context.Context, hc *http.Client, src ChunkSource, out string) error {
-	wantXXH, useXXH := ParseXXHName(src.ChunkName)
-
-	// Skip if out already exists and verifies.
+	// Skip if out already exists and verifies (decompressed-content MD5).
 	if existing, err := os.ReadFile(out); err == nil {
-		if verifyBytes(existing, useXXH, wantXXH, src.ExpectMD5) {
+		if md5hexBytes(existing) == src.ExpectMD5 {
 			return nil
 		}
 		_ = os.Remove(out)
@@ -69,7 +69,7 @@ func DownloadChunk(ctx context.Context, hc *http.Client, src ChunkSource, out st
 			case <-time.After(chunkRetryBackoff[attempt-1]):
 			}
 		}
-		err := downloadChunkOnce(ctx, hc, src, out, useXXH, wantXXH)
+		err := downloadChunkOnce(ctx, hc, src, out)
 		if err == nil {
 			return nil
 		}
@@ -81,7 +81,7 @@ func DownloadChunk(ctx context.Context, hc *http.Client, src ChunkSource, out st
 	return fmt.Errorf("%w: %s: %v", ErrChunkVerify, src.ChunkName, lastErr)
 }
 
-func downloadChunkOnce(ctx context.Context, hc *http.Client, src ChunkSource, out string, useXXH bool, wantXXH uint64) error {
+func downloadChunkOnce(ctx context.Context, hc *http.Client, src ChunkSource, out string) error {
 	url := src.URLPrefix + "/" + src.ChunkName
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -116,18 +116,11 @@ func downloadChunkOnce(ctx context.Context, hc *http.Client, src ChunkSource, ou
 		return err
 	}
 
-	var h hash.Hash64
-	var m hash.Hash
-	var sink io.Writer = f
-	if useXXH {
-		h = xxhash.New()
-		sink = io.MultiWriter(f, h)
-	} else {
-		m = md5.New()
-		sink = io.MultiWriter(f, m)
-	}
-
-	if _, err := io.Copy(sink, reader); err != nil {
+	// Verify the DECOMPRESSED content via MD5 == src.ExpectMD5
+	// (ChunkDecompressedHashMd5). See DownloadChunk doc re: the ChunkName xxh
+	// prefix being the COMPRESSED-wire hash, not used here.
+	m := md5.New()
+	if _, err := io.Copy(io.MultiWriter(f, m), reader); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
 		return err
@@ -142,13 +135,7 @@ func downloadChunkOnce(ctx context.Context, hc *http.Client, src ChunkSource, ou
 		return err
 	}
 
-	var ok bool
-	if useXXH {
-		ok = h.Sum64() == wantXXH
-	} else {
-		ok = hex.EncodeToString(m.Sum(nil)) == src.ExpectMD5
-	}
-	if !ok {
+	if hex.EncodeToString(m.Sum(nil)) != src.ExpectMD5 {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("verify mismatch for %s", src.ChunkName)
 	}
@@ -210,8 +197,11 @@ func DownloadPatchBlob(ctx context.Context, hc *http.Client, p PatchInstr, out s
 }
 
 // ParseXXHName reports whether ChunkName's first 16 chars parse as a hex uint64,
-// returning the decoded value when they do. Exported so the apply-side staging
-// verify (Task 21) applies the identical xxh64-then-MD5 rule (§E.3 P12).
+// returning the decoded value when they do. The value is the xxh64 of the
+// COMPRESSED on-wire chunk bytes (HoYoverse download-integrity hash); content
+// integrity is verified separately via the decompressed-content MD5
+// (ChunkDecompressedHashMd5). Retained for a possible future on-wire transfer
+// check; not currently used for verification.
 func ParseXXHName(name string) (uint64, bool) {
 	if len(name) < 16 {
 		return 0, false
@@ -221,13 +211,6 @@ func ParseXXHName(name string) (uint64, bool) {
 		return 0, false
 	}
 	return v, true
-}
-
-func verifyBytes(b []byte, useXXH bool, wantXXH uint64, wantMD5 string) bool {
-	if useXXH {
-		return xxhash.Sum64(b) == wantXXH
-	}
-	return md5hexBytes(b) == wantMD5
 }
 
 func md5hexBytes(b []byte) string {

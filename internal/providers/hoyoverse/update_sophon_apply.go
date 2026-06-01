@@ -13,8 +13,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
-
 	"omnigate/internal/core"
 	"omnigate/internal/providers/hoyoverse/hpatchz"
 	"omnigate/internal/providers/hoyoverse/sophon"
@@ -495,15 +493,14 @@ func verifyPredlStaging(stagingRoot string, sources []sophon.ChunkSource, patche
 	return false, nil
 }
 
-// stagedChunkOK reads the staged decompressed chunk file and verifies it
-// against src (xxh64 of ChunkName prefix when parseable, else MD5 ExpectMD5).
+// stagedChunkOK reads the staged DECOMPRESSED chunk file and verifies its MD5
+// against src.ExpectMD5 (ChunkDecompressedHashMd5). The ChunkName's xxh prefix
+// is the COMPRESSED-wire hash and must NOT be applied to the decompressed staged
+// bytes (verified against live CDN 2026-06-01).
 func stagedChunkOK(path string, src sophon.ChunkSource) bool {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false
-	}
-	if x, ok := sophon.ParseXXHName(src.ChunkName); ok {
-		return xxhash.Sum64(b) == x
 	}
 	sum := md5.Sum(b)
 	return hex.EncodeToString(sum[:]) == src.ExpectMD5
