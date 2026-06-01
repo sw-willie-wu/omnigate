@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	"omnigate/internal/core"
 	"omnigate/internal/providers/hoyoverse/sophon"
@@ -676,5 +675,4 @@ func TestRunSophonApply_BatchedFlushCadence(t *testing.T) {
 	// The run completed successfully and the WAL was cleaned up — that's the
 	// key invariant. Flush-count introspection is internal to the flusher.
 	// A second run with a fresh WAL also succeeds (idempotent).
-	_ = time.Now() // reference to confirm time import used
 }

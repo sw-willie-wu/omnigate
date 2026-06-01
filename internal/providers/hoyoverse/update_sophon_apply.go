@@ -214,6 +214,7 @@ func applyChunkAssemble(ctx context.Context, p *Provider, rec *sophonApplyRecord
 		return os.ReadFile(filepath.Join(stagingRoot, "chunks", src.ChunkName))
 	}
 	if err := sophon.AssembleFile(outTmp, totalSize, srcs, readChunk); err != nil {
+		_ = os.Remove(outTmp)
 		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
 	}
 	if rec.AssetMD5 != "" && !md5MatchesOnDisk(outTmp, rec.AssetMD5) {
@@ -292,6 +293,7 @@ func applyHDiffPatch(ctx context.Context, p *Provider, gp *genshinPlan, wal *sop
 		DiffInput: hdiffInput,
 		OutTmp:    outTmp,
 	}); err != nil {
+		_ = os.Remove(outTmp)
 		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
 	}
 	if rec.AssetMD5 != "" && !md5MatchesOnDisk(outTmp, rec.AssetMD5) {
@@ -386,20 +388,23 @@ func copyAndRemove(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
+		in.Close()
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
+		in.Close()
 		return err
 	}
 	if err := out.Sync(); err != nil {
 		out.Close()
+		in.Close()
 		return err
 	}
 	if err := out.Close(); err != nil {
+		in.Close()
 		return err
 	}
 	in.Close()
