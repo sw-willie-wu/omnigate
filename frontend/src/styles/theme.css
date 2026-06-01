@@ -116,16 +116,6 @@
     font-weight: 700;
     display: flex; align-items: center; justify-content: center;
   }
-  .badge.spinner {
-    position: absolute;
-    top: 2px; right: 2px;
-    width: 8px; height: 8px;
-    border: 2px solid rgba(255,255,255,0.2);
-    border-top-color: var(--text-2);
-    border-radius: 50%;
-    animation: badge-spin 2s linear infinite;
-  }
-  @keyframes badge-spin { to { transform: rotate(360deg); } }
   .cancel-x.disabled { opacity: 0.35; cursor: default; pointer-events: none; }
   .notif-panel-backdrop {
     position: fixed;
