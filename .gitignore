@@ -21,6 +21,7 @@ frontend/package.json.md5
 
 # Exceptions for vendored binaries
 !internal/providers/hoyoverse/hpatchz/third_party_hpatchz/hpatchz.exe
+!internal/providers/hoyoverse/sevenzip/third_party_7zr/7zr.exe
 
 # runtime state (portable mode)
 downloads/

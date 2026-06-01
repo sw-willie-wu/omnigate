@@ -33,9 +33,9 @@ func makeZipBlob(t *testing.T, entries map[string][]byte) []byte {
 func TestExtractZipsToStaging(t *testing.T) {
 	versionDir := t.TempDir()
 	zipBlob := makeZipBlob(t, map[string][]byte{
-		"hdiffmap.json":                 []byte(`{"entries":[]}`),
-		"GenshinImpact_Data/foo.hdiff":  []byte("PATCH-DATA"),
-		"deletefiles.txt":               []byte("OldFile.dll\n"),
+		"hdiffmap.json":                []byte(`{"entries":[]}`),
+		"GenshinImpact_Data/foo.hdiff": []byte("PATCH-DATA"),
+		"deletefiles.txt":              []byte("OldFile.dll\n"),
 	})
 	zipPath := filepath.Join(versionDir, "patch.zip")
 	if err := os.WriteFile(zipPath, zipBlob, 0o644); err != nil {
@@ -43,12 +43,45 @@ func TestExtractZipsToStaging(t *testing.T) {
 	}
 
 	stagingDir := filepath.Join(versionDir, "staging")
-	if err := extractZipToStaging(context.Background(), zipPath, stagingDir); err != nil {
+	// Route through extractArchiveToStaging: a PK-magic blob must take the zip path.
+	if err := extractArchiveToStaging(context.Background(), zipPath, stagingDir); err != nil {
 		t.Fatalf("extract: %v", err)
 	}
 	for _, name := range []string{"hdiffmap.json", "GenshinImpact_Data/foo.hdiff", "deletefiles.txt"} {
 		if _, err := os.Stat(filepath.Join(stagingDir, name)); err != nil {
 			t.Errorf("expected %s in staging: %v", name, err)
+		}
+	}
+}
+
+func TestIsSevenZip(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, b []byte) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	sevenZ := write("a.7z", append([]byte{0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C}, []byte("payload")...))
+	zipF := write("a.zip", []byte("PK\x03\x04 rest of a zip"))
+	short := write("short", []byte("7z")) // shorter than the magic
+
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{sevenZ, true},
+		{zipF, false},
+		{short, false},
+	} {
+		got, err := isSevenZip(tc.path)
+		if err != nil {
+			t.Errorf("isSevenZip(%s): %v", tc.path, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("isSevenZip(%s) = %v, want %v", filepath.Base(tc.path), got, tc.want)
 		}
 	}
 }
@@ -66,8 +99,14 @@ func TestParseHdiffmap(t *testing.T) {
 		t.Fatalf("entries len = %d want 1", len(hm.Entries))
 	}
 	e := hm.Entries[0]
-	if e.SourceMD5Hash != "5eb63bbbe01eeed093cb22bb8f5acdc3" {
-		t.Errorf("sourceMD5Hash mismatch: %q", e.SourceMD5Hash)
+	if e.SourceFileMD5 != "5eb63bbbe01eeed093cb22bb8f5acdc3" {
+		t.Errorf("source_file_md5 mismatch: %q", e.SourceFileMD5)
+	}
+	if e.TargetFileMD5 != "098f6bcd4621d373cade4e832627b4f6" {
+		t.Errorf("target_file_md5 mismatch: %q", e.TargetFileMD5)
+	}
+	if e.PatchFileName != "GenshinImpact_Data/Native/Data/foo.dat.hdiff" {
+		t.Errorf("patch_file_name mismatch: %q", e.PatchFileName)
 	}
 }
 
@@ -145,8 +184,8 @@ func TestApplyPatchZip_Legacy_SkipsMissingSource(t *testing.T) {
 	stagingDir := filepath.Join(versionDir, "staging")
 
 	zipBlob := makeZipBlob(t, map[string][]byte{
-		"hdifffiles.txt":                                []byte(`{"remoteName": "GenshinImpact_Data/missing.dll"}` + "\n"),
-		"GenshinImpact_Data/missing.dll.hdiff":          []byte("PATCH-DATA"),
+		"hdifffiles.txt":                       []byte(`{"remoteName": "GenshinImpact_Data/missing.dll"}` + "\n"),
+		"GenshinImpact_Data/missing.dll.hdiff": []byte("PATCH-DATA"),
 	})
 	zipPath := filepath.Join(versionDir, "patch.zip")
 	if err := os.WriteFile(zipPath, zipBlob, 0o644); err != nil {
@@ -154,7 +193,7 @@ func TestApplyPatchZip_Legacy_SkipsMissingSource(t *testing.T) {
 	}
 
 	emitCalls := []struct {
-		stage         string
+		stage          string
 		current, total int
 	}{}
 	emit := func(stage string, current, total int) {
