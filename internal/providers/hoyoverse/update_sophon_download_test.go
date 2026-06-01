@@ -341,24 +341,33 @@ func TestDownloadAllSophon_ResumeFromPartial(t *testing.T) {
 	}
 
 	// onProgress should have been called at least 5 times:
-	// 3 skip calls (raw DecompSize: 100, 300, 500) + 2 worker calls (cumulative).
+	// 3 skip calls + 2 worker calls, all via the same accumulator.
 	progressMu.Lock()
 	nCalls := len(progressValues)
+	snapshot := make([]int64, len(progressValues))
+	copy(snapshot, progressValues)
 	progressMu.Unlock()
 	if nCalls < 5 {
 		t.Errorf("expected >=5 progress calls (3 skips + 2 downloads), got %d", nCalls)
 	}
 
-	// Skipped DecompSize values (100, 300, 500) must appear in the call list.
-	progressMu.Lock()
-	seen := map[int64]bool{}
-	for _, v := range progressValues {
-		seen[v] = true
-	}
-	progressMu.Unlock()
-	for _, want := range []int64{100, 300, 500} {
-		if !seen[want] {
-			t.Errorf("expected progress call with skipped DecompSize=%d, not found in %v", want, progressValues)
+	// All onProgress values must be monotonically non-decreasing (cumulative).
+	for i := 1; i < len(snapshot); i++ {
+		if snapshot[i] < snapshot[i-1] {
+			t.Errorf("progress decreased at index %d: %d -> %d (not cumulative)", i, snapshot[i-1], snapshot[i])
 		}
+	}
+
+	// Total of all 5 chunks: 100+200+300+400+500 = 1500.
+	// The final (max) onProgress value must equal that total.
+	const wantTotal int64 = 1500
+	var maxVal int64
+	for _, v := range snapshot {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	if maxVal != wantTotal {
+		t.Errorf("expected final cumulative progress == %d (sum of all 5 DecompSize), got %d; calls: %v", wantTotal, maxVal, snapshot)
 	}
 }

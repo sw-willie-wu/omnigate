@@ -82,6 +82,22 @@ func downloadAllSophon(
 		return err
 	}
 
+	// progress accumulates cumulative decompressed bytes and emits the running
+	// total via onProgress (§5.3). Declared before the job-building loop so
+	// skip-done paths can route through the same accumulator as workers.
+	var bytesDone int64
+	var bytesMu sync.Mutex
+	var doneMu sync.Mutex // guards store mutation (MarkChunkDone/MarkPatchDone already lock internally, but doneMu serialises the pair call + our read under one lock)
+	progress := func(delta int64) {
+		bytesMu.Lock()
+		bytesDone += delta
+		v := bytesDone
+		bytesMu.Unlock()
+		if onProgress != nil {
+			onProgress(v)
+		}
+	}
+
 	// Build job list (dedup chunks by ChunkName, patches by PatchName).
 	var jobs []sophonJob
 	seenChunk := map[string]bool{}
@@ -91,9 +107,7 @@ func downloadAllSophon(
 		}
 		seenChunk[src.ChunkName] = true
 		if store.ChunkDone(src.ChunkName) { // OVERRIDE 2: singular ChunkDone (Task 15)
-			if onProgress != nil {
-				onProgress(src.DecompSize)
-			}
+			progress(src.DecompSize)
 			continue
 		}
 		kind := jobChunkCDN
@@ -109,9 +123,7 @@ func downloadAllSophon(
 		}
 		seenPatch[p.PatchName] = true
 		if store.PatchDone(p.PatchName) { // OVERRIDE 2: singular PatchDone (Task 15)
-			if onProgress != nil {
-				onProgress(p.PatchSize)
-			}
+			progress(p.PatchSize)
 			continue
 		}
 		// §E pin 11: one patch-blob job per unique PatchName regardless of
@@ -124,18 +136,6 @@ func downloadAllSophon(
 
 	jobCh := make(chan sophonJob)
 	errCh := make(chan error, workers)
-	var bytesDone int64
-	var bytesMu sync.Mutex
-	var doneMu sync.Mutex // guards store mutation (MarkChunkDone/MarkPatchDone already lock internally, but doneMu serialises the pair call + our read under one lock)
-	progress := func(delta int64) {
-		bytesMu.Lock()
-		bytesDone += delta
-		v := bytesDone
-		bytesMu.Unlock()
-		if onProgress != nil {
-			onProgress(v)
-		}
-	}
 
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
