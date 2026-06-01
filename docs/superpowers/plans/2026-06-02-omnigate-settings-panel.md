@@ -590,7 +590,7 @@ const onRefresh = async () => {
 };
 ```
 
-(Remove the now-unused direct imports of `Refresh` and the inline chain from Topbar IF they are no longer referenced elsewhere in the file; if `Refresh`/`games`/`updates` are still used by other code in Topbar, keep them.)
+Then clean up imports made dead by the extraction: **remove `import { Refresh } from '../../wailsjs/go/app/App';`** (now unused). Check whether `games` (`useGamesStore`) and `updates` (`useUpdatesStore`) are still referenced anywhere else in Topbar's `<script setup>`/template — if not, remove their `const ... = useXStore()` lines and imports too. (vue-tsc with `--noEmit` does NOT fail on unused imports — there is no `noUnusedLocals`/ESLint gate — so this is cleanliness, not a build fix; do it anyway.)
 
 - [ ] **Step 3: Build the frontend to verify it compiles**
 
@@ -714,10 +714,14 @@ The drawer itself: loads a draft from `GetSettings`, renders per-backend path/te
 Create `frontend/src/__tests__/settings_panel.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
-import { mount, flushPromises } from '@vue/test-utils';
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import { i18n } from '../i18n';
+
+// Auto-unmount each mounted panel after its test so the window-level keydown
+// listener (added on open) is removed via onUnmounted — no cross-test leak.
+enableAutoUnmount(afterEach);
 import { useViewStore } from '../stores/view';
 import { useUpdatesStore } from '../stores/updates';
 
@@ -791,6 +795,15 @@ describe('SettingsPanel', () => {
     expect(useViewStore().settingsOpen).toBe(false);
   });
 
+  it('ESC closes the drawer (window-level listener)', async () => {
+    const w = mountOpen();
+    await flushPromises();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    expect(useViewStore().settingsOpen).toBe(false);
+    expect(UpdateSettings).not.toHaveBeenCalled();
+  });
+
   it('Save is disabled while an update is in-flight', async () => {
     const w = mountOpen();
     await flushPromises();
@@ -823,7 +836,7 @@ Create `frontend/src/components/SettingsPanel.vue`:
 
 ```vue
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useViewStore } from '../stores/view';
 import { useUpdatesStore } from '../stores/updates';
@@ -849,13 +862,19 @@ watch(
   async (open) => {
     if (open) {
       saveError.value = '';
+      // Window-level ESC: a panel-local @keydown only fires when the panel has
+      // focus, which it doesn't on open — so bind on window while open.
+      window.addEventListener('keydown', onKeydown);
       draft.value = JSON.parse(JSON.stringify(await GetSettings()));
     } else {
+      window.removeEventListener('keydown', onKeydown);
       draft.value = null;
     }
   },
   { immediate: true },
 );
+
+onUnmounted(() => window.removeEventListener('keydown', onKeydown));
 
 async function browse(setter: (p: string) => void, current: string) {
   try {
@@ -893,12 +912,7 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <Teleport to="body">
     <div v-if="view.settingsOpen && draft" class="settings-backdrop" @click="onCancel"></div>
-    <div
-      v-if="view.settingsOpen && draft"
-      class="settings-panel"
-      tabindex="-1"
-      @keydown="onKeydown"
-    >
+    <div v-if="view.settingsOpen && draft" class="settings-panel">
       <div class="settings-header">
         <span>{{ t('settings.title') }}</span>
         <button class="settings-close" @click="onCancel" aria-label="Close">×</button>
@@ -1014,7 +1028,7 @@ In `frontend/src/styles/theme.css`, append (reuses the notif-panel visual langua
 - [ ] **Step 5: Run the panel test to verify it passes**
 
 Run (from `frontend/`): `npx vitest run src/__tests__/settings_panel.test.ts`
-Expected: PASS (all 5 cases).
+Expected: PASS (all 6 cases).
 
 - [ ] **Step 6: Commit**
 
