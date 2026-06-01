@@ -100,11 +100,26 @@ func newFakeSophonServer(t *testing.T, branches, build, patch string) *fakeSopho
 		return []byte(s)
 	}
 	mux.HandleFunc("/getBuild", func(w http.ResponseWriter, r *http.Request) {
+		// Live API: getBuild accepts GET (mirror the method contract so a
+		// method regression is caught here).
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		fs.buildHitCount++
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(injectServerURL(read(fs.buildJSON)))
 	})
 	mux.HandleFunc("/getPatchBuild", func(w http.ResponseWriter, r *http.Request) {
+		// Live API requires POST for getPatchBuild (GET → 405 "Allow:
+		// OPTIONS, POST", verified 2026-06-01). Enforce it so the patch
+		// scenarios fail if fetchSophonBuild regresses to GET.
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "OPTIONS, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if fs.patchJSON == "" {
 			http.Error(w, "no patch", http.StatusNotFound)

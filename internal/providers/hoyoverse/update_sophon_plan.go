@@ -48,9 +48,14 @@ func fetchSophonBuild(ctx context.Context, p *Provider, slot sophon.BranchSlot, 
 	if base == "" {
 		base = sophonChunkAPIBase
 	}
+	// getBuild accepts GET; getPatchBuild requires POST (live API returns 405
+	// "Allow: OPTIONS, POST" for GET). Params stay in the query string for both;
+	// the POST body is empty. Verified against sg-public-api 2026-06-01.
 	endpoint := "getBuild"
+	method := http.MethodGet
 	if isPatch {
 		endpoint = "getPatchBuild"
+		method = http.MethodPost
 	}
 	q := url.Values{}
 	q.Set("plat_app", platApp)
@@ -59,7 +64,7 @@ func fetchSophonBuild(ctx context.Context, p *Provider, slot sophon.BranchSlot, 
 	q.Set("package_id", slot.PackageID)
 	q.Set("tag", tag)
 	urlStr := base + "/" + endpoint + "?" + q.Encode()
-	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
+	req, err := http.NewRequestWithContext(ctx, method, urlStr, nil)
 	if err != nil {
 		return nil, err
 	}
