@@ -76,7 +76,7 @@ func TestCheckForUpdateSophon_NoInstall(t *testing.T) {
 	gameDir := t.TempDir() // no config.ini → currentLocal == "" → sophon_no_install
 	p.SetTempRootFn(func(core.GameID) string { return tempRoot })
 
-	_, err := p.checkForUpdateSophon(context.Background(), core.GameID("hoyoverse/genshin"), gameDir, tempRoot)
+	_, err := p.checkForUpdateSophon(context.Background(), core.GameID("hoyoverse/genshin"), gameDir, tempRoot, nil)
 	if err == nil {
 		t.Fatal("expected error for no-install, got nil")
 	}
@@ -104,7 +104,7 @@ func TestCheckForUpdateSophon_Idle(t *testing.T) {
 	}
 	p.SetTempRootFn(func(core.GameID) string { return tempRoot })
 
-	plan, err := p.checkForUpdateSophon(context.Background(), core.GameID("hoyoverse/genshin"), gameDir, tempRoot)
+	plan, err := p.checkForUpdateSophon(context.Background(), core.GameID("hoyoverse/genshin"), gameDir, tempRoot, nil)
 	if err != nil {
 		t.Fatalf("idle path: unexpected error: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestCheckForUpdateSophon_EmptyCategories(t *testing.T) {
 	}
 	p.SetTempRootFn(func(core.GameID) string { return tempRoot })
 
-	_, err := p.checkForUpdateSophon(context.Background(), core.GameID("hoyoverse/genshin"), gameDir, tempRoot)
+	_, err := p.checkForUpdateSophon(context.Background(), core.GameID("hoyoverse/genshin"), gameDir, tempRoot, nil)
 	if err == nil {
 		t.Fatal("expected error for empty categories, got nil")
 	}
@@ -184,7 +184,7 @@ func TestCheckForUpdateSophon_PredlConsume(t *testing.T) {
 
 	p.SetTempRootFn(func(core.GameID) string { return tempRoot })
 
-	plan, err := p.checkForUpdateSophon(context.Background(), gid, gameDir, tempRoot)
+	plan, err := p.checkForUpdateSophon(context.Background(), gid, gameDir, tempRoot, nil)
 	if err != nil {
 		t.Fatalf("predl-consume path: unexpected error: %v", err)
 	}

@@ -171,6 +171,19 @@ func (p *Provider) IsGameRunning(gid core.GameID) (bool, error) {
 
 // CheckForUpdate implements core.Updater.
 func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
+	return p.checkForUpdate(ctx, gid, nil)
+}
+
+// CheckForUpdateWithProgress implements core.CheckForUpdateProgress: it surfaces
+// the heavy local-file MD5 verification progress (Sophon patch flavor) so the UI
+// renders "驗證本地檔案 X / Y" instead of a static, seemingly-frozen label.
+func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
+	return p.checkForUpdate(ctx, gid, onProgress)
+}
+
+// checkForUpdate is the shared CheckForUpdate body; onProgress (may be nil) is
+// threaded into the Sophon patch-plan local-file verification.
+func (p *Provider) checkForUpdate(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
 	// Sophon-migrated games (Genshin 6.0+): route to the Sophon decision tree
 	// (§3). gameDir is resolved the v1 way; tempRoot via p.tempRoot(gid).
 	if g := findByID(gid); g != nil && g.UsesSophon {
@@ -178,7 +191,7 @@ func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.Up
 		if err != nil {
 			return core.UpdatePlan{}, err
 		}
-		return p.checkForUpdateSophon(ctx, gid, gameDir, p.tempRoot(gid))
+		return p.checkForUpdateSophon(ctx, gid, gameDir, p.tempRoot(gid), onProgress)
 	}
 
 	resp, err := p.fetchGetGamePackages(ctx, gid)
@@ -525,7 +538,7 @@ func (p *Provider) maybeSelfHealSophon(currentLocal, mainTag, gameDir, tempRoot 
 // checkForUpdateSophon implements the §3 decision tree for Sophon games.
 // Takes gameDir and tempRoot explicitly so unit tests can call it without
 // going through DetectInstall (INTEGRATOR-NOTE T21-A).
-func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, gameDir, tempRoot string) (core.UpdatePlan, error) {
+func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, gameDir, tempRoot string, onProgress func(done, total int)) (core.UpdatePlan, error) {
 	g := findByID(gid)
 	branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
 	if err != nil {
@@ -593,7 +606,7 @@ func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, ga
 	// Normal plan build.
 	audioFolders, _ := DetectInstalledLanguages(gameDir)
 	audioLangs := mapFoldersToMatchingFields(audioFolders)
-	gp, predlAvail, err := buildSophonPlan(ctx, p, branch, gid, currentLocal, audioLangs, gameDir, tempRoot)
+	gp, predlAvail, err := buildSophonPlan(ctx, p, branch, gid, currentLocal, audioLangs, gameDir, tempRoot, onProgress)
 	if err != nil {
 		return core.UpdatePlan{}, err
 	}

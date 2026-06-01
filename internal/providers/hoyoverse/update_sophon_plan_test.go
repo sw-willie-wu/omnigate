@@ -310,7 +310,7 @@ func TestBuildSophonBuildPlan_FullAllCDN(t *testing.T) {
 		Tag:        "6.6.0",
 		Categories: []sophon.Category{{ID: "10016", MatchingField: "game", Type: "CATEGORY_TYPE_RESOURCE"}},
 	}}
-	gp, predlAvail, err := buildSophonPlan(context.Background(), p, branch, "hoyoverse/genshin", "6.5.0", nil, gameDir, tempRoot)
+	gp, predlAvail, err := buildSophonPlan(context.Background(), p, branch, "hoyoverse/genshin", "6.5.0", nil, gameDir, tempRoot, nil)
 	if err != nil {
 		t.Fatalf("buildSophonPlan: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestBuildSophonPatchPlan_HybridPatchAndMainFallThrough(t *testing.T) {
 	mainSlot := sophon.BranchSlot{PackageID: "pkg", Tag: "6.6.0", Branch: "main",
 		Categories: []sophon.Category{{ID: "10016", MatchingField: "game"}}}
 	cats := []sophon.Category{{ID: "10016", MatchingField: "game"}}
-	if err := buildSophonPatchPlan(context.Background(), p, gp, mainSlot, "ddxf6vlr1reo", cats, "6.5.0", nil, gameDir); err != nil {
+	if err := buildSophonPatchPlan(context.Background(), p, gp, mainSlot, "ddxf6vlr1reo", cats, "6.5.0", nil, gameDir, nil); err != nil {
 		t.Fatalf("buildSophonPatchPlan: %v", err)
 	}
 	if len(gp.sophonPatches) != 2 {
@@ -428,7 +428,7 @@ func TestBuildSophonPlan_PredlFullBlocked(t *testing.T) {
 		Main:        sophon.BranchSlot{PackageID: "pkg", Tag: "6.6.0", Categories: []sophon.Category{{ID: "10016", MatchingField: "game"}}},
 		PreDownload: sophon.BranchSlot{PackageID: "pkg2", Tag: "6.7.0", Categories: []sophon.Category{{ID: "10016", MatchingField: "game"}}},
 	}
-	_, predlAvail, err := buildSophonPlan(context.Background(), p, branch, "hoyoverse/genshin", "6.5.0", nil, t.TempDir(), t.TempDir())
+	_, predlAvail, err := buildSophonPlan(context.Background(), p, branch, "hoyoverse/genshin", "6.5.0", nil, t.TempDir(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("buildSophonPlan: %v", err)
 	}

@@ -195,6 +195,7 @@ func buildSophonPatchPlan(
 	currentLocal string,
 	oldMainManifest *pb.SophonManifestProto,
 	gameDir string,
+	onProgress func(done, total int),
 ) error {
 	// §E.2 P9: fetch getPatchBuild + getBuild ONCE per branch.
 	patchResp, err := fetchSophonBuild(ctx, p, slot, platApp, slot.Tag, true)
@@ -264,7 +265,7 @@ func buildSophonPatchPlan(
 			}
 			fallthroughAssets = append(fallthroughAssets, ma)
 		}
-		matches := verifyMatchesParallel(ctx, gameDir, fallthroughAssets, sophonVerifyWorkers)
+		matches := verifyMatchesParallel(ctx, gameDir, fallthroughAssets, sophonVerifyWorkers, onProgress)
 		// Iterate in manifest order for a deterministic plan.
 		for _, ma := range fallthroughAssets {
 			if matches[ma.AssetName] {
@@ -288,7 +289,10 @@ const sophonVerifyWorkers = 8
 // asset's md5MatchesOnDisk is unchanged; only the dispatch is parallelized).
 // ctx cancellation stops further dispatch; a missing/unmatched asset maps to
 // false (→ the caller plans a chunk_assemble re-download, the safe default).
-func verifyMatchesParallel(ctx context.Context, gameDir string, assets []*pb.SophonManifestAssetProperty, workers int) map[string]bool {
+// onProgress (may be nil) is called as each file completes with (done, total)
+// so the UI can render "驗證本地檔案 X / Y"; it is invoked under the result mutex
+// (serialized) so the supplied callback need not be goroutine-safe.
+func verifyMatchesParallel(ctx context.Context, gameDir string, assets []*pb.SophonManifestAssetProperty, workers int, onProgress func(done, total int)) map[string]bool {
 	out := make(map[string]bool, len(assets))
 	if len(assets) == 0 {
 		return out
@@ -296,6 +300,8 @@ func verifyMatchesParallel(ctx context.Context, gameDir string, assets []*pb.Sop
 	if workers < 1 {
 		workers = 1
 	}
+	total := len(assets)
+	done := 0
 	var mu sync.Mutex
 	jobs := make(chan *pb.SophonManifestAssetProperty)
 	var wg sync.WaitGroup
@@ -307,6 +313,10 @@ func verifyMatchesParallel(ctx context.Context, gameDir string, assets []*pb.Sop
 				ok := md5MatchesOnDisk(filepath.Join(gameDir, a.AssetName), a.AssetHashMd5)
 				mu.Lock()
 				out[a.AssetName] = ok
+				done++
+				if onProgress != nil {
+					onProgress(done, total)
+				}
 				mu.Unlock()
 			}
 		}()
@@ -355,6 +365,7 @@ func buildSophonPlan(
 	audioLangs []string,
 	gameDir string,
 	tempRoot string,
+	onProgress func(done, total int),
 ) (*genshinPlan, bool, error) {
 	g := findByID(gid)
 	platApp := ""
@@ -388,7 +399,7 @@ func buildSophonPlan(
 	switch {
 	case inDiffTags:
 		gp.flavor = flavorSophonPatch
-		if err := buildSophonPatchPlan(ctx, p, gp, mainSlot, platApp, cats, currentLocal, oldMainManifest, gameDir); err != nil {
+		if err := buildSophonPatchPlan(ctx, p, gp, mainSlot, platApp, cats, currentLocal, oldMainManifest, gameDir, onProgress); err != nil {
 			return nil, false, err
 		}
 	case oldMainManifest != nil:
@@ -485,7 +496,7 @@ func buildSophonPredlPlan(
 	}
 	switch predlFlavor {
 	case flavorSophonPredlPatch:
-		if err := buildSophonPatchPlan(ctx, p, scratch, predlSlot, platApp, cats, currentLocal, oldMainManifest, gameDir); err != nil {
+		if err := buildSophonPatchPlan(ctx, p, scratch, predlSlot, platApp, cats, currentLocal, oldMainManifest, gameDir, nil); err != nil {
 			return false, err
 		}
 	case flavorSophonPredlBuild:
