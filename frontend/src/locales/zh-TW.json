@@ -122,5 +122,22 @@
         "dismiss": "我知道了"
       }
     }
+  },
+  "settings": {
+    "title": "設定",
+    "save": "儲存",
+    "cancel": "取消",
+    "browse": "瀏覽…",
+    "clear": "清除",
+    "path_label": "安裝路徑",
+    "tempdir_label": "暫存資料夾覆寫",
+    "tempdir_hint": "留空 = 使用預設暫存資料夾",
+    "save_error": "儲存失敗:{detail}",
+    "save_disabled_inflight": "更新進行中無法儲存",
+    "backend": {
+      "hoyoverse": "米哈遊",
+      "kurogames": "庫洛遊戲",
+      "hypergryph": "鷹角網路"
+    }
   }
 }
