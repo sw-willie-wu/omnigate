@@ -462,6 +462,7 @@ func detectPredlConsume(tempRoot string, gid core.GameID, currentLocal, mainTag 
 
 	stale := func() (bool, *sophonPredlReadyFile) {
 		_ = os.Remove(path)
+		_ = os.Remove(filepath.Join(verDir, "sophon_progress.json"))
 		if pf.BuildID != "" {
 			_ = os.RemoveAll(filepath.Join(verDir, "staging", "predl", pf.BuildID))
 		}

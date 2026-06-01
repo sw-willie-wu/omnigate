@@ -748,7 +748,15 @@ func (p *Provider) runSophonPredownload(ctx context.Context, gid core.GameID, gp
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// predl_ready.json is now the authoritative resume marker; drop the
+	// download-phase progress sidecar so ScanRecovery classifies this dir as
+	// PredlAwaiting (not DownloadResume) on the next launch. (Mirrors v1
+	// RenameToPredlReady dropping progress.json.)
+	_ = os.Remove(filepath.Join(dir, "sophon_progress.json"))
+	return nil
 }
 
 func (p *Provider) maybeSelfHeal(

@@ -727,6 +727,55 @@ func TestSophonPredl_FullFlavorBlocked(t *testing.T) {
 	_ = plan
 }
 
+// 31. cold-restart predl-consume: a COMPLETED predownload must survive an app
+// restart. runSophonPredownload drops sophon_progress.json once predl_ready.json
+// is committed, so on the next launch ScanRecovery classifies the predl version
+// dir as PredlAwaiting (NOT DownloadResume) and preserves predl_ready.json.
+// WITHOUT that drop, both files coexist and the ScanRecovery ladder
+// (sophon_progress.json supersedes predl_ready.json) would DELETE predl_ready.json,
+// losing the staged predownload → patch day re-downloads the whole update.
+func TestSophonPredl_CompletedSurvivesRestart(t *testing.T) {
+	fs := newFakeSophonServer(t, "branches_with_predl.json", "build_small.json", "patch_small.json")
+	p, gameDir, tempRoot := newSophonProvider(t, fs, "6.5.0")
+	seedAppliedManifest(t, tempRoot, "6.5.0") // enables predl build-flavor
+	seedOldFiles(t, gameDir)
+	// Stage predownload to completion (writes predl_ready.json for predl target).
+	plan, err := p.CheckForUpdate(context.Background(), genshinGID)
+	if err != nil {
+		t.Fatalf("CheckForUpdate (predl avail): %v", err)
+	}
+	if !p.GetPredownloadAvailable(genshinGID) {
+		t.Fatalf("expected predl available")
+	}
+	predlPlan := plan
+	predlPlan.Kind = core.PlanPredownload
+	if err := p.RunUpdate(context.Background(), predlPlan, nil); err != nil {
+		t.Fatalf("predl RunUpdate: %v", err)
+	}
+
+	// predl target version is the predownload branch tag in branches_with_predl.json.
+	const predlTag = "6.7.0"
+	predlDir := versionSidecarDir(tempRoot, genshinGID, predlTag)
+
+	// File-state checks: predl_ready.json survives; sophon_progress.json dropped.
+	if _, err := os.Stat(filepath.Join(predlDir, "predl_ready.json")); err != nil {
+		t.Fatalf("predl_ready.json must exist after predl completion: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(predlDir, "sophon_progress.json")); !os.IsNotExist(err) {
+		t.Fatalf("sophon_progress.json must be dropped after predl completion (err=%v); restart would lose predl_ready", err)
+	}
+
+	// Cold-restart classification: PredlAwaiting (not DownloadResume).
+	st := core.ScanRecovery(predlDir)
+	if st.Phase != core.RecoveryPhasePredlAwaiting {
+		t.Fatalf("ScanRecovery phase = %v, want RecoveryPhasePredlAwaiting (completed predl must survive restart)", st.Phase)
+	}
+	// ScanRecovery must NOT have deleted predl_ready.json in this path.
+	if _, err := os.Stat(filepath.Join(predlDir, "predl_ready.json")); err != nil {
+		t.Fatalf("predl_ready.json must survive ScanRecovery: %v", err)
+	}
+}
+
 // ---- assertion helpers ----
 
 func mustWrite(t *testing.T, path string, b []byte) {
