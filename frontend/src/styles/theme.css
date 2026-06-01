@@ -290,6 +290,17 @@
     display: flex; align-items: center; justify-content: space-between;
     gap: 24px; z-index: 5;
   }
+  /* Error line floats ABOVE the bar (anchored to the positioned .bottom-bar)
+     so it does NOT push the version pill / buttons sideways. */
+  .bottom-bar .update-error {
+    position: absolute;
+    bottom: calc(100% + 8px); left: 0;
+    max-width: 70%;
+    font-size: 11px; line-height: 15px; font-weight: 600;
+    color: #ff9b8a;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.85);
+    white-space: normal;
+  }
   .hero-bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; }
 
   .hero-title-block { padding-left: 4px; min-width: 0; flex: 1; }
