@@ -99,7 +99,19 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	if g == nil {
 		return core.VersionInfo{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
-	return p.api.fetchVersion(ctx, g.APIGameID, "")
+	// Read real local version from <gameDir>/config.ini so App.CheckForUpdate
+	// (Topbar Refresh) can detect server > local and light the [更新] button.
+	// Best-effort: if gameDir lookup or config.ini read fails, currentLocal
+	// stays "" and fetchVersion falls back to Current=Latest (M2 behavior —
+	// no update displayed). This preserves M2 wiring for non-Genshin titles
+	// (HSR/ZZZ) until their per-game config.ini readers land.
+	currentLocal := ""
+	if gameDir, err := p.gameDir(gid); err == nil {
+		if ver, err := ReadGameVersion(gameDir); err == nil {
+			currentLocal = ver
+		}
+	}
+	return p.api.fetchVersion(ctx, g.APIGameID, currentLocal)
 }
 
 func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
