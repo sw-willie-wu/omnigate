@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"omnigate/internal/core"
@@ -142,17 +143,20 @@ func buildSophonBuildPlan(
 	// §E.2 P9: getBuild returns ALL categories in one envelope — fetch ONCE.
 	build, err := fetchSophonBuild(ctx, p, slot, platApp, slot.Tag, false)
 	if err != nil {
+		p.logger.Warn("sophon plan: getBuild failed (build flavor)", "tag", slot.Tag, "err", err)
 		return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 	}
 	gp.sophonBuildID = build.BuildID
 	for _, cat := range cats {
 		id, ok := build.ManifestFor(cat.MatchingField)
 		if !ok {
+			p.logger.Warn("sophon plan: getBuild manifest missing for category", "category", cat.MatchingField)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		// §E.2 P2: capture the raw .pb.zst wire bytes for the dedup cache.
 		newManifest, raw, err := sophon.FetchManifestRaw(ctx, p.httpClientOrDefault(), *id)
 		if err != nil {
+			p.logger.Warn("sophon plan: FetchManifestRaw failed (build)", "category", cat.MatchingField, "url", id.ManifestDownload.URLPrefix+"/"+id.Manifest.ID, "err", err)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		gp.sophonRawManifests[cat.MatchingField] = raw
@@ -195,29 +199,35 @@ func buildSophonPatchPlan(
 	// §E.2 P9: fetch getPatchBuild + getBuild ONCE per branch.
 	patchResp, err := fetchSophonBuild(ctx, p, slot, platApp, slot.Tag, true)
 	if err != nil {
+		p.logger.Warn("sophon plan: getPatchBuild failed", "tag", slot.Tag, "err", err)
 		return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 	}
 	buildResp, err := fetchSophonBuild(ctx, p, slot, platApp, slot.Tag, false)
 	if err != nil {
+		p.logger.Warn("sophon plan: getBuild failed (patch flavor)", "tag", slot.Tag, "err", err)
 		return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 	}
 	gp.sophonBuildID = buildResp.BuildID
 	for _, cat := range cats {
 		patchID, ok := patchResp.ManifestFor(cat.MatchingField)
 		if !ok {
+			p.logger.Warn("sophon plan: getPatchBuild manifest missing for category", "category", cat.MatchingField)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		buildID, ok := buildResp.ManifestFor(cat.MatchingField)
 		if !ok {
+			p.logger.Warn("sophon plan: getBuild manifest missing for category (patch)", "category", cat.MatchingField)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		patchProto, err := sophon.FetchPatchManifest(ctx, p.httpClientOrDefault(), *patchID)
 		if err != nil {
+			p.logger.Warn("sophon plan: FetchPatchManifest failed", "category", cat.MatchingField, "url", patchID.ManifestDownload.URLPrefix+"/"+patchID.Manifest.ID, "err", err)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		// §E.2 P2: capture the main manifest raw .pb.zst for the dedup cache.
 		mainProto, raw, err := sophon.FetchManifestRaw(ctx, p.httpClientOrDefault(), *buildID)
 		if err != nil {
+			p.logger.Warn("sophon plan: FetchManifestRaw failed (patch)", "category", cat.MatchingField, "url", buildID.ManifestDownload.URLPrefix+"/"+buildID.Manifest.ID, "err", err)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		gp.sophonRawManifests[cat.MatchingField] = raw
@@ -234,6 +244,12 @@ func buildSophonPatchPlan(
 		useCompress := bool(buildID.ChunkDownload.Compression)
 		chunkPrefix := buildID.ChunkDownload.URLPrefix
 
+		// Split main assets: patched ones get the fast demotion plan (no disk I/O);
+		// unpatched ones need an on-disk MD5 skip-guard. The MD5 pass is run in
+		// parallel — single-threaded it took ~2.5min hashing ~1100 unchanged files
+		// on a real Genshin 6.5→6.6 patch (smoke 2026-06-01), mirroring v1's
+		// filterChangedFiles worker pool.
+		var fallthroughAssets []*pb.SophonManifestAssetProperty
 		for _, ma := range mainProto.Assets {
 			if ma.AssetType != 0 {
 				continue
@@ -246,8 +262,13 @@ func buildSophonPatchPlan(
 				gp.sophonAssetMD5[ma.AssetName] = ma.AssetHashMd5
 				continue
 			}
-			if md5MatchesOnDisk(filepath.Join(gameDir, ma.AssetName), ma.AssetHashMd5) {
-				continue
+			fallthroughAssets = append(fallthroughAssets, ma)
+		}
+		matches := verifyMatchesParallel(ctx, gameDir, fallthroughAssets, sophonVerifyWorkers)
+		// Iterate in manifest order for a deterministic plan.
+		for _, ma := range fallthroughAssets {
+			if matches[ma.AssetName] {
+				continue // unchanged on disk → no work needed
 			}
 			oldIdx := sophon.BuildPerAssetMD5Index(oldMainManifest, ma.AssetName)
 			gp.sophonChunkSources = append(gp.sophonChunkSources,
@@ -256,6 +277,52 @@ func buildSophonPatchPlan(
 		}
 	}
 	return nil
+}
+
+// sophonVerifyWorkers bounds the plan-time on-disk MD5 skip-guard pool.
+const sophonVerifyWorkers = 8
+
+// verifyMatchesParallel MD5-checks each asset against its on-disk file at
+// <gameDir>/<AssetName> using a bounded worker pool, returning assetName→matches.
+// It is the parallel form of the buildSophonPatchPlan skip-guard (a single
+// asset's md5MatchesOnDisk is unchanged; only the dispatch is parallelized).
+// ctx cancellation stops further dispatch; a missing/unmatched asset maps to
+// false (→ the caller plans a chunk_assemble re-download, the safe default).
+func verifyMatchesParallel(ctx context.Context, gameDir string, assets []*pb.SophonManifestAssetProperty, workers int) map[string]bool {
+	out := make(map[string]bool, len(assets))
+	if len(assets) == 0 {
+		return out
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	var mu sync.Mutex
+	jobs := make(chan *pb.SophonManifestAssetProperty)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for a := range jobs {
+				ok := md5MatchesOnDisk(filepath.Join(gameDir, a.AssetName), a.AssetHashMd5)
+				mu.Lock()
+				out[a.AssetName] = ok
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, a := range assets {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return out
+		case jobs <- a:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	return out
 }
 
 // md5MatchesOnDisk reports whether the file at path exists and its whole-file

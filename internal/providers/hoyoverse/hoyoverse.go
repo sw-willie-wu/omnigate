@@ -529,13 +529,16 @@ func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, ga
 	g := findByID(gid)
 	branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
 	if err != nil {
+		p.logger.Warn("sophon CheckForUpdate: fetchBranchInfo (getGameBranches) failed", "apiGameID", g.APIGameID, "err", err)
 		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 	}
 	if branch.Main.IsEmpty() || len(branch.Main.Categories) == 0 {
+		p.logger.Warn("sophon CheckForUpdate: main branch empty or no categories", "mainEmpty", branch.Main.IsEmpty(), "cats", len(branch.Main.Categories))
 		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 	}
 
 	currentLocal, _ := ReadGameVersion(gameDir)
+	p.logger.Debug("sophon CheckForUpdate: branch+local resolved", "mainTag", branch.Main.Tag, "currentLocal", currentLocal, "diffTags", branch.Main.DiffTags, "predlEmpty", branch.PreDownload.IsEmpty())
 	if currentLocal == "" {
 		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_no_install", Retryable: false}
 	}
