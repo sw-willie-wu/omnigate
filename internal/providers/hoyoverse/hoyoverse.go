@@ -542,6 +542,9 @@ func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, ga
 	g := findByID(gid)
 	branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
 	if err != nil {
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err() // user canceled — surface as ctx error so the app idles silently (no error toast)
+		}
 		p.logger.Warn("sophon CheckForUpdate: fetchBranchInfo (getGameBranches) failed", "apiGameID", g.APIGameID, "err", err)
 		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 	}
@@ -608,6 +611,9 @@ func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, ga
 	audioLangs := mapFoldersToMatchingFields(audioFolders)
 	gp, predlAvail, err := buildSophonPlan(ctx, p, branch, gid, currentLocal, audioLangs, gameDir, tempRoot, onProgress)
 	if err != nil {
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err() // user canceled mid-plan — silent idle, not a fetch error
+		}
 		return core.UpdatePlan{}, err
 	}
 	gp.predlAvailable = predlAvail
