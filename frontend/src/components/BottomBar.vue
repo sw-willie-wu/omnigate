@@ -9,7 +9,7 @@ import { formatSize } from '../utils/format';
 
 const games = useGamesStore();
 const updates = useUpdatesStore();
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 // Re-entrancy guard for [更新遊戲]: prevents double-clicks during the
 // short gap between RPC dispatch and the snapshot's InFlight propagation.
@@ -37,7 +37,15 @@ const errorLabel = computed<string>(() => {
   const err = lastError.value;
   if (!err || !err.code) return '';
   if (err.code === 'interrupted_resume') return '';
-  return t(`update.error.${err.code}`, (err.params as any) || {});
+  const params = (err.params as any) || {};
+  // Codes live in two locale blocks: update.error.* (newer) and update.errors.*
+  // (M3.A-era). Try both, then fall back to the generic internal template with
+  // the raw code as detail so an unknown code never leaks as a raw i18n key.
+  const singular = `update.error.${err.code}`;
+  if (te(singular)) return t(singular, params);
+  const plural = `update.errors.${err.code}`;
+  if (te(plural)) return t(plural, params);
+  return t('update.errors.internal', { detail: params.detail || err.code });
 });
 
 // Stage label from in_flight.stage + params (M3.B i18n)
