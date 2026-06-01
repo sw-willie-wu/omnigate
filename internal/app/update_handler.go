@@ -212,7 +212,9 @@ func (a *App) CancelInFlight(gameID string) error {
 		return nil // no-op; UI shouldn't allow cancel during apply (spec §2.6)
 	}
 	cancelFn := state.InFlight.cancel
+	stage := state.InFlight.Stage
 	state.mu.RUnlock()
+	a.logger.Info("CancelInFlight invoked", "game", gid, "stage", stage)
 	cancelFn()
 	return nil
 }
