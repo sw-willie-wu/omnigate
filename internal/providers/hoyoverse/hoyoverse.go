@@ -32,6 +32,8 @@ type Provider struct {
 	sophonAPIBase string // default sophonChunkAPIBase; getBuild/getPatchBuild ([DEV-3])
 	// hpatchzRun is a test seam for hpatchz invocation (T20-E). nil → hpatchz.Run.
 	hpatchzRun func(ctx context.Context, oldFile, diffFile, newFile string) error
+	// gameDirFn is a test seam to bypass DetectInstall. nil → use DetectInstall.
+	gameDirFn func(core.GameID) (string, error)
 }
 
 // New returns a new HoYoverse Provider. logger may be nil; falls back to
@@ -421,6 +423,9 @@ func (p *Provider) fetchGetGamePackages(ctx context.Context, gid core.GameID) (*
 }
 
 func (p *Provider) gameDir(gid core.GameID) (string, error) {
+	if p.gameDirFn != nil {
+		return p.gameDirFn(gid)
+	}
 	games, err := p.DetectInstall(context.Background())
 	if err != nil {
 		return "", err
@@ -455,6 +460,12 @@ func (p *Provider) SetAPIBaseURL(url string) {
 // SetBranchAPIBaseURL overrides the getGameBranches base URL. Test seam
 // ([DEV-3]); defaults to APIBase.
 func (p *Provider) SetBranchAPIBaseURL(u string) { p.branchAPIBase = u }
+
+// SetGameDirFn wires a test-only game-directory resolver so integration tests
+// can point the provider at a temp gameDir without going through DetectInstall.
+func (p *Provider) SetGameDirFn(fn func(core.GameID) (string, error)) {
+	p.gameDirFn = fn
+}
 
 // SetSophonAPIBaseURL overrides the getBuild/getPatchBuild base URL. Test seam
 // ([DEV-3]); defaults to sophonChunkAPIBase.

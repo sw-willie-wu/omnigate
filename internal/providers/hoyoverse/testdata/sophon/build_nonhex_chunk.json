@@ -1,0 +1,43 @@
+{
+  "data": {
+    "build_id": "build-nonhex",
+    "manifests": [
+      {
+        "category_id": "10016",
+        "category_name": "Game",
+        "chunk_download": {
+          "compression": 1,
+          "encryption": 0,
+          "password": "",
+          "url_prefix": "/cdn/chunks",
+          "url_suffix": ""
+        },
+        "diff_download": {
+          "compression": 0,
+          "encryption": 0,
+          "password": "",
+          "url_prefix": "/cdn/chunks",
+          "url_suffix": ""
+        },
+        "manifest": {
+          "checksum": "",
+          "compressed_size": 93,
+          "id": "nonhex.manifest.pb.zst",
+          "uncompressed_size": 0
+        },
+        "manifest_download": {
+          "compression": 1,
+          "encryption": 0,
+          "password": "",
+          "url_prefix": "/cdn/manifest",
+          "url_suffix": ""
+        },
+        "matching_field": "game"
+      }
+    ],
+    "patch_id": "",
+    "tag": "6.6.0"
+  },
+  "message": "",
+  "retcode": 0
+}
