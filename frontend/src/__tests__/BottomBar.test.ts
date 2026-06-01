@@ -91,5 +91,42 @@ describe('BottomBar smoke', () => {
     expect(title).toContain('1');
   });
 
+  test('renders generic last_error.code via update.error.<code> (sophon_no_install)', async () => {
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en },
+    });
+
+    const wrapper = mount(BottomBar, {
+      global: { plugins: [i18n] },
+    });
+
+    const games = useGamesStore();
+    games.games = [
+      {
+        id: 'hoyoverse/genshin',
+        backend: 'hoyoverse',
+        display_name: { en: 'Genshin Impact' },
+        installed: true,
+        has_predownload: false,
+        current_version: '',
+        latest_version: '6.6.0',
+      },
+    ];
+    games.selectedID = 'hoyoverse/genshin';
+
+    const updates = useUpdatesStore();
+    updates.byGame['hoyoverse/genshin'] = {
+      last_error: { code: 'sophon_no_install', retryable: false },
+    } as any;
+
+    await wrapper.vm.$nextTick();
+
+    const errEl = wrapper.find('.update-error');
+    expect(errEl.exists()).toBe(true);
+    expect(errEl.text()).toContain('Use HoYoPlay for initial install');
+  });
+
   // Full 8-row table-driven test deferred to follow-up M3.A.v2 pass.
 });

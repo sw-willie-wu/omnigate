@@ -67,7 +67,8 @@
       "version_changed": "{currentVer} → {targetVer}",
       "audio_pack_added": "新增語音包：{langs}",
       "version_and_audio": "{currentVer} → {targetVer}（含新增語音包）",
-      "predownload": "預下載 {targetVer}（patch day 套用）"
+      "predownload": "預下載 {targetVer}（patch day 套用）",
+      "resume_interrupted": "繼續上次未完成的更新"
     },
     "errors": {
       "process_blocked": "請先關閉 {game} 再更新",
@@ -102,7 +103,10 @@
       "apply_partial": "部分檔案無法更新（{file}）；請關閉遊戲後重試",
       "permission_denied": "寫入遊戲目錄需要管理員；請以管理員身份重啟",
       "version_unknown": "無法讀取本地版本",
-      "sophon_not_supported": "原神 6.0+ 已切換 HoYoverse Sophon 協議；Omnigate v1 尚未支援，請暫用 HoYoPlay 啟動器更新（M3.B v2 進行中）"
+      "sophon_no_install": "請先用 HoYoPlay 完成首次安裝",
+      "sophon_manifest_fetch_failed": "無法取得 Sophon 更新資訊",
+      "sophon_chunk_verify_failed": "下載的檔案區塊驗證失敗 ({file})",
+      "sophon_apply_failed": "{file} 套用失敗"
     },
     "bell": {
       "predl_complete": {

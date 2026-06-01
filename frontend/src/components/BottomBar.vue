@@ -25,6 +25,21 @@ const availableUpdate = computed(() => selectedSnap.value?.available_update ?? n
 const availablePredl = computed(() => selectedSnap.value?.available_predl ?? null);
 const predlReady = computed(() => selectedSnap.value?.predl_ready ?? null);
 
+const lastError = computed(() => selectedSnap.value?.last_error ?? null);
+
+// [DEV-4] Generic last_error.code → update.error.<code> renderer. v1 had no
+// such path (only useResumePrompt handled interrupted_resume); Sophon error
+// codes (sophon_no_install / sophon_manifest_fetch_failed /
+// sophon_chunk_verify_failed / sophon_apply_failed) flow through here.
+// interrupted_resume is excluded — it is surfaced by the bell drawer via
+// useResumePrompt, not the inline error line.
+const errorLabel = computed<string>(() => {
+  const err = lastError.value;
+  if (!err || !err.code) return '';
+  if (err.code === 'interrupted_resume') return '';
+  return t(`update.error.${err.code}`, (err.params as any) || {});
+});
+
 // Stage label from in_flight.stage + params (M3.B i18n)
 const stageLabel = computed<string>(() => {
   const stage = inFlight.value?.stage;
@@ -128,6 +143,7 @@ async function onCancel() {
 
 <template>
   <div v-if="games.selected" class="bottom-bar">
+    <div v-if="errorLabel" class="update-error">{{ errorLabel }}</div>
     <div class="hero-stats-line">
       <span class="pill" :class="pillClass">{{ pillLabel }}</span>
       <span v-if="!availableUpdate" class="v">v{{ games.selected.current_version || games.selected.latest_version || '?' }}</span>
