@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
+
 	"omnigate/internal/core"
 	"omnigate/internal/providers/hoyoverse/hpatchz"
 	"omnigate/internal/providers/hoyoverse/sophon"
@@ -457,4 +459,62 @@ func finalizeSophonApply(p *Provider, gid core.GameID, gp *genshinPlan, tempRoot
 	_ = os.Remove(filepath.Join(versionDir, "sophon_apply.wal"))
 	_ = os.Remove(filepath.Join(versionDir, "sophon_progress.json"))
 	return nil
+}
+
+// verifyPredlStaging stats + re-verifies every staged CDN chunk and patch
+// blob under stagingRoot. Returns discard=true when the staged content is so
+// eroded that a fresh download is cheaper than per-item demotion:
+// CDN-chunk fail ratio > 0.25 OR patch-blob fail ratio > 0.50 (spec §7.3 step 4).
+// discard=false leaves per-item misses to be re-fetched organically by
+// downloadAllSophon's skip-if-verified pass. Local chunks are NOT checked here
+// (read+verified at apply time per §7.3 step 2).
+func verifyPredlStaging(stagingRoot string, sources []sophon.ChunkSource, patches []sophon.PatchInstr) (discard bool, err error) {
+	cdnTotal, cdnBad := 0, 0
+	for _, s := range sources {
+		if s.Kind != sophon.SourceCDN {
+			continue
+		}
+		cdnTotal++
+		if !stagedChunkOK(filepath.Join(stagingRoot, "chunks", s.ChunkName), s) {
+			cdnBad++
+		}
+	}
+	patchTotal, patchBad := 0, 0
+	for _, p := range patches {
+		patchTotal++
+		if !stagedBlobOK(filepath.Join(stagingRoot, "patches", p.PatchName), p.PatchMD5) {
+			patchBad++
+		}
+	}
+	if cdnTotal > 0 && float64(cdnBad)/float64(cdnTotal) > 0.25 {
+		return true, nil
+	}
+	if patchTotal > 0 && float64(patchBad)/float64(patchTotal) > 0.50 {
+		return true, nil
+	}
+	return false, nil
+}
+
+// stagedChunkOK reads the staged decompressed chunk file and verifies it
+// against src (xxh64 of ChunkName prefix when parseable, else MD5 ExpectMD5).
+func stagedChunkOK(path string, src sophon.ChunkSource) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	if x, ok := sophon.ParseXXHName(src.ChunkName); ok {
+		return xxhash.Sum64(b) == x
+	}
+	sum := md5.Sum(b)
+	return hex.EncodeToString(sum[:]) == src.ExpectMD5
+}
+
+// stagedBlobOK reads the staged patch blob and verifies its MD5.
+func stagedBlobOK(path, wantMD5 string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	sum := md5.Sum(b)
+	return hex.EncodeToString(sum[:]) == wantMD5
 }

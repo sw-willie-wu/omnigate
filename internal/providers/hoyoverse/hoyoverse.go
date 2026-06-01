@@ -169,15 +169,14 @@ func (p *Provider) IsGameRunning(gid core.GameID) (bool, error) {
 
 // CheckForUpdate implements core.Updater.
 func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
-	// Sophon-migrated games (Genshin 6.0+) cannot use M3.B v1's zip + hdiff +
-	// hpatchz pipeline — HoYoverse delivers chunk-level binary deltas via the
-	// Sophon protocol instead. Return a structured error pointing the user at
-	// HoYoPlay until M3.B v2 (Sophon manifest + chunk downloader) lands.
+	// Sophon-migrated games (Genshin 6.0+): route to the Sophon decision tree
+	// (§3). gameDir is resolved the v1 way; tempRoot via p.tempRoot(gid).
 	if g := findByID(gid); g != nil && g.UsesSophon {
-		return core.UpdatePlan{}, &core.UpdateError{
-			Code:      "sophon_not_supported",
-			Retryable: false,
+		gameDir, err := p.gameDir(gid)
+		if err != nil {
+			return core.UpdatePlan{}, err
 		}
+		return p.checkForUpdateSophon(ctx, gid, gameDir, p.tempRoot(gid))
 	}
 
 	resp, err := p.fetchGetGamePackages(ctx, gid)
@@ -265,6 +264,13 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 				Total:   int64(total),
 			})
 		}
+	}
+
+	// Sophon dispatch: routes Sophon flavors to runUpdateSophon; v1 games fall
+	// through unchanged. Check both cached flavor AND on-disk sidecar presence
+	// so a resume after a restart (cold cache) also routes correctly.
+	if gp := p.manifestCache.get(gid); gp != nil && isSophonFlavor(gp.flavor) || sophonSidecarsExist(versionDir) {
+		return p.runUpdateSophon(ctx, plan, gameDir, tempRoot, versionDir, emit)
 	}
 
 	if walExists(versionDir) {
@@ -456,6 +462,277 @@ func (p *Provider) SetSophonAPIBaseURL(u string) { p.sophonAPIBase = u }
 
 func (p *Provider) freeSpaceProbe() freeSpaceProbe {
 	return defaultFreeSpaceProbe{}
+}
+
+// maybeSelfHealSophon mirrors maybeSelfHeal (incl the clock-skew handling at
+// hoyoverse.go:470-483) for Sophon games: if an apply completed but config.ini
+// writeback failed, retry the writeback (24h budget). Returns true iff the
+// writeback now succeeds. §3.5.
+func (p *Provider) maybeSelfHealSophon(currentLocal, mainTag, gameDir, tempRoot string, gid core.GameID) bool {
+	if currentLocal == mainTag {
+		return false // already healed
+	}
+	latPath := filepath.Join(gameSidecarDir(tempRoot, gid), "last_apply_target.json")
+	lat, err := loadJSONSidecar[lastApplyTarget](latPath)
+	if err != nil || lat == nil {
+		return false
+	}
+	if lat.TargetVersion != mainTag {
+		return false
+	}
+
+	now := time.Now().UTC()
+	if !lat.LastWritebackRetryTS.IsZero() {
+		delta := now.Sub(lat.LastWritebackRetryTS)
+		if delta >= 0 && delta < 24*time.Hour {
+			return false
+		}
+		if delta < 0 && -delta <= 24*time.Hour {
+			return false
+		}
+		if delta < 0 && -delta > 24*time.Hour {
+			_ = os.Remove(latPath)
+			return false
+		}
+	}
+
+	writeErr := WriteGameVersion(gameDir, mainTag)
+	lat.LastWritebackRetryTS = now
+	lat.ConfigWritebackOK = (writeErr == nil)
+	if persistErr := writeLastApplyTarget(tempRoot, gid, lat); persistErr != nil {
+		p.logger.Warn("sophon self-heal: failed to update last_apply_target", "err", persistErr)
+	}
+	return writeErr == nil
+}
+
+// checkForUpdateSophon implements the §3 decision tree for Sophon games.
+// Takes gameDir and tempRoot explicitly so unit tests can call it without
+// going through DetectInstall (INTEGRATOR-NOTE T21-A).
+func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, gameDir, tempRoot string) (core.UpdatePlan, error) {
+	g := findByID(gid)
+	branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
+	if err != nil {
+		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
+	}
+	if branch.Main.IsEmpty() || len(branch.Main.Categories) == 0 {
+		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
+	}
+
+	currentLocal, _ := ReadGameVersion(gameDir)
+	if currentLocal == "" {
+		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_no_install", Retryable: false}
+	}
+
+	allowedTargets := []string{branch.Main.Tag}
+	if !branch.PreDownload.IsEmpty() {
+		allowedTargets = append(allowedTargets, branch.PreDownload.Tag)
+	}
+
+	// Self-heal (§3.5).
+	if p.maybeSelfHealSophon(currentLocal, branch.Main.Tag, gameDir, tempRoot, gid) {
+		cleanupStaleSophonSidecars(tempRoot, gid, branch.Main.Tag, allowedTargets)
+		gp := &genshinPlan{
+			UpdatePlan: core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate, Version: branch.Main.Tag, Reason: core.ReasonUnspecified},
+			flavor:     flavorNone,
+		}
+		p.manifestCache.put(gid, gp)
+		return gp.UpdatePlan, nil
+	}
+
+	// Idle short-circuit.
+	if currentLocal == branch.Main.Tag {
+		cleanupStaleSophonSidecars(tempRoot, gid, branch.Main.Tag, allowedTargets)
+		gp := &genshinPlan{
+			UpdatePlan: core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate, Version: branch.Main.Tag, Reason: core.ReasonUnspecified},
+			flavor:     flavorNone,
+		}
+		p.manifestCache.put(gid, gp)
+		return gp.UpdatePlan, nil
+	}
+
+	// Predl-consume short-circuit (§3.6).
+	if consume, predl := detectPredlConsume(tempRoot, gid, currentLocal, branch.Main.Tag, branch.Main.DiffTags); consume {
+		flavor := flavorSophonPatch
+		if predl.Kind == "sophon_build" {
+			flavor = flavorSophonBuild
+		}
+		snap := predl.PlanSnapshot
+		gp := &genshinPlan{
+			UpdatePlan:    core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate, Version: branch.Main.Tag, Reason: core.ReasonResumeInterrupted},
+			flavor:        flavor,
+			predlConsume:  true,
+			predlSnapshot: &snap,
+			sophonBranch:  branch,
+			sophonBuildID: predl.BuildID,
+			sourceVersion: currentLocal,
+		}
+		p.manifestCache.put(gid, gp)
+		return gp.UpdatePlan, nil
+	}
+
+	// Normal plan build.
+	audioFolders, _ := DetectInstalledLanguages(gameDir)
+	audioLangs := mapFoldersToMatchingFields(audioFolders)
+	gp, predlAvail, err := buildSophonPlan(ctx, p, branch, gid, currentLocal, audioLangs, gameDir, tempRoot)
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	gp.predlAvailable = predlAvail
+	p.manifestCache.put(gid, gp)
+	return gp.UpdatePlan, nil
+}
+
+// isSophonFlavor reports whether f is one of the Sophon plan flavors.
+func isSophonFlavor(f planFlavor) bool {
+	switch f {
+	case flavorSophonPatch, flavorSophonBuild, flavorSophonFull, flavorSophonPredlPatch, flavorSophonPredlBuild:
+		return true
+	}
+	return false
+}
+
+// sophonSidecarsExist reports whether versionDir contains any Sophon-specific
+// resume markers (sophon_apply.wal or sophon_progress.json).
+func sophonSidecarsExist(versionDir string) bool {
+	if _, err := os.Stat(filepath.Join(versionDir, "sophon_apply.wal")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(versionDir, "sophon_progress.json")); err == nil {
+		return true
+	}
+	return false
+}
+
+// runUpdateSophon dispatches the Sophon resume ladder (§6.9) + fresh runs.
+func (p *Provider) runUpdateSophon(ctx context.Context, plan core.UpdatePlan, gameDir, tempRoot, versionDir string, emit func(stage string, current, total int)) error {
+	gid := plan.GameID
+
+	// §6.9 path 1: sophon_apply.wal present → apply-phase resume (offline-safe).
+	if wal, _ := readSophonApplyWAL(versionDir); wal != nil && len(wal.Records) > 0 {
+		gp := p.manifestCache.get(gid)
+		if gp == nil {
+			gp = &genshinPlan{
+				UpdatePlan:    core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate, Version: plan.Version},
+				flavor:        planFlavorFromString(wal.Flavor),
+				sophonBuildID: wal.BuildID,
+				sourceVersion: wal.SourceTag,
+			}
+		}
+		return runSophonApply(ctx, p, gid, gp, tempRoot, gameDir, wal.StagingRoot, emit)
+	}
+
+	gp := p.manifestCache.get(gid)
+	if gp == nil {
+		// §6.9 path 3: sophon_progress.json without WAL → rebuild plan via CheckForUpdate.
+		if _, err := os.Stat(filepath.Join(versionDir, "sophon_progress.json")); err == nil {
+			if _, cerr := p.CheckForUpdate(ctx, gid); cerr != nil {
+				return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
+			}
+			gp = p.manifestCache.get(gid)
+		}
+		if gp == nil {
+			return fmt.Errorf("RunUpdate(sophon) without prior CheckForUpdate; manifestCache miss")
+		}
+	}
+
+	// §7.3 predl handoff: hydrate from snapshot when consuming.
+	branchKind := "main"
+	stagingBuildID := gp.sophonBuildID
+	if plan.Kind == core.PlanUpdate && gp.predlConsume && gp.predlSnapshot != nil {
+		gp.sophonChunkSources = gp.predlSnapshot.SophonChunkSources
+		gp.sophonPatches = gp.predlSnapshot.SophonPatches
+		gp.sophonDeletes = gp.predlSnapshot.SophonDeletes
+		gp.sophonCategories = gp.predlSnapshot.Categories
+		branchKind = "predl"
+
+		// OVERRIDE 3: verify predl staging before reusing; discard if too eroded.
+		predlStagingRoot := sophonStagingDir(tempRoot, gid, gp.Version, "predl", gp.sophonBuildID)
+		if discard, _ := verifyPredlStaging(predlStagingRoot, gp.sophonChunkSources, gp.sophonPatches); discard {
+			p.logger.Warn("sophon: predl staging too eroded; discarding for fresh download", "gid", gid)
+			_ = os.Remove(filepath.Join(versionSidecarDir(tempRoot, gid, gp.Version), "predl_ready.json"))
+			_ = os.RemoveAll(predlStagingRoot)
+			gp.predlConsume = false // fall through to fresh staging/main download+apply below
+		}
+	}
+
+	// Re-derive branchKind and stagingBuildID after possible predl discard.
+	if gp.predlConsume {
+		branchKind = "predl"
+		stagingBuildID = gp.sophonBuildID
+	} else {
+		branchKind = "main"
+		stagingBuildID = gp.sophonBuildID
+	}
+
+	// Predownload: stage to predl, write predl_ready, SKIP apply (§7.1).
+	if plan.Kind == core.PlanPredownload {
+		if gp.predlPlan == nil {
+			return fmt.Errorf("RunUpdate(sophon predl) without predlPlan")
+		}
+		return p.runSophonPredownload(ctx, gid, gp, tempRoot, versionDir, gameDir, emit)
+	}
+
+	stagingRoot := sophonStagingDir(tempRoot, gid, plan.Version, branchKind, stagingBuildID)
+	store, err := newSophonProgressStore(tempRoot, gid, plan.Version, branchKind, stagingBuildID)
+	if err != nil {
+		return err
+	}
+	exec := defaultSophonExecutors(p.httpClientOrDefault())
+	if err := downloadAllSophon(ctx, store, gameDir, stagingRoot, gp.sophonChunkSources, gp.sophonPatches, 4, exec, func(b int64) {
+		emit("download", int(b), int(gp.TotalBytes))
+	}); err != nil {
+		return err
+	}
+	return runSophonApply(ctx, p, gid, gp, tempRoot, gameDir, stagingRoot, emit)
+}
+
+// runSophonPredownload stages predl content and writes predl_ready.json
+// WITHOUT applying (§7.1).
+func (p *Provider) runSophonPredownload(ctx context.Context, gid core.GameID, gp *genshinPlan, tempRoot, versionDir, gameDir string, emit func(stage string, current, total int)) error {
+	pp := gp.predlPlan
+	stagingRoot := sophonStagingDir(tempRoot, gid, pp.TargetVersion, "predl", pp.BuildID)
+	store, err := newSophonProgressStore(tempRoot, gid, pp.TargetVersion, "predl", pp.BuildID)
+	if err != nil {
+		return err
+	}
+	exec := defaultSophonExecutors(p.httpClientOrDefault())
+	if err := downloadAllSophon(ctx, store, gameDir, stagingRoot, pp.ChunkSources, pp.Patches, 4, exec, func(b int64) {
+		emit("download", int(b), int(gp.TotalBytes))
+	}); err != nil {
+		return err
+	}
+	kind := "sophon_patch"
+	if pp.Flavor == flavorSophonPredlBuild {
+		kind = "sophon_build"
+	}
+	ready := &sophonPredlReadyFile{
+		Kind:           kind,
+		BuildID:        pp.BuildID,
+		SourceVersion:  pp.SourceVersion,
+		TargetVersion:  pp.TargetVersion,
+		AudioLanguages: pp.AudioLanguages,
+		StagedAt:       time.Now().UTC().Format(time.RFC3339),
+		PlanSnapshot: sophonPlanSnapshot{
+			SophonChunkSources: pp.ChunkSources,
+			SophonPatches:      pp.Patches,
+			SophonDeletes:      pp.Deletes,
+			Categories:         pp.Categories,
+		},
+	}
+	dir := versionSidecarDir(tempRoot, gid, pp.TargetVersion)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(ready, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "predl_ready.json")
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func (p *Provider) maybeSelfHeal(
