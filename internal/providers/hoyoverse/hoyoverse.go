@@ -277,6 +277,7 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 				Phase:   resolvePhase(stage),
 				Current: int64(current),
 				Total:   int64(total),
+				Stage:   stage,
 			})
 		}
 	}
@@ -843,8 +844,8 @@ func (defaultFreeSpaceProbe) FreeBytes(path string) (uint64, error) {
 
 // compile-time check
 var (
-	_ core.Provider      = (*Provider)(nil)
-	_ core.PathProvider  = (*Provider)(nil)
-	_ core.Updater       = (*Provider)(nil)
+	_ core.Provider       = (*Provider)(nil)
+	_ core.PathProvider   = (*Provider)(nil)
+	_ core.Updater        = (*Provider)(nil)
 	_ core.ProcessChecker = (*Provider)(nil)
 )

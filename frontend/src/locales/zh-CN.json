@@ -61,7 +61,8 @@
       "verifying_patches": "验证补丁文件… {x} / {y}",
       "applying": "应用更新（不可中断）",
       "applying_full": "正在应用更新（不可中断，预计 {minutes} 分钟）",
-      "cleanup": "清理临时文件…"
+      "cleanup": "清理临时文件…",
+      "config_writeback_warning": "版本写回需管理员权限"
     },
     "reason": {
       "version_changed": "{currentVer} → {targetVer}",

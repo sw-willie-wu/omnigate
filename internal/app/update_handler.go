@@ -175,6 +175,9 @@ func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Upd
 			state.InFlight.Phase = e.Phase
 			state.InFlight.Current = e.Current
 			state.InFlight.Total = e.Total
+			// Fine-grained stage (extract/patch/verify/apply) drives the UI label;
+			// "" falls back to the Phase-based label (e.g. download progress).
+			state.InFlight.Stage = e.Stage
 		}
 		state.mu.Unlock()
 		a.updateRegistry.EmitChanged(gid)
@@ -585,7 +588,6 @@ func (a *App) setLastError(gid core.GameID, err *core.UpdateError) {
 	state.mu.Unlock()
 	a.updateRegistry.EmitTerminal(gid)
 }
-
 
 func (a *App) gameInstallDir(gid core.GameID, p core.Provider) string {
 	installs, err := p.DetectInstall(context.Background())

@@ -61,7 +61,8 @@
       "verifying_patches": "Verifying patches… {x} / {y}",
       "applying": "Applying update (cannot cancel)",
       "applying_full": "Applying update (cannot cancel; ~{minutes} min remaining)",
-      "cleanup": "Cleaning up temp files…"
+      "cleanup": "Cleaning up temp files…",
+      "config_writeback_warning": "Version writeback needs admin"
     },
     "reason": {
       "version_changed": "{currentVer} → {targetVer}",

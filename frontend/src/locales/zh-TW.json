@@ -61,7 +61,8 @@
       "verifying_patches": "驗證修補檔案… {x} / {y}",
       "applying": "套用更新（不可中斷）",
       "applying_full": "正在套用更新（不可中斷，預估 {minutes} 分鐘）",
-      "cleanup": "清理暫存檔…"
+      "cleanup": "清理暫存檔…",
+      "config_writeback_warning": "版本寫回需系統管理員權限"
     },
     "reason": {
       "version_changed": "{currentVer} → {targetVer}",
