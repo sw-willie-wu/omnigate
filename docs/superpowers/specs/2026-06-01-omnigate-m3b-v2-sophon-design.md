@@ -1,6 +1,6 @@
 # Omnigate M3.B v2 — HoYoverse Sophon Protocol Design
 
-**Status:** Draft, post-brainstorm + 3 reviewer rounds (2026-06-01)
+**Status:** Draft, post-brainstorm + 4 reviewer rounds (2026-06-01)
 **Target tag:** `v0.4.0-m3b` (combined v1 + v2; tagged at merge into `main`)
 **Branch:** `m3b-v2/spec` (branched from `dev`, which has `m3b/spec` merged in via `--no-ff`)
 **Scope:** Genshin Impact 6.0+ update / install / predownload via HoYoverse's **Sophon** chunk-level binary delta protocol. HSR / ZZZ stay on legacy `getGamePackages` (M3.B v1) until HoYoverse migrates them.
@@ -21,13 +21,13 @@ This spec is the source of truth for the M3.B v2 implementation plan. Protocol f
 | Fresh install | NOT supported — return `sophon_no_install` error | Omnigate guides user to open HoYoPlay for initial install; we only handle updates |
 | Patch + Main merge | Patch flow ALWAYS fetches both `getPatchBuild` AND `getBuild`; files-not-in-patch fall through to main manifest | Per `SophonPatch.EnumerateUpdateAsync` in Collapse |
 | Hybrid record stream | Under flavorSophonPatch, `genshinPlan.sophonPatches` (Patch/CopyOver records) + `genshinPlan.sophonChunkSources` (DownloadOver / main-only-fall-through chunks) BOTH stream into a single `sophon_apply.wal` Records list | Avoids ambiguity about Patch-only vs Build-only apply at flavor boundaries |
-| Audio packs | Subset by `DetectInstalledLanguages` (v1 reuses) | Avoid pulling 30+ GB of unused VO |
+| Audio packs | Subset by `DetectInstalledLanguages` (v1 reuses) **translated to `MatchingField` codes via v1's `folderToAudioLang` map** ("Chinese" → "zh-cn", "English(US)" → "en-us", "Japanese" → "ja-jp", "Korean" → "ko-kr"). Categories from `branch.Categories` are compared against the translated codes. | Avoid pulling 30+ GB of unused VO; `MatchingField` is the manifest's native language identifier |
 | Persistence | Atomic JSON sidecar files (write-temp → fsync → rename), same pattern as M3.B v1 | SQLite deferred to post-v2 milestone (gacha records + cross-game state) |
 | Old-manifest retention | Keep latest applied + previous 1 build per game (`<build_id>__<category>.manifest.pb.zst` retained for dedup at next update) | Supports 2-step chunk-dedup chain (e.g. 6.4 → 6.5 → 6.6) |
 | Chunk-reuse keying | **Per-asset MD5 (`ChunkDecompressedHashMd5`)**, matching Collapse `SophonUpdate.GetChunkOldOffsetFromOld` | The xxh64 prefix of `ChunkName` is a CDN-filename integrity hash, NOT a dedup key |
 | Chunk-download integrity | xxh64 of decompressed bytes (if `ChunkName` first 16 hex parses) → fallback to MD5 (`ChunkDecompressedHashMd5`). **Deliberate divergence from Collapse** (which uses MD5 by default for main chunks, xxh64 only for patch blobs). | xxh64 is faster and the prefix is manifest-supplied truth. Risk: spec divergence; mitigation by mandatory fallback when parse fails. Logged in §10 risks. |
 | HDiff binary | Move M3.B v1 `hpatchz.go` to NEW `internal/providers/hoyoverse/hpatchz/` sub-package so BOTH `hoyoverse` and `hoyoverse/sophon` can import it without cycle | Architecturally cleaner than callback injection |
-| Alt-CDN fallback for chunks | **NOT implemented in v2.0; deferred to v2.1.** Collapse retries chunk fetches against `SophonChunksInfoAlt` (the OLD branch's chunk-CDN base) when the new-branch URL returns non-success; we don't. | Risk: rare HoYoverse-side chunk-URL rotation causes false `sophon_chunk_verify_failed` for Path B reuse. Logged in §10. |
+| Alt-CDN fallback for chunks | **NOT implemented in v2.0; deferred to v2.1.** Collapse retries chunk fetches against `SophonChunksInfoAlt` (the OLD branch's chunk-CDN base) when the new-branch URL returns non-success; we don't. | Risk: rare HoYoverse-side chunk-URL rotation between manifest cache and chunk fetch causes false `sophon_chunk_verify_failed` for Path A (HDiff via patch blobs) and Path C (Full from getBuild). Does NOT affect Path B (LocalChunkRead never touches CDN). Logged in §10. |
 | Encryption | `password` field from `getGameBranches` and `chunk_download.password` are PARSED but NEVER READ for crypto. Collapse declares `EncryptionPassword` and never reads it; we mirror that. | Honest description; the exact purpose (CDN URL token? deferred crypto?) is unknown. Defensive telemetry logs any non-empty `password` value as a tripwire. |
 | Manifest format | zstd-compressed Protocol Buffers | `google.golang.org/protobuf` + `klauspost/compress/zstd` |
 | `plat_app` | Hardcoded per-game in `meta.go` (Genshin global = `ddxf6vlr1reo`) | 1:1 with biz code, stable; same approach as `APIGameID` |
@@ -43,7 +43,8 @@ This spec is the source of truth for the M3.B v2 implementation plan. Protocol f
 | Staging directory layout | Split by branch: `staging/main/<build_id>/` vs `staging/predl/<build_id>/` | Eliminates risk of `build_id` collision between `main` and `pre_download` branches |
 | Same-chunk worker race | Tolerated. Two workers may concurrently download the same chunk; atomic rename + xxh64 verify make the result byte-identical. No inflight singleflight map needed. | Adds complexity for no benefit; duplicate work is bounded (a chunk appears in at most a handful of files) |
 | Full-flavor predownload | **NOT offered.** If §3.3's predl-flavor decision yields `flavorSophonFull` (no prior manifest cached → no chunk reuse possible), `predlAvailable` is forced to false. | Predownloading tens of GB blind (no install state to reuse from) is wasteful; user has not committed to that scope. Patch + Build predl only. |
-| Pre-apply oldFile MD5 verify | hdiff_patch records verify `originalFileMD5` against on-disk source BEFORE invoking hpatchz. Mismatch → demote that file to chunk_assemble from main manifest (cached in `genshinPlan.sophonPatchAssetsFromMain` at plan time). | Modded source files would otherwise produce garbage hpatchz output → terminal `sophon_apply_failed`. Demotion path keeps the update flowing. |
+| Pre-apply oldFile MD5 verify | hdiff_patch records verify `originalFileMD5` against on-disk source BEFORE invoking hpatchz. Mismatch → synchronous demotion: emit chunk-download jobs for the file's main-manifest chunks (from `genshinPlan.sophonPatchAssetsFromMain[path]`); apply phase blocks until those chunks land, then rewrites the WAL record as `chunk_assemble` and executes it. | Modded source files would otherwise produce garbage hpatchz output → terminal `sophon_apply_failed`. Demotion fetches just the chunks actually needed (vs defensively pre-downloading every patch file's main chunks, which would double bandwidth). |
+| Chunk staging filename | `staging/<branchKind>/<build_id>/chunks/<ChunkName>` where `ChunkName` is the full CDN filename verbatim from the manifest. `sophon_progress.ChunksDone` keys on `ChunkName` too. xxh64 is verification-only, never filename. | Works uniformly whether ChunkName's first-16-hex parses or not; removes the round-4 ambiguity over MD5-fallback chunk naming. |
 | Option A short-circuit removal | Replace `sophon_not_supported` error path with real plan | The whole point of v2 |
 
 ---
@@ -64,8 +65,8 @@ This spec is the source of truth for the M3.B v2 implementation plan. Protocol f
 | `meta.go` | extended | Add per-game `PlatApp string` field (Genshin global = `"ddxf6vlr1reo"`). `UsesSophon` flag already exists. |
 | `api.go` | extended | Add `branchInfo` struct + `fetchBranchInfo(ctx, apiGameID) (*branchInfo, error)` returning full `{Main, PreDownload}` with `{PackageID, Password, Tag, DiffTags, Categories}`. `fetchBranchTag` becomes a thin wrapper. |
 | `hoyoverse.go` | extended | `CheckForUpdate`: Sophon path dispatched on `UsesSophon=true` (replaces `sophon_not_supported` short-circuit). `RunUpdate`: Sophon flavors dispatched via new `runSophon*` helpers. `manifestCache` already holds `*genshinPlan`. |
-| `plan_internal.go` | extended | Add 5 new `planFlavor` constants (`flavorSophonPatch`, `flavorSophonBuild`, `flavorSophonFull`, `flavorSophonPredlPatch`, `flavorSophonPredlBuild`). Extend `genshinPlan` with `sophonBranch *branchInfo`, `sophonBuildID string`, `sophonCategories []sophonCategory`, `sophonChunkSources []chunkSource`, `sophonPatches []sophonPatchInstr`, `sophonDeletes []sophonDeleteInstr`, `predlConsume bool`, `predlSnapshot *sophonPlanSnapshot`. |
-| `sidecar_paths.go` | extended | Add `sophonSubdir(tempRoot, gid)`, `sophonManifestsDir`, `sophonAppliedJSONPath`, `sophonStagingDir(tempRoot, gid, branchKind, buildID)` where `branchKind ∈ {"main", "predl"}`. Layered on top of v1's `gameSidecarDir = <tempRoot>/<flat_gid>` and `versionSidecarDir = <tempRoot>/<flat_gid>/<version>`. |
+| `plan_internal.go` | extended | Add 5 new `planFlavor` constants (`flavorSophonPatch`, `flavorSophonBuild`, `flavorSophonFull`, `flavorSophonPredlPatch`, `flavorSophonPredlBuild`). Extend `genshinPlan` with **9 new fields**: `sophonBranch *branchInfo`, `sophonBuildID string`, `sophonCategories []sophonCategory`, `sophonChunkSources []chunkSource`, `sophonPatches []sophonPatchInstr`, `sophonDeletes []sophonDeleteInstr`, `sophonPatchAssetsFromMain map[string][]chunkSource` (path → per-asset chunk plan from main manifest; used by §6.4 demotion fallback), `predlConsume bool`, `predlSnapshot *sophonPlanSnapshot`, `predlPlan *predlPlanCache` (§3.3 — holds the parallel predl plan when `predlAvailable=true` AND user hasn't yet consumed it). |
+| `sidecar_paths.go` | extended | Add `sophonSubdir(tempRoot, gid)` → `<gameSidecarDir>/.sophon` (dot-prefix is deliberate: `internal/app/update_handler.go::scanForRecoveryRoot` iterates `IsDir()` entries under `gameSidecarDir` and treats each as a version; a leading `.` keeps it skipped without modifying that walker). Plus `sophonManifestsDir`, `sophonAppliedJSONPath`, `sophonStagingDir(tempRoot, gid, version, branchKind, buildID)` where `branchKind ∈ {"main", "predl"}`. Layered on v1's `gameSidecarDir = <tempRoot>/<flat_gid>` and `versionSidecarDir = <tempRoot>/<flat_gid>/<version>`. |
 
 ### `internal/providers/hoyoverse/hpatchz/` — **new sub-package (moved from parent)**
 
@@ -92,7 +93,7 @@ Parent `hoyoverse` package's existing callers (`update_patch.go`) switch import 
 | `branches.go` | `branchInfo`, `branchSlot`, `branchCategory` types + JSON shapes matching the extended `getGameBranches` response (snake_case `pre_download`). |
 | `infos.go` | `BuildResponse`, `PatchResponse`, `ManifestIdentity`, `ChunkDownloadInfo`, `ManifestDownloadInfo` types matching `getBuild` / `getPatchBuild` JSON envelopes. Custom JSON helpers: `boolish` (accepts `0|1|"0"|"1"|true|false` for `compression`/`encryption`) AND `int64ish` (accepts string-or-number for `compressed_size`/`uncompressed_size`/`chunk_size` — Collapse uses `JsonNumberHandling.AllowReadingFromString` for the same reason). |
 | `infos_test.go` | JSON round-trips against fixtures. |
-| `manifest_fetch.go` | `FetchBuildManifest(ctx, http, branch, category, target_tag) (*pb.SophonManifestProto, error)`. GET `manifest_download.url_prefix + '/' + id` → if `compression==1` wrap in `zstd.NewReader` → `proto.Unmarshal`. Sister `FetchPatchManifest`. |
+| `manifest_fetch.go` | `FetchBuildManifest(ctx, http, branch, category, target_tag) (*pb.SophonManifestProto, error)`. GET `manifest_download.url_prefix + '/' + id` → if `compression==1` wrap in `zstd.NewReader` → `proto.Unmarshal`. Sister `FetchPatchManifest`. **Manifest `checksum` field is NOT verified** — Collapse parity (Collapse's `ReadProtoFromManifestInfo` likewise omits it). Defensive telemetry: log the manifest's declared `checksum` alongside `proto.Unmarshal` success so debugging can correlate. |
 | `manifest_fetch_test.go` | Against canned zstd-protobuf bytes. |
 | `dedup.go` | `BuildPerAssetMD5Index(oldManifest *pb.SophonManifestProto, assetName string) map[string]ChunkRef` where key = decompressed-MD5-hex, value = `ChunkRef{OldFilePath string; OldOffset int64}`. **NO size field** — chunk size always comes from the *new* manifest's `ChunkSizeDecompressed` (which equals the old chunk's size by virtue of the MD5 match). Per-asset scope, mirroring Collapse `SophonUpdate.GetChunkOldOffsetFromOld`. |
 | `dedup_test.go` | Per-asset isolation (chunk in asset A invisible from B query); MD5 key collision intra-asset; empty old manifest. |
@@ -119,9 +120,9 @@ Parent `hoyoverse` package's existing callers (`update_patch.go`) switch import 
 | `update_sophon_apply_test.go` | Per-flavor flows; WAL resume; cross-device errno path; batched-rewrite cadence. |
 | `sophon_apply_wal.go` | New sidecar at `<versionSidecarDir>/sophon_apply.wal`. Schema in §6.1. Atomic write pattern. |
 | `sophon_apply_wal_test.go` | Read/write/round-trip; resume-from-mid-flight; batched rewrite. |
-| `sophon_progress.go` | New sidecar `sophonProgressFile` at `<versionSidecarDir>/sophon_progress.json`. Schema: `{GameID, Version, BranchKind, BuildID, Stage, ChunksDone map[chunkXxh64]bool, PatchesDone map[patchMD5]bool}`. v1's `core.ProgressFile` and `progress.json` untouched. |
+| `sophon_progress.go` | New sidecar `sophonProgressFile` at `<versionSidecarDir>/sophon_progress.json`. Schema: `{GameID, Version, BranchKind, BuildID, Stage, ChunksDone map[ChunkName]bool, PatchesDone map[PatchName]bool}` — both keys are the full CDN filenames from the manifest. v1's `core.ProgressFile` and `progress.json` untouched. |
 | `sophon_progress_test.go` | Save/load round-trip; partial ChunksDone resume; corrupt-file recovery. |
-| `sophon_manifest_cache.go` | On-disk manifest sidecar storage: `SaveAppliedManifest(gid, category, buildID, version, raw_pb_zst_bytes)`, `LoadAppliedManifests(gid) → *appliedSet`, `RotateAfterApply(gid, newBuildIDs)` — keeps latest + previous, GCs older. Atomic JSON `applied.json` index + raw `.pb.zst` blob files. Plus `cleanupStaleSophonSidecars(tempRoot, gid, currentTag)` — sweeps any version-scoped dir whose `sophon_apply.wal` has all records `done` and whose tag matches `currentTag` (idle-path crash-window recovery per §3 / §6.2). |
+| `sophon_manifest_cache.go` | On-disk manifest sidecar storage: `SaveAppliedManifest(gid, category, buildID, version, raw_pb_zst_bytes)`, `LoadAppliedManifests(gid) → *appliedSet`, `RotateAfterApply(gid, newBuildIDs)` — keeps latest + previous, GCs older. Atomic JSON `applied.json` index + raw `.pb.zst` blob files. Plus `cleanupStaleSophonSidecars(tempRoot, gid, currentTag, allowedTargets []string)` — sweeps ALL version-scoped dirs under `gameSidecarDir`: (a) version dirs with an all-`done` `sophon_apply.wal` matching `currentTag` (rotate-vs-cleanup crash window per §3 / §6.2); (b) version dirs for versions NOT in `allowedTargets = [currentTag, branch.PreDownload.Tag]` AND older than 7 days by mtime (orphan staging from abandoned earlier runs). Tens-of-GB-leak safety. |
 | `sophon_manifest_cache_test.go` | Save/load round-trip; rotation correctness; cross-build-id GC; concurrent reads safe. |
 | `testdata/sophon/branches_main_only.json` | Sanitized `getGameBranches` response, `main` only (no predl). |
 | `testdata/sophon/branches_with_predl.json` | Same + `pre_download` populated. |
@@ -150,7 +151,7 @@ Paths layered on top of v1's actual layout: `gameSidecarDir = filepath.Join(temp
 ```
 <tempRoot>/<flat_gid>/                                # gameSidecarDir (v1)
   last_apply_target.json                              # v1, untouched
-  sophon/                                             # NEW v2 cross-version sidecars
+  .sophon/                                            # NEW v2 cross-version sidecars (dot-prefix avoids App scanForRecoveryRoot misclassifying as a version dir)
     manifests/
       <build_id>__<category>.manifest.pb.zst          # raw wire form, one per (build_id, category)
     applied.json                                      # { latest: {buildID, version, categories: {...}}, previous: {...} }
@@ -163,9 +164,9 @@ Paths layered on top of v1's actual layout: `gameSidecarDir = filepath.Join(temp
   sophon_apply.wal                                    # NEW v2 typed-record WAL for Sophon apply
   staging/
     main/<target_build_id>/                           # NEW v2; branch-split to avoid build_id collisions
-      chunks/<chunk_xxh64>                            # verified chunks awaiting assemble
-      patches/<patch_blob_md5>                        # patch blobs awaiting HDiff apply
-      hdiff_inputs/<patch_blob_md5>_<offset>.bin      # extracted patch blob slices for hpatchz
+      chunks/<ChunkName>                            # verified chunks awaiting assemble
+      patches/<PatchName>                        # patch blobs awaiting HDiff apply
+      hdiff_inputs/<PatchName>_<offset>.bin      # extracted patch blob slices for hpatchz
       assembled/<file_relpath>.tmp                    # being-assembled output files
     predl/<predl_build_id>/                           # NEW v2; predl staging (no collision risk vs main)
       (same subdirs as main)
@@ -219,7 +220,7 @@ type branchCategory struct {
 func (s branchSlot) IsEmpty() bool { return s.PackageID == "" }
 ```
 
-If `branch.Main.Categories` is empty when `branch.Main.IsEmpty() == false` we treat the response as malformed → `sophon_manifest_fetch_failed`. Same rule for `PreDownload`.
+If `branch.Main.Categories` is empty when `branch.Main.IsEmpty() == false` we treat the response as malformed → `sophon_manifest_fetch_failed`. For `PreDownload`, the same rule **does NOT apply** — `categories` symmetry on pre_download was hypothesized in round 1 but not live-confirmed; if HoYoverse omits `categories` on pre_download, treat it as "game category only, no audio in predl" and continue (audio packs are then updated only when the live update happens). Defensive over strict.
 
 ### §2.3 `getBuild` / `getPatchBuild` response shape (canonical)
 
@@ -371,13 +372,13 @@ if currentLocal == "" → UpdateError{"sophon_no_install", Retryable:false}
 
 # Self-heal: applied chunks but config.ini writeback failed (v1 pattern)
 if healed := maybeSelfHealSophon(currentLocal, branch.Main.Tag, gameDir, tempRoot, gid):
-    cleanupStaleSophonSidecars(tempRoot, gid, branch.Main.Tag)
+    cleanupStaleSophonSidecars(tempRoot, gid, branch.Main.Tag, allowedTargets)
     plan := idle plan (Reason: ReasonUnspecified, Version: branch.Main.Tag)
     manifestCache.put(gid, &genshinPlan{flavor: flavorNone, ...})
     return plan
 
 if currentLocal == branch.Main.Tag:
-    cleanupStaleSophonSidecars(tempRoot, gid, branch.Main.Tag)
+    cleanupStaleSophonSidecars(tempRoot, gid, branch.Main.Tag, allowedTargets)
     return idle plan (Reason: ReasonUnspecified, Files: [])
 
 # Predl-consume detection (§3.6). Runs BEFORE main decision so we can short-circuit
@@ -391,7 +392,8 @@ if consume, snap := detectPredlConsume(tempRoot, gid, currentLocal, branch.Main.
     }
     return plan.UpdatePlan with Reason: ReasonResumeInterrupted
 
-audioLangs := DetectInstalledLanguages(gameDir)
+audioFolders, _ := DetectInstalledLanguages(gameDir)  // returns folder names ("Chinese", "English(US)", ...)
+audioLangs := mapFoldersToMatchingFields(audioFolders)  // reuse v1 folderToAudioLang map → ("zh-cn", "en-us", ...)
 
 # Old-manifest lookup for chunk-from-disk dedup (Path B)
 prev := LoadAppliedManifests(tempRoot, gid)
@@ -478,7 +480,7 @@ Runtime errors surface via `core.UpdateError.Code` (see §6.7), NOT via `ReasonC
 
 ### §3.5 `maybeSelfHealSophon`
 
-Mirrors v1's `maybeSelfHeal` exactly. On heal-success, ALSO call `manifestCache.put(gid, &genshinPlan{flavor: flavorNone, UpdatePlan: idle})` so a subsequent App.GetPredownloadAvailable / RunUpdate call doesn't see a stale non-idle plan.
+Mirrors v1's `maybeSelfHeal` exactly, **including the clock-skew handling** at `hoyoverse.go:470-483` (negative delta within 24h → return false; negative delta > 24h → delete the lat sidecar and return false). Plan-writing task does side-by-side diff against v1 to verify parity. On heal-success, ALSO call `manifestCache.put(gid, &genshinPlan{flavor: flavorNone, UpdatePlan: idle})` so a subsequent App.GetPredownloadAvailable / RunUpdate call doesn't see a stale non-idle plan.
 
 ```
 lat := loadJSONSidecar[lastApplyTarget](latPath)
@@ -513,7 +515,7 @@ Cleanup ownership: `detectPredlConsume` ALWAYS performs sidecar + staging cleanu
 ### §4.1 Storage layout
 
 ```
-<tempRoot>/<flat_gid>/sophon/
+<tempRoot>/<flat_gid>/.sophon/
   manifests/
     <build_id>__game.manifest.pb.zst
     <build_id>__en-us.manifest.pb.zst
@@ -584,8 +586,8 @@ type sophonJob struct {
 ```
 
 Output paths (under `<versionSidecarDir>/staging/<branchKind>/<target_build_id>/`):
-- `jobChunkCDN` / `jobChunkLocal` → `chunks/<chunk_xxh64>` (deterministic; same chunk requested by different files writes the same file once)
-- `jobPatchBlob` → `patches/<patch_blob_md5>`
+- `jobChunkCDN` / `jobChunkLocal` → `chunks/<ChunkName>` (deterministic; same chunk requested by different files writes the same file once)
+- `jobPatchBlob` → `patches/<PatchName>`
 
 Worker dispatches on `kind`:
 - `jobChunkCDN` → `sophon.ChunkDownload` (HTTP GET + `ctxReader`-wrapped + zstd decompress if compressed + xxh64 verify on write + atomic rename to `out`). If `out` already exists and verifies: skip.
@@ -599,11 +601,11 @@ Worker dispatches on `kind`:
 Per `jobChunkCDN`: 3× exponential backoff (1s / 4s / 16s). After 3 failures, the chunk is left in `sophon_progress.ChunksDone` as absent and surfaces as `UpdateError{Code:"sophon_chunk_verify_failed", Retryable:true}`.
 
 Cross-run resume:
-1. `sophon_progress.json.ChunksDone[xxh64]==true` → skip; the staging chunk file is known good
-2. Staging chunk file exists but ChunksDone says absent → re-verify xxh64 from disk; if pass, mark done and skip; if fail, delete and re-download
+1. `sophon_progress.json.ChunksDone[ChunkName]==true` → skip; the staging chunk file is known good
+2. Staging chunk file exists but ChunksDone says absent → re-verify (xxh64 if `ChunkName` first-16-hex parses; else MD5) from disk; if pass, mark done and skip; if fail, delete and re-download
 3. Neither → fresh job
 
-Same logic for `PatchesDone[patch_md5]`.
+Same logic for `PatchesDone[PatchName]`.
 
 `local_chunk_read.go` reads are NOT cached in `sophon_progress`; they're always re-executed because cache-hit would just mean another disk read.
 
@@ -669,7 +671,12 @@ Under flavorSophonPatch, the records list is a single ordered stream that interl
 5. Final WAL flush
 6. After all records done: `WriteGameVersion(gameDir, branch.Main.Tag)` + write `last_apply_target.json` (warn-log on permission error, set `ConfigWritebackOK=false`)
 7. Rotate `sophon/applied.json` per §4.3
-8. Delete `<versionSidecarDir>/staging/main/<build_id>/` contents + `sophon_apply.wal` + `sophon_progress.json`
+8. Delete:
+    - `<versionSidecarDir>/staging/main/<build_id>/` contents
+    - `<versionSidecarDir>/staging/predl/<predl_build_id>/` contents IF `WasPredl == true` (predl-consume happened — the predl staging was the source of truth for this apply, now done)
+    - `<versionSidecarDir>/sophon_apply.wal`
+    - `<versionSidecarDir>/sophon_progress.json`
+    - `<versionSidecarDir>/predl_ready.json` IF `WasPredl == true` (it served its purpose)
 9. Release `applyLock`
 
 ### §6.3 `chunk_assemble` record execution
@@ -678,7 +685,7 @@ For `Kind == "chunk_assemble"`:
 1. `os.MkdirAll(filepath.Dir(out_tmp), 0o755)` where `out_tmp = <staging>/main/<build_id>/assembled/<Path>.tmp`
 2. `out, _ := os.OpenFile(out_tmp, RDWR|CREATE|TRUNC, 0o644)`
 3. `out.Truncate(<expected_file_size>)` (from manifest `AssetSize`)
-4. For each chunk in `newAsset.AssetChunks`: read staging `<staging>/main/<build_id>/chunks/<chunk_xxh64>` → `out.WriteAt(bytes, chunk.ChunkOnFileOffset)`
+4. For each chunk in `newAsset.AssetChunks`: read staging `<staging>/main/<build_id>/chunks/<ChunkName>` → `out.WriteAt(bytes, chunk.ChunkOnFileOffset)`
 5. `out.Sync()`, `out.Close()`
 6. Whole-file MD5 verify against `AssetMD5`. Mismatch → delete `out_tmp`, surface `UpdateError{"sophon_apply_failed", Retryable:false}`
 7. `os.MkdirAll(filepath.Dir(<gameDir>/<Path>), 0o755)` (game files into nested dirs)
@@ -688,7 +695,14 @@ For `Kind == "chunk_assemble"`:
 ### §6.4 `hdiff_patch` record execution
 
 For `Kind == "hdiff_patch"`:
-1. **Pre-apply OldFile MD5 verify**: stat `<gameDir>/<OldPath>`, compute MD5, compare against `originalFileMD5` (carried on the record from §3.1). **Mismatch** → demote: look up `genshinPlan.sophonPatchAssetsFromMain[Path]` (built by `buildSophonPatchPlan` at §3.1 step 4); rewrite this WAL record as a `chunk_assemble` record with chunk sources from the main-manifest plan; persist the rewritten WAL; restart execution from this record. **Match** → proceed.
+1. **Pre-apply OldFile MD5 verify**: stat `<gameDir>/<OldPath>`, compute MD5, compare against `originalFileMD5` (carried on the record from §3.1).
+    - **Match** → proceed to step 2.
+    - **Mismatch** → **synchronous demotion**:
+        - Look up `sources := genshinPlan.sophonPatchAssetsFromMain[Path]` (built at §3.1 step 4). If not present (defensive — shouldn't happen because §3.1 always populates this for every patch record): surface `UpdateError{"sophon_apply_failed", Retryable:false}`.
+        - **Synchronously enqueue chunk-download jobs** for each `chunkSource where kind==CDN` in `sources` that's not already in staging (verify via `ChunkName` filename + xxh64/MD5 re-check). Block this apply-worker until all enqueued jobs land in `staging/main/<build_id>/chunks/<ChunkName>`. Local-kind chunk sources need no pre-fetch; `chunk_assemble` reads them at execution time.
+        - Rewrite this WAL record in-memory: `Kind = "chunk_assemble"`, `Path` unchanged, `AssetMD5` unchanged (target file MD5 is identical between patch and main views of the same file), drop hdiff-specific fields. Set a synthetic `assembleSources []chunkSource` reference on the record so step 6.3's executor reads from `sources` rather than re-deriving.
+        - Persist WAL (flush per batched-rewrite cadence — demotion is a state transition that forces an early flush).
+        - **Restart execution from this record** as `chunk_assemble` (§6.3).
 2. `os.MkdirAll(filepath.Dir(hdiff_input), 0o755)` where `hdiff_input = <staging>/main/<build_id>/hdiff_inputs/<patchMD5>_<offset>.bin`
 3. Write slice `PatchTmp[PatchOff:PatchOff+PatchLen]` to `hdiff_input`
 4. `os.MkdirAll(filepath.Dir(out_tmp), 0o755)`
@@ -697,7 +711,7 @@ For `Kind == "hdiff_patch"`:
 7. `safeAtomicRename(out_tmp, <gameDir>/<Path>)`
 8. Mark WAL `done`
 
-For the demotion path (step 1 mismatch): the rewritten `chunk_assemble` record uses the same `Path` + `AssetMD5` (target file MD5 from the main manifest, which equals the patch's `AssetMD5` because both describe the same target file). Chunk sources are taken verbatim from `sophonPatchAssetsFromMain[Path]`. Downstream `chunk_assemble` execution (§6.3) handles the rest, including Path B dedup against `oldMainManifest` if available.
+Demotion atomicity: if process crashes between WAL rewrite (1.d) and chunk_assemble execution, §6.9 resume sees a `chunk_assemble` record whose required chunks may or may not be in staging. Resume-time behavior: §6.3 step 4 attempts to open each `staging/main/<build_id>/chunks/<ChunkName>`. ENOENT → re-enqueue chunk download (same path as live demotion), block, re-attempt. Hash-mismatch on stagged-but-pre-existing chunks → delete + redownload.
 
 ### §6.5 `copy_over` record execution
 
@@ -740,7 +754,7 @@ Two layers:
 4. Else if `<versionSidecarDir>/progress.json` has non-empty entries → v1 path
 5. Else: fresh run from `manifestCache.get(gid)` (must have been planned by recent CheckForUpdate)
 
-If `manifestCache` miss AND any progress sidecar exists, the dispatcher re-calls `CheckForUpdate` to rebuild plan. If both miss, surface `UpdateError{"sophon_manifest_fetch_failed"}`.
+If `manifestCache` miss AND any progress sidecar exists, the dispatcher re-calls `CheckForUpdate` to rebuild plan — **but only when the dispatcher landed on path 3 (download-phase resume from `sophon_progress.json` without a WAL)**. For path 1 (sophon_apply.wal present), the WAL itself carries all required per-record state (paths, offsets, MD5s, staged blob references) so apply-phase resume needs no network and no manifestCache rebuild. If both miss, surface `UpdateError{"sophon_manifest_fetch_failed"}`.
 
 **App-layer bell-drawer** (calls `core.ScanRecovery`):
 - `core.ScanRecovery` is extended (§1 core/recovery.go) to also look for `sophon_apply.wal` and `sophon_progress.json`. Classification:
@@ -855,7 +869,7 @@ Extend `integration_test.go` (currently 9 `t.Skip` placeholders). Use TWO distin
 - GET `/getGameBranches` → canned `branches_*.json`
 - GET `/getBuild` + `getPatchBuild` → canned `build_*.json` / `patch_*.json`
 - GET CDN manifest paths → raw `.manifest.pb.zst` / `.patch.pb.zst` bytes
-- GET CDN chunk paths → raw `chunks/<chunk_xxh64>` bytes
+- GET CDN chunk paths → raw `chunks/<ChunkName>` bytes
 
 Scenarios:
 1. `TestSophonFlavorPatch_EndToEnd` — currentLocal in DiffTags → HDiff path
@@ -919,13 +933,13 @@ Scenarios:
 7. **ZZZ may migrate to Sophon mid-v2** — If HoYoverse migrates ZZZ between now and v2 ship, flip `UsesSophon=true` on `meta.go` ZZZ entry and re-smoke (one-line code change; no design change).
 8. **Same-chunk duplicate download tolerated** — Bounded waste; explicit non-goal to add inflight singleflight map.
 9. **Chunk-verify precedence inverts Collapse** — v2 uses xxh64 (`ChunkName` prefix) primary, MD5 fallback. Collapse uses MD5 primary for main chunks, xxh64 only for patch blobs. Faster on the happy path; risk is a HoYoverse-side chunk-naming convention change that breaks our prefix parse. Mitigation: mandatory MD5 fallback on xxh64 parse failure. Test scenario `TestSophonChunkVerify_XXh64ParseFail_FallbackMD5` in §9.2 covers this.
-10. **Apply-phase resume requires network for cache-miss case** — If the process crashes between download-done and apply-complete, and the user restarts offline, `manifestCache` is empty and recovery has to re-fetch manifests via `getBuild` / `getPatchBuild` to rebuild the plan. The WAL records carry per-file metadata but the dispatcher in §6.9 currently re-runs `CheckForUpdate`. A future v2.1 could persist the resolved plan to a sidecar so apply-only resume is network-free.
-11. **Alt-CDN fallback not implemented** — see §0 row. Risk: HoYoverse-side chunk URL rotation breaks Path B reuse. Mitigation: surface `sophon_chunk_verify_failed`, user retry triggers fresh plan via `CheckForUpdate` which gets new URLs.
+10. **Resume semantics by sidecar type** — Apply-phase resume from `sophon_apply.wal` is **offline-safe**: the WAL carries every per-record path, offset, length, and MD5 needed to finish the apply without re-fetching manifests. Download-phase resume from `sophon_progress.json` (no WAL) **requires network**: the dispatcher re-runs `CheckForUpdate` to rebuild the chunk-source plan. A future v2.1 could persist the resolved plan to a sidecar so download-phase resume is network-free too.
+11. **Alt-CDN fallback not implemented** — see §0 row. Risk: HoYoverse-side chunk URL rotation between the time a manifest was cached and the time we fetch its chunks → CDN GET returns 404 on a new-branch chunk URL that Collapse would have retried against the OLD branch's chunk-CDN base. Affects Path A (HDiff via patch blobs) and Path C (Full from `getBuild`) chunk fetches; does NOT affect Path B (chunk-from-disk LocalChunkRead) which never touches CDN. Mitigation: surface `sophon_chunk_verify_failed`, user retry triggers fresh plan via `CheckForUpdate` which gets new URLs.
 
 ### Spec deviations from v1 (carried forward)
 
 1. `planFlavor` enum gets 5 new constants; existing v1 flavors untouched.
-2. `genshinPlan` struct gets 7 new Sophon-only fields (incl. `predlConsume`, `predlSnapshot`).
+2. `genshinPlan` struct gets 9 new Sophon-only fields (`sophonBranch`, `sophonBuildID`, `sophonCategories`, `sophonChunkSources`, `sophonPatches`, `sophonDeletes`, `sophonPatchAssetsFromMain`, `predlConsume`, `predlSnapshot`, `predlPlan`).
 3. NEW parallel WAL sidecar `sophon_apply.wal` with typed records and batched rewrite policy; v1's `apply.wal` flat string lists untouched.
 4. NEW parallel progress sidecar `sophon_progress.json` (NOT `core.ProgressFile`-shaped); v1's `progress.json` untouched.
 5. `core.recovery.go::ScanRecovery` extended to know `sophon_apply.wal` + `sophon_progress.json`. New file precedence rules added but v1 sidecar precedence unchanged.
