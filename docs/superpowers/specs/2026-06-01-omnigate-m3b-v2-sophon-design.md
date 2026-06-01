@@ -1,6 +1,6 @@
 # Omnigate M3.B v2 — HoYoverse Sophon Protocol Design
 
-**Status:** Draft, post-brainstorm + 5 reviewer rounds (2026-06-01)
+**Status:** Draft, post-brainstorm + 6 reviewer rounds (2026-06-01)
 **Target tag:** `v0.4.0-m3b` (combined v1 + v2; tagged at merge into `main`)
 **Branch:** `m3b-v2/spec` (branched from `dev`, which has `m3b/spec` merged in via `--no-ff`)
 **Scope:** Genshin Impact 6.0+ update / install / predownload via HoYoverse's **Sophon** chunk-level binary delta protocol. HSR / ZZZ stay on legacy `getGamePackages` (M3.B v1) until HoYoverse migrates them.
@@ -526,10 +526,10 @@ All three clock-skew branches mirror v1's `hoyoverse.go:470-483` byte-for-byte s
 ### §3.6 `detectPredlConsume`
 
 Read `versionSidecarDir(tempRoot, gid, branch.Main.Tag)/predl_ready.json`:
-- ENOENT → return `(false, nil)`
+- ENOENT → return `(false, nil)`. (Stale-target predls — written at a prior `predl.TargetVersion` no longer equal to `branch.Main.Tag` — leave orphaned sidecars at OTHER version dirs; those are reaped by `cleanupStaleSophonSidecars`'s 7-day mtime sweep per §1, not by §3.6.)
 - Parse `sophonPredlReadyFile`; if parse fail → delete file, return `(false, nil)`
 - If `predl.Kind ∉ {"sophon_patch", "sophon_build"}` (e.g. zero-value from a legacy v1 HSR/ZZZ-shaped `predl_ready.json` that lacks the field, or a future kind we don't know): treat as stale, delete sidecar + staging tree, return `(false, nil)`
-- If `predl.TargetVersion != branch.Main.Tag` → mismatch (stale); emit `predl_stale` warn-log, delete sidecar + staging tree at `staging/predl/<predl.BuildID>/`, return `(false, nil)`
+- If `predl.TargetVersion != branch.Main.Tag` → defensive consistency check (this branch is reachable only if the sidecar was somehow written under the wrong version dir; should not happen with well-formed writers but the check costs nothing); emit `predl_stale` warn-log, delete sidecar + staging tree at `versionSidecarDir(branch.Main.Tag)/staging/predl/<predl.BuildID>/`, return `(false, nil)`
 - If `predl.SourceVersion != currentLocal` → user updated via HoYoPlay between predl and now; same cleanup, return `(false, nil)`
 - If `predl.Kind == "sophon_patch"` and `currentLocal ∉ branch.Main.DiffTags` → predl was patch-based but diff window no longer covers user; same cleanup, return `(false, nil)`
 - Otherwise → return `(true, &predl)`. Caller sets `genshinPlan.predlConsume=true`, `genshinPlan.predlSnapshot=&predl.PlanSnapshot`, flavor from `predl.Kind`
@@ -692,17 +692,38 @@ type sophonApplyRecord struct {
 }
 
 type walChunkSource struct {
-    Kind         string `json:"kind"`       // "cdn" | "local"
-    ChunkName    string `json:"chunk_name"` // cdn: staging filename = <StagingRoot>/chunks/<ChunkName>
+    Kind         string `json:"kind"`             // "cdn" | "local"
+    ChunkName    string `json:"chunk_name"`       // CDN filename = <StagingRoot>/chunks/<ChunkName>
+    URLPrefix    string `json:"url_prefix"`       // CDN base URL prefix — persisted so post-crash demoted records can re-download without re-fetching the manifest. Always present on cdn AND local sources (local sources carry it for §6.3 step 4's stale-fallback to CDN).
+    CompressedSz int64  `json:"compressed_sz"`    // ChunkSize from manifest; ensures download phase knows on-wire byte count for progress accounting after crash-resume.
+    UseCompress  bool   `json:"use_compress"`     // mirrors chunk_download.compression flag from the originating manifest_download envelope
     OldFile      string `json:"old_file,omitempty"`  // local: relative to gameDir
     OldOffset    int64  `json:"old_offset,omitempty"`
     DecompSize   int64  `json:"decomp_size"`
-    FileOffset   int64  `json:"file_offset"` // ChunkOnFileOffset into target
-    ExpectMD5    string `json:"expect_md5"`  // ChunkDecompressedHashMd5 (for verification of local + dedup-keying parity)
+    FileOffset   int64  `json:"file_offset"`      // ChunkOnFileOffset into target
+    ExpectMD5    string `json:"expect_md5"`       // ChunkDecompressedHashMd5
+}
+
+// In-memory counterpart used by plan layer (genshinPlan.sophonChunkSources,
+// genshinPlan.sophonPatchAssetsFromMain). Serialized to walChunkSource at WAL
+// build / WAL flush time; serialized to predl_ready.json's PlanSnapshot at
+// predl-complete time.
+type chunkSource struct {
+    Kind         string  // "cdn" | "local"
+    Asset        string  // owning newAsset.AssetName (for log + per-asset dedup scoping)
+    ChunkName    string
+    URLPrefix    string
+    CompressedSz int64
+    UseCompress  bool
+    OldFile      string
+    OldOffset    int64
+    DecompSize   int64
+    FileOffset   int64
+    ExpectMD5    string
 }
 ```
 
-`AssembleSources` is the single source of truth for `chunk_assemble` execution; §6.3 step 4 reads from `<StagingRoot>/chunks/<ChunkName>` for CDN sources and from `<gameDir>/<OldFile>` for Local sources. After §6.4 demotion, `AssembleSources` is populated from `genshinPlan.sophonPatchAssetsFromMain[Path]` and persisted by the next WAL flush, making the demoted record offline-resumable (§6.9 path 1 promise upheld).
+`AssembleSources` is the single source of truth for `chunk_assemble` execution; §6.3 step 4 reads from `<StagingRoot>/chunks/<ChunkName>` for CDN sources and from `<gameDir>/<OldFile>` for Local sources. After §6.4 demotion, `AssembleSources` is populated from `genshinPlan.sophonPatchAssetsFromMain[Path]` and persisted (with `URLPrefix` + `CompressedSz` + `UseCompress` for each entry) **before** the WAL state transition is flushed, making the demoted record offline-resumable: if the process crashes between demotion flush and chunk fetch completion, §6.9 path 1 resume reads the WAL, sees missing staging chunks for the demoted record, and re-enqueues download jobs using the persisted `URLPrefix` — no manifestCache rebuild needed. §6.9 path 1's offline-safety promise holds.
 
 Under flavorSophonPatch, the records list is a single ordered stream that interleaves Patch/CopyOver (from `sophonPatches`), DownloadOver `chunk_assemble` (from main-fall-through chunks in `sophonChunkSources`), and `delete` (from `sophonDeletes`). Under flavorSophonBuild / flavorSophonFull, the list is just `chunk_assemble` records.
 
@@ -824,8 +845,8 @@ If `manifestCache` miss AND any progress sidecar exists, the dispatcher re-calls
 1. `CheckForUpdate` sets `predlAvailable=true` on `genshinPlan` when `branch.PreDownload != empty && currentLocal != branch.PreDownload.Tag`
 2. App.GetPredownloadAvailable → true → UI shows predl button
 3. User clicks predl → App.StartPredownload → Provider.RunUpdate with `plan.Kind = PlanPredownload`
-4. RunUpdate dispatches flavor as `flavorSophonPredlPatch` or `flavorSophonPredlBuild` (no Full predl)
-5. Download phase runs identically; staging tree at `staging/predl/<predl_build_id>/`
+4. RunUpdate detects `PlanPredownload`, reads `genshinPlan.predlPlan *predlPlanCache` (cached at §3.3 plan time), uses its `ChunkSources` / `Patches` / `Deletes` / `Categories` as the work list and `predlPlan.BuildID` as the staging key. Flavor is `flavorSophonPredlPatch` or `flavorSophonPredlBuild` (no Full predl per §0).
+5. Download phase runs identically; staging tree at `<versionSidecarDir(predl_target)>/staging/predl/<predl_build_id>/`
 6. **Apply phase is SKIPPED**. Instead, write `predl_ready.json` (extending v1's `predlReadyFile`):
 
 ```go
