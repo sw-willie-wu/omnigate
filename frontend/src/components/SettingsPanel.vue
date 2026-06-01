@@ -74,7 +74,10 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <Teleport to="body">
-    <div v-if="view.settingsOpen && draft" class="settings-backdrop" @click="onCancel"></div>
+    <Transition name="settings-fade">
+      <div v-if="view.settingsOpen && draft" class="settings-backdrop" @click="onCancel"></div>
+    </Transition>
+    <Transition name="settings-slide">
     <div v-if="view.settingsOpen && draft" class="settings-panel">
       <div class="settings-header">
         <span>{{ t('settings.title') }}</span>
@@ -138,5 +141,6 @@ function onKeydown(e: KeyboardEvent) {
         >{{ t('settings.save') }}</button>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>

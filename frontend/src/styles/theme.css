@@ -463,6 +463,11 @@
   }
 
   .settings-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.45); }
+  /* Slide-over drawer enter/leave: panel slides from the right edge, backdrop fades. */
+  .settings-slide-enter-active, .settings-slide-leave-active { transition: transform 0.25s ease; }
+  .settings-slide-enter-from, .settings-slide-leave-to { transform: translateX(100%); }
+  .settings-fade-enter-active, .settings-fade-leave-active { transition: opacity 0.2s ease; }
+  .settings-fade-enter-from, .settings-fade-leave-to { opacity: 0; }
   .settings-panel {
     position: fixed; top: 0; right: 0; bottom: 0; z-index: 1001;
     width: 420px; max-width: 90vw;
