@@ -105,6 +105,66 @@ type rawGames struct {
 	} `json:"games"`
 }
 
+// rawGameBranches mirrors the /getGameBranches response shape. The main
+// branch's `tag` field is the real current latest version for Sophon-migrated
+// games (Genshin 6.0+); the legacy /getGamePackages endpoint is frozen there.
+type rawGameBranches struct {
+	GameBranches []struct {
+		Game struct {
+			ID  string `json:"id"`
+			Biz string `json:"biz"`
+		} `json:"game"`
+		Main struct {
+			PackageID string   `json:"package_id"`
+			Branch    string   `json:"branch"`
+			Tag       string   `json:"tag"`
+			DiffTags  []string `json:"diff_tags"`
+		} `json:"main"`
+	} `json:"game_branches"`
+}
+
+// fetchBranchTag calls /getGameBranches and returns the main branch's `tag`
+// for the given API game id. Used for Sophon-migrated games where
+// /getGamePackages reports stale data. Returns ErrUnknownGame if the API
+// response omits the requested game.
+func (c *apiClient) fetchBranchTag(ctx context.Context, apiGameID string) (string, error) {
+	qs := "launcher_id=" + url.QueryEscape(LauncherID) + "&game_ids[]=" + url.QueryEscape(apiGameID)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.base+"/getGameBranches?"+qs, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("getGameBranches: http %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var env apiEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		return "", err
+	}
+	if env.Retcode != 0 {
+		return "", fmt.Errorf("getGameBranches retcode=%d msg=%q", env.Retcode, env.Message)
+	}
+	var raw rawGameBranches
+	if err := json.Unmarshal(env.Data, &raw); err != nil {
+		return "", err
+	}
+	for _, b := range raw.GameBranches {
+		if b.Game.ID == apiGameID {
+			return b.Main.Tag, nil
+		}
+	}
+	return "", fmt.Errorf("getGameBranches: game id %q not in response", apiGameID)
+}
+
 func (c *apiClient) fetchGameIcon(ctx context.Context, biz, lang string) (string, error) {
 	q := url.Values{}
 	q.Set("launcher_id", LauncherID)

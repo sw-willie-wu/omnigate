@@ -101,7 +101,8 @@
       "apply_failed": "Apply failed ({file}); please retry",
       "apply_partial": "Some files could not be updated ({file}); close game and retry",
       "permission_denied": "Writing game dir requires admin; restart as administrator",
-      "version_unknown": "Cannot read local version"
+      "version_unknown": "Cannot read local version",
+      "sophon_not_supported": "Genshin 6.0+ uses HoYoverse's Sophon protocol; Omnigate v1 doesn't support it yet — please update via HoYoPlay launcher for now (M3.B v2 in progress)"
     },
     "bell": {
       "predl_complete": {

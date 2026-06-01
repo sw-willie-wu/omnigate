@@ -101,7 +101,8 @@
       "apply_failed": "应用失败（{file}）；请重试",
       "apply_partial": "部分文件无法更新（{file}）；请关闭游戏后重试",
       "permission_denied": "写入游戏目录需要管理员；请以管理员身份重启",
-      "version_unknown": "无法读取本地版本"
+      "version_unknown": "无法读取本地版本",
+      "sophon_not_supported": "原神 6.0+ 已切换 HoYoverse Sophon 协议；Omnigate v1 尚未支持，请暂用 HoYoPlay 启动器更新（M3.B v2 进行中）"
     },
     "bell": {
       "predl_complete": {

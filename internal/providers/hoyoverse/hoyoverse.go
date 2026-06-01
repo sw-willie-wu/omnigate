@@ -111,6 +111,24 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 			currentLocal = ver
 		}
 	}
+
+	// Sophon-migrated games (Genshin 6.0+): the legacy /getGamePackages
+	// endpoint reports a frozen old version (5.5.0 for Genshin global).
+	// Use /getGameBranches.main.tag for the real latest so the UI displays
+	// the correct number. The actual update flow is gated separately in
+	// CheckForUpdate (returns sophon_not_supported until M3.B v2 lands).
+	if g.UsesSophon {
+		tag, err := p.api.fetchBranchTag(ctx, g.APIGameID)
+		if err != nil {
+			return core.VersionInfo{}, err
+		}
+		info := core.VersionInfo{Current: currentLocal, Latest: tag}
+		if info.Current == "" {
+			info.Current = info.Latest
+		}
+		return info, nil
+	}
+
 	return p.api.fetchVersion(ctx, g.APIGameID, currentLocal)
 }
 
@@ -145,6 +163,17 @@ func (p *Provider) IsGameRunning(gid core.GameID) (bool, error) {
 
 // CheckForUpdate implements core.Updater.
 func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
+	// Sophon-migrated games (Genshin 6.0+) cannot use M3.B v1's zip + hdiff +
+	// hpatchz pipeline — HoYoverse delivers chunk-level binary deltas via the
+	// Sophon protocol instead. Return a structured error pointing the user at
+	// HoYoPlay until M3.B v2 (Sophon manifest + chunk downloader) lands.
+	if g := findByID(gid); g != nil && g.UsesSophon {
+		return core.UpdatePlan{}, &core.UpdateError{
+			Code:      "sophon_not_supported",
+			Retryable: false,
+		}
+	}
+
 	resp, err := p.fetchGetGamePackages(ctx, gid)
 	if err != nil {
 		return core.UpdatePlan{}, err
