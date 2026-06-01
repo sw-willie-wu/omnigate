@@ -463,35 +463,43 @@
   }
 
   /* Full-page overlay: blurs the app behind (like grid mode), fades in/out.
-     A centered card holds the settings; clicking the blurred area closes. */
+     Content fills the page (no centered card); clicking the blurred margin closes. */
   .settings-overlay {
     position: fixed; inset: 0; z-index: 1000;
     background: rgba(8, 8, 12, 0.55);
     backdrop-filter: blur(16px) brightness(0.85);
-    display: flex; align-items: center; justify-content: center;
-    padding: 48px 24px;
+    display: flex;
+    padding: 40px 56px;
   }
   .settings-fade-enter-active, .settings-fade-leave-active { transition: opacity 0.2s ease; }
   .settings-fade-enter-from, .settings-fade-leave-to { opacity: 0; }
   .settings-card {
-    width: 100%; max-width: 760px; max-height: 100%;
-    background: rgba(15, 15, 25, 0.92);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 12px;
+    flex: 1; min-width: 0;
     display: flex; flex-direction: column;
-    overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+    background: transparent; border: 0; box-shadow: none;
   }
   .settings-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 18px; font-size: 15px; font-weight: 600;
+    padding: 4px 4px 16px; font-size: 20px; font-weight: 700; letter-spacing: 0.02em;
     border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex: 0 0 auto;
   }
-  .settings-close { background: transparent; border: 0; color: var(--text-2); font-size: 22px; cursor: pointer; }
+  .settings-close { background: transparent; border: 0; color: var(--text-2); font-size: 26px; cursor: pointer; line-height: 1; }
   .settings-close:hover { color: white; }
-  .settings-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
-  .settings-section { margin-bottom: 22px; }
-  .settings-section-title { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+  /* Body tiles the backend sections across the full width (grid-mode feel). */
+  .settings-body {
+    flex: 1; overflow-y: auto; padding: 22px 4px;
+    display: grid; align-content: start;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 18px 24px;
+  }
+  .settings-section {
+    background: rgba(20, 20, 30, 0.55);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .settings-section-title { font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
   .settings-label { display: block; font-size: 11px; color: var(--text-2); margin: 8px 0 4px; }
   .settings-row { display: flex; gap: 6px; align-items: center; }
   .settings-row input {
@@ -504,10 +512,11 @@
     background: rgba(255,255,255,0.08); color: var(--text); white-space: nowrap;
   }
   .settings-browse:hover, .settings-clear:hover { background: rgba(255,255,255,0.14); }
-  .settings-error { margin-top: 12px; color: var(--warn); font-size: 12px; }
+  .settings-error { grid-column: 1 / -1; color: var(--warn); font-size: 12px; }
   .settings-footer {
     display: flex; justify-content: flex-end; gap: 8px;
-    padding: 14px 18px; border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 16px 4px 4px; border-top: 1px solid rgba(255,255,255,0.08);
+    flex: 0 0 auto;
   }
   .settings-btn-cancel { padding: 7px 16px; border-radius: 6px; border: 0; cursor: pointer; background: rgba(255,255,255,0.08); color: var(--text); font-size: 12px; }
   .settings-btn-save { padding: 7px 16px; border-radius: 6px; border: 0; cursor: pointer; background: var(--accent); color: var(--bg); font-weight: 600; font-size: 12px; }
