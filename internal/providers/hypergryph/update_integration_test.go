@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"omnigate/internal/core"
 )
 
 // buildEndfieldTestServer serves get_latest (with pkg.file_path → this server),
@@ -65,7 +67,7 @@ func TestIntegration_CheckForUpdate_FiltersChangedFiles(t *testing.T) {
 	SetAPIBaseURL(srv.URL)
 	defer SetAPIBaseURL("")
 
-	p := New(Settings{Path: game}, testLogger())
+	p := New(Settings{}, testLogger())
 	// install path resolution is via DetectInstall; for this test we drive the
 	// internal checkForUpdate against the known install path directly.
 	plan, err := p.checkForUpdateAt(context.Background(), "hypergryph/endfield", game, nil)
@@ -99,7 +101,8 @@ func TestIntegration_RunUpdate_EndToEnd(t *testing.T) {
 	defer SetAPIBaseURL("")
 
 	// TempDir under root → same volume as gameDir (preflight passes).
-	p := New(Settings{Path: root, TempDir: filepath.Join(root, "_temp")}, testLogger())
+	p := New(Settings{TempDir: filepath.Join(root, "_temp")}, testLogger())
+	p.SetResolvedPaths(map[core.GameID]string{"hypergryph/endfield": gameDir})
 	plan, err := p.CheckForUpdateWithProgress(context.Background(), "hypergryph/endfield", nil)
 	if err != nil {
 		t.Fatalf("check: %v", err)
@@ -126,7 +129,7 @@ func TestCheckForUpdate_DegradeNoLocalVersion(t *testing.T) {
 	srv := buildEndfieldTestServer(t, "1.2.6", files) // action==1
 	SetAPIBaseURL(srv.URL)
 	defer SetAPIBaseURL("")
-	p := New(Settings{Path: game}, testLogger())
+	p := New(Settings{}, testLogger())
 	plan, err := p.checkForUpdateAt(context.Background(), "hypergryph/endfield", game, nil)
 	if err != nil {
 		t.Fatalf("check (action==1): %v", err)

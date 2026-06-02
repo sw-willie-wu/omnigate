@@ -16,9 +16,15 @@ type fakeProvider struct {
 	games []core.GameDescriptor
 	// Optional install set; nil means DetectInstall returns ([], nil)
 	installs []core.InstalledGame
-	// optional path for PathProvider
-	path string
+	// DefaultScan result + captured SetResolvedPaths injection (Task 8)
+	def      map[core.GameID]string
+	injected map[core.GameID]string
 }
+
+func (f *fakeProvider) DefaultScan(context.Context) (map[core.GameID]string, error) {
+	return f.def, nil
+}
+func (f *fakeProvider) SetResolvedPaths(paths map[core.GameID]string) { f.injected = paths }
 
 func (f *fakeProvider) ID() core.BackendID                                  { return f.id }
 func (f *fakeProvider) DisplayName() core.LocalizedString                   { return core.LocalizedString{"en": string(f.id)} }
@@ -37,8 +43,6 @@ func (f *fakeProvider) CheckVersion(ctx context.Context, gid core.GameID) (core.
 func (f *fakeProvider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
 	return 0, nil
 }
-func (f *fakeProvider) PrimaryPath() string { return f.path }
-
 func TestProviderLookup(t *testing.T) {
 	a := newAppForTest(t,
 		&fakeProvider{id: "hoyoverse", games: []core.GameDescriptor{{ID: "hoyoverse/genshin", Backend: "hoyoverse"}}},
@@ -170,16 +174,13 @@ func TestRefreshClearsCache(t *testing.T) {
 func TestListBackends_DerivesStatuses(t *testing.T) {
 	hoyo := &fakeProvider{
 		id:       "hoyoverse",
-		path:     "C:/Program Files/HoYoPlay",
 		installs: []core.InstalledGame{{GameID: "hoyoverse/genshin"}},
 	}
 	emptyKuro := &fakeProvider{
-		id:   "kurogames",
-		path: "C:/Program Files/Wuthering Waves", // path set, no installs
+		id: "kurogames", // no installs
 	}
 	unconfigured := &fakeProvider{
-		id:   "hypergryph",
-		path: "", // path empty
+		id: "hypergryph",
 	}
 	a := newAppForTest(t, hoyo, emptyKuro, unconfigured)
 	statuses := a.ListBackends()
@@ -190,14 +191,107 @@ func TestListBackends_DerivesStatuses(t *testing.T) {
 	for _, s := range statuses {
 		byID[s.BackendID] = s
 	}
-	// Note: emptyKuro's path doesn't actually exist on the test FS; that means
-	// status will be "launcher_missing" not "empty". Adjust as needed once
-	// status semantics are concrete.
-	if byID["hoyoverse"].Status != "ok" && byID["hoyoverse"].Status != "launcher_missing" {
-		t.Errorf("hoyoverse status = %q (allowed: ok|launcher_missing depending on FS)", byID["hoyoverse"].Status)
+	// Status is now derived from a.resolved (ok | empty). None of these providers
+	// have a resolvable path (no def map, no override) → all "empty".
+	if byID["hoyoverse"].Status != "empty" {
+		t.Errorf("hoyoverse status = %q, want empty", byID["hoyoverse"].Status)
 	}
-	if byID["hypergryph"].Status != "path_unset" {
-		t.Errorf("hypergryph status = %q, want path_unset", byID["hypergryph"].Status)
+	if byID["hypergryph"].Status != "empty" {
+		t.Errorf("hypergryph status = %q, want empty", byID["hypergryph"].Status)
+	}
+}
+
+// buildAppWithResolved builds an App with a single fakeProvider whose game gid
+// resolves (via DefaultScan) to dir, runs resolveAll, and returns the App.
+// The backend prefix is derived from gid (e.g. "fake/g" → "fake").
+func buildAppWithResolved(t *testing.T, gid core.GameID, dir string) *App {
+	t.Helper()
+	backend, _, err := core.ParseGameID(gid)
+	if err != nil {
+		t.Fatalf("bad gid %q: %v", gid, err)
+	}
+	fp := &fakeProvider{
+		id:    backend,
+		games: []core.GameDescriptor{{ID: gid, Backend: backend}},
+		def:   map[core.GameID]string{gid: dir},
+	}
+	a := &App{
+		settings: Settings{Version: 2, Games: map[string]GameSettings{}},
+		detect:   map[core.BackendID]detectEntry{},
+		resolved: map[core.GameID]resolvedEntry{},
+		logger:   slog.Default(),
+	}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+	a.resolveAll(a.ctx) // single goroutine in test: no lock needed
+	return a
+}
+
+func TestListGames_CarriesResolvedSource(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	rows, _ := a.ListGames()
+	var row *GameRow
+	for i := range rows {
+		if rows[i].ID == string(gid) {
+			row = &rows[i]
+		}
+	}
+	if row == nil || !row.Installed || row.ResolvedPath != dir || row.PathSource != string(core.SourceDefault) {
+		t.Fatalf("row=%+v", row)
+	}
+}
+
+func TestListGames_InvalidOverride_NotInstalled(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	// set an override to a non-existent dir, re-resolve
+	a.settings.Games[string(gid)] = GameSettings{Path: `Z:\does\not\exist`}
+	a.resolveAll(a.ctx)
+	rows, _ := a.ListGames()
+	var row *GameRow
+	for i := range rows {
+		if rows[i].ID == string(gid) {
+			row = &rows[i]
+		}
+	}
+	if row == nil || row.PathSource != string(core.SourceOverride) || row.Installed {
+		t.Fatalf("invalid override row=%+v (want source=override, installed=false)", row)
+	}
+	if row.OverridePath != `Z:\does\not\exist` {
+		t.Fatalf("override path not surfaced: %+v", row)
+	}
+}
+
+func TestResolveAll_InjectsUnderWriteLock(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	fp := &fakeProvider{
+		id:    "fake",
+		games: []core.GameDescriptor{{ID: gid, Backend: "fake"}},
+		def:   map[core.GameID]string{gid: dir},
+	}
+	a := &App{
+		settings: Settings{Version: 2, Games: map[string]GameSettings{}},
+		detect:   map[core.BackendID]detectEntry{},
+		resolved: map[core.GameID]resolvedEntry{},
+		logger:   slog.Default(),
+	}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	// Mirror the real call path: resolveAll runs while the settings write lock
+	// is held (as constructProviders does). Must NOT deadlock.
+	a.settingsMu.Lock()
+	a.resolveAll(a.ctx)
+	a.settingsMu.Unlock()
+
+	if fp.injected[gid] != dir {
+		t.Fatalf("not injected: %+v", fp.injected)
+	}
+	if a.resolved[gid].Source != core.SourceDefault || a.resolved[gid].Path != dir {
+		t.Fatalf("resolved wrong: %+v", a.resolved[gid])
 	}
 }
 
@@ -233,5 +327,70 @@ func TestTempDirFor_DefaultBranch(t *testing.T) {
 	want := filepath.Join(osTempDir(), "omnigate", "nonexistent-backend")
 	if got != want {
 		t.Errorf("tempDirFor default = %q, want %q", got, want)
+	}
+}
+
+func TestSetGameOverride_PersistsResolvesReturnsRow(t *testing.T) {
+	overrideDir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	row, err := a.SetGameOverride(string(gid), overrideDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceOverride) || row.ResolvedPath != overrideDir || row.OverridePath != overrideDir || !row.Installed {
+		t.Fatalf("row=%+v", row)
+	}
+	a.settingsMu.RLock()
+	got := a.settings.Games[string(gid)].Path
+	a.settingsMu.RUnlock()
+	if got != overrideDir {
+		t.Errorf("not persisted: %q", got)
+	}
+}
+
+func TestClearGameOverride_RevertsToDetection(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir) // default-scan resolves to dir
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	_, _ = a.SetGameOverride(string(gid), t.TempDir())
+	row, err := a.ClearGameOverride(string(gid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceDefault) || row.ResolvedPath != dir || row.OverridePath != "" {
+		t.Fatalf("after clear row=%+v (want default %q, no override)", row, dir)
+	}
+}
+
+func TestRefreshGame_ReResolvesNoSettingsChange(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	row, err := a.RefreshGame(string(gid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceDefault) || row.ResolvedPath != dir || !row.Installed {
+		t.Fatalf("row=%+v", row)
+	}
+	// No override should have been written.
+	a.settingsMu.RLock()
+	_, present := a.settings.Games[string(gid)]
+	a.settingsMu.RUnlock()
+	if present {
+		t.Errorf("RefreshGame mutated settings.Games")
+	}
+}
+
+func TestSetGameOverride_UnknownGameErrors(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	if _, err := a.SetGameOverride("other/missing", t.TempDir()); err == nil {
+		t.Fatalf("SetGameOverride(unknown) succeeded; want error")
 	}
 }

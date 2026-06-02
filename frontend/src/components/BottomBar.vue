@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
 import { Launch } from '../../wailsjs/go/app/App';
 import { formatSize } from '../utils/format';
+import GameConfigPopover from './GameConfigPopover.vue';
 
 const games = useGamesStore();
 const updates = useUpdatesStore();
@@ -157,6 +158,9 @@ async function onCancel() {
       <span v-if="!availableUpdate" class="v">v{{ games.selected.current_version || games.selected.latest_version || '?' }}</span>
     </div>
 
+    <!-- right cluster: predl + per-game config gear + Play/Update, kept together
+         so space-between only spreads the version pill (left) vs this group (right). -->
+    <div class="bottombar-right">
     <!-- left: predl button OR remove button (when PredlReady) -->
     <div v-if="!inFlight && availablePredl" class="predl-area">
       <button data-testid="predl-button" class="predl-btn" @click="onPredl">{{ predlSizeLabel }}</button>
@@ -171,6 +175,9 @@ async function onCancel() {
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
     </div>
+
+    <!-- per-game install-path config gear (left of the Play/Update button) -->
+    <GameConfigPopover v-if="games.selected" :row="games.selected" />
 
     <!-- right: Launch / Update / Update-in-flight / Apply Predl -->
     <div class="launch-area">
@@ -194,6 +201,7 @@ async function onCancel() {
         <!-- cancel disabled in apply phase; show tooltip instead of ×: spec §2.6 -->
         <span class="cancel-x disabled" :title="cancelDisabledTooltip">×</span>
       </button>
+    </div>
     </div>
   </div>
 </template>

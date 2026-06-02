@@ -376,6 +376,73 @@
   @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0.2; } }
 
   /* ━━━ PREDL & PROGRESS BUTTONS ━━━ */
+  /* per-game install-path config gear + popover (above the bottom bar) */
+  /* Right cluster keeps predl + gear + Play together so .bottom-bar's
+     space-between only spreads the version pill (left) vs this group (right). */
+  .bottombar-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .bottombar-right .predl-area, .bottombar-right .launch-area { margin-right: 0; }
+  .game-config { position: relative; flex-shrink: 0; }
+  .game-config-btn { width: 40px; height: 40px; }
+  .game-config-btn .material-symbols-outlined { font-size: 22px; }
+  .game-config-backdrop { position: fixed; inset: 0; z-index: 990; background: transparent; }
+  .game-config-popover {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    right: 0;
+    z-index: 991;
+    width: 480px;
+    background: rgba(15, 15, 25, 0.96);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(214, 176, 75, 0.4);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .game-config-popover .gamecfg-row { display: flex; align-items: center; gap: 8px; }
+  .game-config-popover .gamecfg-srcrow { margin-bottom: 2px; }
+  .gamecfg-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 10px; letter-spacing: 0.16em; font-weight: 600;
+    text-transform: uppercase;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+  }
+  .gamecfg-badge.ok { color: var(--ok); }
+  .gamecfg-badge.warn { color: var(--warn); }
+  .gamecfg-badge.muted { color: var(--text-2); }
+  .gamecfg-resolved {
+    font-size: 11px; color: var(--text-2);
+    white-space: normal; word-break: break-all; line-height: 1.4;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .gamecfg-label { font-size: 10px; letter-spacing: 0.16em; color: var(--text-2); text-transform: uppercase; margin-top: 4px; }
+  .gamecfg-input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    padding: 7px 9px; border-radius: 6px;
+  }
+  .gamecfg-input:focus { outline: none; border-color: var(--accent); }
+  .gamecfg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .gamecfg-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+    padding: 7px 14px; border-radius: 6px; cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .gamecfg-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+  .gamecfg-btn:disabled { opacity: 0.4; cursor: default; }
+  .gamecfg-save { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .gamecfg-save:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
+  .gamecfg-reset { color: var(--crit); }
+
   .predl-area { flex-shrink: 0; margin-right: 16px; }
   .predl-btn {
     background: rgba(214, 176, 75, 0.15);

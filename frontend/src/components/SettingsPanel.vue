@@ -78,11 +78,6 @@ function onKeydown(e: KeyboardEvent) {
         <!-- HoYoverse -->
         <div class="settings-group">
           <div class="grid-section-label"><span>{{ t('settings.backend.hoyoverse') }}</span></div>
-          <label class="settings-label">{{ t('settings.path_label') }}</label>
-          <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Hoyoverse.Path" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hoyoverse.Path = p), draft.Backends.Hoyoverse.Path)">{{ t('settings.browse') }}</button>
-          </div>
           <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
           <div class="settings-row">
             <input type="text" v-model="draft.Backends.Hoyoverse.TempDir" :placeholder="t('settings.tempdir_hint')" />
@@ -94,11 +89,6 @@ function onKeydown(e: KeyboardEvent) {
         <!-- Kuro -->
         <div class="settings-group">
           <div class="grid-section-label"><span>{{ t('settings.backend.kurogames') }}</span></div>
-          <label class="settings-label">{{ t('settings.path_label') }}</label>
-          <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Kurogames.Path" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Kurogames.Path = p), draft.Backends.Kurogames.Path)">{{ t('settings.browse') }}</button>
-          </div>
           <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
           <div class="settings-row">
             <input type="text" v-model="draft.Backends.Kurogames.TempDir" :placeholder="t('settings.tempdir_hint')" />
@@ -110,10 +100,11 @@ function onKeydown(e: KeyboardEvent) {
         <!-- Hypergryph -->
         <div class="settings-group">
           <div class="grid-section-label"><span>{{ t('settings.backend.hypergryph') }}</span></div>
-          <label class="settings-label">{{ t('settings.path_label') }}</label>
+          <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
           <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Hypergryph.Path" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hypergryph.Path = p), draft.Backends.Hypergryph.Path)">{{ t('settings.browse') }}</button>
+            <input type="text" v-model="draft.Backends.Hypergryph.TempDir" :placeholder="t('settings.tempdir_hint')" />
+            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hypergryph.TempDir = p), draft.Backends.Hypergryph.TempDir)">{{ t('settings.browse') }}</button>
+            <button class="settings-clear" @click="draft.Backends.Hypergryph.TempDir = ''">{{ t('settings.clear') }}</button>
           </div>
         </div>
 
