@@ -5,13 +5,6 @@
     "hypergryph": "Hypergryph",
     "perfectworld": "Perfect World"
   },
-  "backend_status": {
-    "ok": "Ready",
-    "path_unset": "Install path not set",
-    "launcher_missing": "Launcher not found at path",
-    "empty": "No games detected",
-    "error": "Backend error"
-  },
   "buttons": {
     "play": "PLAY",
     "play_short": "PLAY",

@@ -3,7 +3,6 @@ import { onMounted, computed, ref } from 'vue';
 import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
 import { useUpdatesStore } from './stores/updates';
-import { useBackendsStore } from './stores/backends';
 import { GetSettings } from '../wailsjs/go/app/App';
 import { setLang } from './i18n';
 import BgLayer from './components/BgLayer.vue';
@@ -21,7 +20,6 @@ import { registerToast } from './composables/useToast';
 const games = useGamesStore();
 const view = useViewStore();
 const updates = useUpdatesStore();
-const backends = useBackendsStore();
 
 const dialogRef = ref(null);
 const toastRef = ref(null);
@@ -43,7 +41,6 @@ onMounted(async () => {
   await games.load();
   await games.refreshVersions();
   await games.loadAssets();
-  await backends.load();
   await updates.loadAll();
   updates.bind();
   registerDialog(dialogRef.value);
