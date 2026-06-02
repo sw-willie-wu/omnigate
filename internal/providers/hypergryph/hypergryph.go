@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"omnigate/internal/core"
 )
@@ -15,13 +17,14 @@ type Settings struct {
 type Provider struct {
 	settings Settings
 	logger   *slog.Logger
+	client   *http.Client
 }
 
 func New(settings Settings, logger *slog.Logger) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Provider{settings: settings, logger: logger}
+	return &Provider{settings: settings, logger: logger, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
 func (p *Provider) ID() core.BackendID { return BackendID }
@@ -89,7 +92,7 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	}
 	for _, ig := range installs {
 		if ig.GameID == gid {
-			return fetchVersion(ctx, ig.InstallPath, gid)
+			return fetchVersion(ctx, p.client, ig.InstallPath, gid)
 		}
 	}
 	return core.VersionInfo{}, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
