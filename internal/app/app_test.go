@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"testing"
 
@@ -77,6 +78,21 @@ func TestRegisterProvider_RejectsMismatchedGameIDs(t *testing.T) {
 	a := &App{}
 	if err := a.registerProvider(bad); err == nil {
 		t.Errorf("registerProvider accepted mismatched game id; want error")
+	}
+}
+
+func TestRegisterProvider_RejectsMultiSlashGID(t *testing.T) {
+	a := &App{
+		settings: Settings{Version: 1},
+		logger:   slog.Default(),
+	}
+	bad := &fakeProvider{
+		id:    "hoyoverse",
+		games: []core.GameDescriptor{{ID: "hoyoverse/genshin/cn"}}, // multi-slash → invalid
+	}
+	err := a.registerProvider(bad)
+	if err == nil {
+		t.Errorf("expected error for multi-slash gid; got nil")
 	}
 }
 

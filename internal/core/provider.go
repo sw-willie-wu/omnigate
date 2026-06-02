@@ -155,14 +155,19 @@ type Provider interface {
 
 // ParseGameID splits a GameID of the form "<backend>/<suffix>" into its
 // components. Returns an error if the format is invalid (missing slash,
-// empty backend, or empty suffix).
+// empty backend, empty suffix, OR suffix contains '/' — gids must be
+// exactly two segments separated by exactly one slash).
 //
-// The format is part of the contract: front-end stores, App routing, and
-// asset URLs all depend on it.
+// The format is part of the contract: front-end stores, App routing,
+// asset URLs, and scanForRecovery's flatten/unflatten logic all depend
+// on it.
 func ParseGameID(s GameID) (BackendID, string, error) {
 	parts := strings.SplitN(string(s), "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.HasPrefix(parts[1], "/") {
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("invalid game id %q (want <backend>/<suffix>)", s)
+	}
+	if strings.ContainsRune(parts[1], '/') {
+		return "", "", fmt.Errorf("invalid game id %q (suffix must not contain '/')", s)
 	}
 	return BackendID(parts[0]), parts[1], nil
 }

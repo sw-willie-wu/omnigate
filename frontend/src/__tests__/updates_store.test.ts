@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, test, expect, beforeEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 
 // Mock the wails RPC + EventsOn BEFORE importing the store
@@ -59,5 +59,30 @@ describe('updates store rAF batching', () => {
 
     // After rAF flush, byGame should have latest value
     expect(store.byGame['g1'].in_flight.current).toBe(300);
+  });
+});
+
+describe('updates store bell entries', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  test('predl_complete bell entry can be dismissed', () => {
+    const store = useUpdatesStore();
+    // Push a predl_complete bell entry directly (store has no addBellEntry; dismiss() is the action)
+    const entry = { kind: 'predl_complete' as const, gid: 'hoyoverse/genshin', version: '5.7.0', id: 'bell-1' };
+    store.bellEntries.push(entry);
+    expect(store.bellEntries).toHaveLength(1);
+    store.dismiss(store.bellEntries[0].id);
+    expect(store.bellEntries).toHaveLength(0);
+  });
+
+  test('config_writeback_warning bell entry can be dismissed', () => {
+    const store = useUpdatesStore();
+    const entry = { kind: 'config_writeback_warning' as const, gid: 'hoyoverse/genshin', version: '5.7.0', id: 'bell-2' };
+    store.bellEntries.push(entry);
+    expect(store.bellEntries).toHaveLength(1);
+    store.dismiss(store.bellEntries[0].id);
+    expect(store.bellEntries).toHaveLength(0);
   });
 });

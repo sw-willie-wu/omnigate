@@ -69,3 +69,63 @@ func TestFetchGameIcon_NotFound(t *testing.T) {
 		t.Errorf("expected error, got nil")
 	}
 }
+
+func TestFetchBranchInfo_ParsesMainAndPredl(t *testing.T) {
+	body := `{"retcode":0,"message":"OK","data":{"game_branches":[{"game":{"id":"gopR6Cufr3","biz":"hk4e_global"},"main":{"package_id":"pkgMain","branch":"main","password":"pw-main","tag":"6.6.0","diff_tags":["6.5.0","6.4.0"],"categories":[{"category_id":"10016","matching_field":"game","type":"CATEGORY_TYPE_RESOURCE"},{"category_id":"10017","matching_field":"en-us","type":"CATEGORY_TYPE_AUDIO"}]},"pre_download":{"package_id":"pkgPredl","branch":"predownload","password":"pw-predl","tag":"6.7.0","diff_tags":["6.6.0"],"categories":[{"category_id":"10016","matching_field":"game","type":"CATEGORY_TYPE_RESOURCE"}]}}]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Path; got != "/getGameBranches" {
+			t.Errorf("path = %s, want /getGameBranches", got)
+		}
+		if got := r.URL.Query().Get("launcher_id"); got != LauncherID {
+			t.Errorf("launcher_id = %q, want %q", got, LauncherID)
+		}
+		if got := r.URL.Query().Get("game_ids[]"); got != "gopR6Cufr3" {
+			t.Errorf("game_ids[] = %q, want gopR6Cufr3", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	p := New(Settings{}, nil)
+	p.SetBranchAPIBaseURL(srv.URL)
+	bi, err := p.fetchBranchInfo(context.Background(), "gopR6Cufr3")
+	if err != nil {
+		t.Fatalf("fetchBranchInfo: %v", err)
+	}
+	if bi.Main.Tag != "6.6.0" {
+		t.Errorf("Main.Tag = %q, want 6.6.0", bi.Main.Tag)
+	}
+	if bi.Main.PackageID != "pkgMain" || bi.Main.Password != "pw-main" {
+		t.Errorf("Main package/password = %q/%q", bi.Main.PackageID, bi.Main.Password)
+	}
+	if len(bi.Main.DiffTags) != 2 || bi.Main.DiffTags[0] != "6.5.0" {
+		t.Errorf("Main.DiffTags = %v", bi.Main.DiffTags)
+	}
+	if len(bi.Main.Categories) != 2 {
+		t.Fatalf("Main.Categories len = %d, want 2", len(bi.Main.Categories))
+	}
+	if bi.PreDownload.IsEmpty() {
+		t.Error("PreDownload unexpectedly empty")
+	}
+	if bi.PreDownload.Tag != "6.7.0" {
+		t.Errorf("PreDownload.Tag = %q, want 6.7.0", bi.PreDownload.Tag)
+	}
+}
+
+func TestFetchBranchTag_DelegatesToFetchBranchInfo(t *testing.T) {
+	body := `{"retcode":0,"data":{"game_branches":[{"game":{"id":"gopR6Cufr3"},"main":{"package_id":"pkg","tag":"6.6.0","categories":[{"category_id":"10016","matching_field":"game","type":"CATEGORY_TYPE_RESOURCE"}]}}]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.SetBranchAPIBaseURL(srv.URL)
+	tag, err := p.fetchBranchTag(context.Background(), "gopR6Cufr3")
+	if err != nil {
+		t.Fatalf("fetchBranchTag: %v", err)
+	}
+	if tag != "6.6.0" {
+		t.Errorf("tag = %q, want 6.6.0", tag)
+	}
+}

@@ -1,0 +1,4 @@
+{"remoteName": "GenshinImpact_Data/Native/Data/foo.dat"}
+{"remoteName": "GenshinImpact_Data/StreamingAssets/AudioAssets/Banks0.pck"}
+
+{"remoteName": "GenshinImpact_Data/Plugins/x86_64/UnityPlayer.dll"}

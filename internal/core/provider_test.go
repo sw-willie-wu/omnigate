@@ -24,13 +24,25 @@ func TestParseGameID_Invalid(t *testing.T) {
 	}
 }
 
-func TestParseGameID_SuffixWithSlash(t *testing.T) {
-	// suffix may itself contain slashes — split is on FIRST slash only
-	b, suffix, err := ParseGameID("hoyoverse/sub/game")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
+func TestParseGameID_RejectsMultiSlashSuffix(t *testing.T) {
+	cases := []struct {
+		gid     GameID
+		wantErr bool
+	}{
+		{"hoyoverse/genshin", false},                   // valid
+		{"hoyoverse/genshin/cn", true},                 // multi-slash → reject
+		{"hoyoverse", true},                            // no slash → reject
+		{"hoyoverse/", true},                           // empty suffix → reject
+		{"/genshin", true},                             // empty backend → reject
+		{"hoyoverse/genshin-impact-cn-rev1", false},    // dashes OK
 	}
-	if b != "hoyoverse" || suffix != "sub/game" {
-		t.Errorf("got (%q, %q), want (hoyoverse, sub/game)", b, suffix)
+	for _, c := range cases {
+		t.Run(string(c.gid), func(t *testing.T) {
+			_, _, err := ParseGameID(c.gid)
+			gotErr := err != nil
+			if gotErr != c.wantErr {
+				t.Errorf("ParseGameID(%q): err=%v wantErr=%v", c.gid, err, c.wantErr)
+			}
+		})
 	}
 }

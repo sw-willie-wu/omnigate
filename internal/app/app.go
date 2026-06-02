@@ -30,6 +30,7 @@ type App struct {
 	providers      []core.Provider
 	detect         map[core.BackendID]detectEntry
 	detectMu       sync.Mutex
+	settingsMu     sync.RWMutex // guards a.settings + a.providers (spec §2.5)
 	logger         *slog.Logger
 	updateRegistry *UpdateStateRegistry
 }
@@ -72,18 +73,26 @@ func New(settingsPath string, logger *slog.Logger) *App {
 	return a
 }
 
-// constructProviders builds the list of providers from current settings. M1
-// hoyoverse always present; M2 adds kurogames + hypergryph (constructed in a
-// later task). Re-called by UpdateSettings.
+// constructProviders builds the provider list from current settings.
+//
+// LOCKING (spec §2.5): this is LOCK-FREE and MUST NOT acquire settingsMu. It is
+// called only from New (pre-concurrency) and from UpdateSettings while UpdateSettings
+// already holds the settingsMu WRITE lock. Its inline a.settings reads are covered by
+// that write lock. The SetTempRootFn closure it installs is only INVOKED later (from
+// update operations), where tempDirFor takes a fresh RLock — never during construction.
 func (a *App) constructProviders() error {
 	a.providers = nil
 	hoyo := hoyoverse.New(
 		hoyoverse.Settings{
-			Path:   a.settings.Backends.Hoyoverse.Path,
-			Region: a.settings.Backends.Hoyoverse.Region,
+			Path:    a.settings.Backends.Hoyoverse.Path,
+			Region:  a.settings.Backends.Hoyoverse.Region,
+			TempDir: a.settings.Backends.Hoyoverse.TempDir,
 		},
 		a.logger.With("backend", "hoyoverse"),
 	)
+	hoyo.SetTempRootFn(func(gid core.GameID) string {
+		return a.tempDirFor(hoyoverse.BackendID, gid)
+	})
 	if err := a.registerProvider(hoyo); err != nil {
 		return err
 	}
@@ -131,6 +140,8 @@ func (a *App) provider(gid core.GameID) (core.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.settingsMu.RLock()
+	defer a.settingsMu.RUnlock()
 	for _, p := range a.providers {
 		if p.ID() == backendID {
 			return p, nil
@@ -141,6 +152,8 @@ func (a *App) provider(gid core.GameID) (core.Provider, error) {
 
 // byID returns the registered Provider for a backend, or nil if none.
 func (a *App) byID(backendID core.BackendID) core.Provider {
+	a.settingsMu.RLock()
+	defer a.settingsMu.RUnlock()
 	for _, p := range a.providers {
 		if p.ID() == backendID {
 			return p
@@ -204,8 +217,11 @@ type BackendStatus struct {
 }
 
 func (a *App) ListGames() ([]GameRow, error) {
+	a.settingsMu.RLock()
+	provs := append([]core.Provider(nil), a.providers...)
+	a.settingsMu.RUnlock()
 	out := []GameRow{}
-	for _, p := range a.providers {
+	for _, p := range provs {
 		installed, err := a.cachedDetect(a.ctx, p)
 		if err != nil {
 			a.logger.Warn("DetectInstall failed", "backend", p.ID(), "err", err)
@@ -232,8 +248,11 @@ func (a *App) ListGames() ([]GameRow, error) {
 }
 
 func (a *App) ListBackends() []BackendStatus {
-	out := make([]BackendStatus, 0, len(a.providers))
-	for _, p := range a.providers {
+	a.settingsMu.RLock()
+	provs := append([]core.Provider(nil), a.providers...)
+	a.settingsMu.RUnlock()
+	out := make([]BackendStatus, 0, len(provs))
+	for _, p := range provs {
 		bs := BackendStatus{
 			BackendID:   string(p.ID()),
 			DisplayName: p.DisplayName(),
@@ -343,15 +362,23 @@ func (a *App) Launch(gameID string) (int, error) {
 	return p.Launch(a.ctx, gid, core.LaunchOptions{})
 }
 
-func (a *App) GetSettings() Settings { return a.settings }
+func (a *App) GetSettings() Settings {
+	a.settingsMu.RLock()
+	defer a.settingsMu.RUnlock()
+	return a.settings
+}
 
 func (a *App) UpdateSettings(s Settings) error {
+	// Disk write first; it touches neither a.settings nor a.providers.
 	if err := SaveSettings(a.settingsP, s); err != nil {
 		return err
 	}
+	a.settingsMu.Lock()
 	a.settings = s
+	err := a.constructProviders() // lock-free; runs under this write lock
+	a.settingsMu.Unlock()
 	a.invalidateDetect()
-	return a.constructProviders()
+	return err
 }
 
 // Refresh clears the detection cache. Wails-bound; the frontend's manual
@@ -418,24 +445,28 @@ func stringIndex(s, sub string) int {
 }
 
 // tempDirFor resolves the per-backend temp root for sidecar/staging files.
-// In v0.3.1 only kurogames has a configurable TempDir; hoyoverse / hypergryph
-// cases will be added in M3.B / M3.C alongside their respective settings
-// fields. The default branch is currently unreachable in production (no
-// non-kurogames caller exists yet) but exists so future cases can be added
-// without modifying call sites.
 //
-// Bit-exact preservation for kurogames: returns the same value as the legacy
-// kurogamesTempDir helper — settings-override OR <TEMP>/omnigate
-// (no backend/gid suffix; per-game flattening happens inside progressStore).
+// kurogames returns <TEMP>/omnigate (flat, bit-exact preservation per
+// the legacy kurogamesTempDir helper).
+// hoyoverse returns <TEMP>/omnigate/hoyoverse (subdir-per-backend; M3.B).
+// Future backends (M3.C hypergryph, M3.D HSR/ZZZ) follow the default
+// branch unless they add a settings TempDir field.
 func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
+	a.settingsMu.RLock()
+	defer a.settingsMu.RUnlock()
 	switch backend {
 	case kurogames.BackendID:
 		if td := a.settings.Backends.Kurogames.TempDir; td != "" {
 			return td
 		}
 		return filepath.Join(osTempDir(), "omnigate")
+	case hoyoverse.BackendID:
+		if td := a.settings.Backends.Hoyoverse.TempDir; td != "" {
+			return td
+		}
+		return filepath.Join(osTempDir(), "omnigate", "hoyoverse")
 	}
 	// Default for backends without a settings TempDir field: per-backend subdir
-	// to avoid collisions. Unreachable in v0.3.1.
+	// to avoid collisions.
 	return filepath.Join(osTempDir(), "omnigate", string(backend))
 }

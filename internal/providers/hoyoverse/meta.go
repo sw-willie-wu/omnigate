@@ -7,6 +7,10 @@ const (
 	LauncherID                = "VYTpXlbWo8"
 	APIBase                   = "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api"
 	UserAgent                 = "omnigate/0.1 (+https://github.com/willie/omnigate)"
+
+	// sophonChunkAPIBase is the getBuild / getPatchBuild host for the Sophon
+	// chunk protocol (§2.1 / §A.4). Distinct from APIBase (getGameBranches).
+	sophonChunkAPIBase = "https://sg-public-api.hoyoverse.com/downloader/sophon_chunk/api"
 )
 
 // gameMeta holds compile-time constants per supported game.
@@ -17,13 +21,30 @@ type gameMeta struct {
 	FolderName string // subfolder under HoYoPlay/games/
 	ExeName    string // launches via this exe
 	Display    core.LocalizedString
+	// UsesSophon flags games that HoYoverse migrated to the Sophon
+	// chunk-level delta delivery protocol (Genshin 6.0+). For these games:
+	//   - CheckVersion uses /getGameBranches.main.tag for the real latest
+	//     (the legacy /getGamePackages endpoint is frozen at the last 5.x
+	//     manifest and reports stale data).
+	//   - CheckForUpdate returns a friendly sophon_not_supported error;
+	//     M3.B v1's zip + hdiff + hpatchz pipeline cannot apply Sophon
+	//     deltas. M3.B v2 (separate session) implements the Sophon path.
+	// HSR/ZZZ stay on the legacy getGamePackages flow until HoYoverse
+	// migrates them too.
+	UsesSophon bool
+
+	// PlatApp is the Sophon getBuild/getPatchBuild plat_app query param
+	// (§2.1). Genshin global = "ddxf6vlr1reo"; HSR/ZZZ leave it "" (legacy).
+	PlatApp string
 }
 
 var games = []gameMeta{
 	{
 		ID: "hoyoverse/genshin", APIGameID: "gopR6Cufr3", Biz: "hk4e_global",
 		FolderName: "Genshin Impact game", ExeName: "GenshinImpact.exe",
-		Display: core.LocalizedString{"zh-TW": "原神", "en": "Genshin Impact"},
+		Display:    core.LocalizedString{"zh-TW": "原神", "en": "Genshin Impact"},
+		UsesSophon: true,
+		PlatApp:    "ddxf6vlr1reo",
 	},
 	{
 		ID: "hoyoverse/starrail", APIGameID: "4ziysqXOQ8", Biz: "hkrpg_global",

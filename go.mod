@@ -1,11 +1,14 @@
 module omnigate
 
-go 1.23.0
+go 1.24
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
+	github.com/klauspost/compress v1.18.6
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/sys v0.30.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (

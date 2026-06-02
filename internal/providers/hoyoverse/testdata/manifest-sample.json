@@ -1,0 +1,80 @@
+{
+  "retcode": 0,
+  "message": "OK",
+  "data": {
+    "game_packages": [
+      {
+        "game": { "id": "gopR6Cufr3", "biz": "hk4e_global" },
+        "main": {
+          "major": {
+            "version": "5.7.0",
+            "game_pkgs": [
+              {
+                "url": "https://example.invalid/genshin_5.7.0_main_1.zip",
+                "md5": "abcdef0123456789abcdef0123456789",
+                "size": "12345678900",
+                "decompressed_size": "30000000000"
+              }
+            ],
+            "audio_pkgs": [
+              {
+                "language": "zh-cn",
+                "url": "https://example.invalid/genshin_5.7.0_audio_zh-cn.zip",
+                "md5": "1111111111111111aaaaaaaaaaaaaaaa",
+                "size": "5000000000",
+                "decompressed_size": "8000000000"
+              },
+              {
+                "language": "en-us",
+                "url": "https://example.invalid/genshin_5.7.0_audio_en-us.zip",
+                "md5": "2222222222222222bbbbbbbbbbbbbbbb",
+                "size": "5500000000",
+                "decompressed_size": "8500000000"
+              }
+            ],
+            "res_list_url": "https://example.invalid/genshin_5.7.0_reslist.json"
+          },
+          "patches": [
+            {
+              "version": "5.6.0",
+              "game_pkgs": [
+                {
+                  "url": "https://example.invalid/genshin_5.6.0_to_5.7.0_main.zip",
+                  "md5": "ccccccccccccccccdddddddddddddddd",
+                  "size": "2500000000",
+                  "decompressed_size": "3500000000"
+                }
+              ],
+              "audio_pkgs": [
+                {
+                  "language": "zh-cn",
+                  "url": "https://example.invalid/genshin_5.6.0_to_5.7.0_audio_zh-cn.zip",
+                  "md5": "eeeeeeeeeeeeeeeeffffffffffffffff",
+                  "size": "300000000",
+                  "decompressed_size": "500000000"
+                }
+              ],
+              "res_list_url": "https://example.invalid/genshin_5.6.0_to_5.7.0_reslist.json"
+            }
+          ]
+        },
+        "pre_download": {
+          "major": {
+            "version": "5.8.0",
+            "game_pkgs": [
+              {
+                "url": "https://example.invalid/genshin_5.8.0_main_1.zip",
+                "md5": "0000000000000000111111111111111122",
+                "size": "13000000000",
+                "decompressed_size": "31000000000"
+              }
+            ],
+            "audio_pkgs": [],
+            "res_list_url": ""
+          },
+          "patches": []
+        }
+      }
+    ]
+  }
+}

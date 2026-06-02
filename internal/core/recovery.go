@@ -37,12 +37,40 @@ type RecoveryState struct {
 // "interrupted apply originated from a predl" from "interrupted apply from a
 // fresh download", surfaced in the resume prompt copy.
 func ScanRecovery(dir string) RecoveryState {
+	hasSophonWAL := fileExists(filepath.Join(dir, "sophon_apply.wal"))
+	hasSophonProgress := fileExists(filepath.Join(dir, "sophon_progress.json"))
 	hasProgress := fileExists(filepath.Join(dir, "progress.json"))
 	hasWAL := fileExists(filepath.Join(dir, "apply.wal"))
 	hasPredl := fileExists(filepath.Join(dir, "predl_ready.json"))
 
+	// Precedence (spec §0 / §6.9):
+	//   sophon_apply.wal > apply.wal > sophon_progress.json
+	//     > progress.json+predl > progress.json > predl_ready.json
+	// Sophon sidecars supersede v1 companions at the same scope; the prevailing
+	// sidecar deletes the stale companions (same semantics as v1 apply.wal).
 	switch {
+	case hasSophonWAL:
+		// Sophon apply WAL supersedes every v1 companion AND sophon_progress.
+		for _, stale := range []string{"apply.wal", "sophon_progress.json", "progress.json", "predl_ready.json"} {
+			_ = os.Remove(filepath.Join(dir, stale))
+		}
+		walPath := filepath.Join(dir, "sophon_apply.wal")
+		body, err := os.ReadFile(walPath)
+		if err != nil {
+			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
+		}
+		var hdr struct {
+			WasPredl bool `json:"was_predl"`
+		}
+		if err := json.Unmarshal(body, &hdr); err != nil {
+			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
+		}
+		return RecoveryState{Phase: RecoveryPhaseApplyResume, WasPredl: hdr.WasPredl}
+
 	case hasWAL:
+		if hasSophonProgress {
+			_ = os.Remove(filepath.Join(dir, "sophon_progress.json"))
+		}
 		if hasProgress {
 			_ = os.Remove(filepath.Join(dir, "progress.json"))
 		}
@@ -61,6 +89,16 @@ func ScanRecovery(dir string) RecoveryState {
 			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
 		}
 		return RecoveryState{Phase: RecoveryPhaseApplyResume, WasPredl: hdr.WasPredl}
+
+	case hasSophonProgress:
+		// Sophon download-phase resume. Supersedes v1 progress.json + predl_ready.json.
+		if hasProgress {
+			_ = os.Remove(filepath.Join(dir, "progress.json"))
+		}
+		if hasPredl {
+			_ = os.Remove(filepath.Join(dir, "predl_ready.json"))
+		}
+		return RecoveryState{Phase: RecoveryPhaseDownloadResume}
 
 	case hasProgress && hasPredl:
 		_ = os.Remove(filepath.Join(dir, "progress.json"))

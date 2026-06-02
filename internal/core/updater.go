@@ -44,6 +44,19 @@ type CheckForUpdateProgress interface {
 	CheckForUpdateWithProgress(ctx context.Context, gid GameID, onProgress func(done, total int)) (UpdatePlan, error)
 }
 
+// ReasonCode identifies WHY an update plan was constructed. Used by frontend
+// to render appropriate tooltips on the [Update] button. M3.B introduced.
+type ReasonCode string
+
+const (
+	ReasonUnspecified       ReasonCode = ""
+	ReasonVersionChanged    ReasonCode = "version_changed"
+	ReasonAudioPackAdded    ReasonCode = "audio_pack_added"
+	ReasonVersionAndAudio   ReasonCode = "version_and_audio"
+	ReasonPredownload       ReasonCode = "predownload"
+	ReasonResumeInterrupted ReasonCode = "resume_interrupted"
+)
+
 // UpdatePlan describes the work needed to bring an installed game from
 // its current version to the manifest's target version.
 type UpdatePlan struct {
@@ -53,6 +66,10 @@ type UpdatePlan struct {
 	Version      string     `json:"version"`       // human-readable label, e.g. "3.4.0"
 	Files        []FileTask `json:"files,omitempty"`
 	TotalBytes   int64      `json:"total_bytes"` // sum of Files[].Size; used for download progress denominator
+	// Reason identifies why this plan was constructed. Frontend renders
+	// it as a tooltip on the [Update] button. Empty string (ReasonUnspecified)
+	// is the M3.A-era zero value; frontend renders no tooltip in that case.
+	Reason ReasonCode `json:"reason,omitempty"`
 }
 
 // FileTask is one file to download + apply during an update run.
@@ -78,6 +95,7 @@ type UpdateEvent struct {
 	Current     int64  // bytes done in PhaseDownload, file count applied in PhaseApply
 	Total       int64  // TotalBytes (PhaseDownload) or len(plan.Files) (PhaseApply)
 	CurrentFile string // optional: name of file currently being processed
+	Stage       string // optional fine-grained stage (e.g. extracting/patching) for the UI label; "" → use Phase
 }
 
 // UpdateError is the structured error type returned by RunUpdate /
