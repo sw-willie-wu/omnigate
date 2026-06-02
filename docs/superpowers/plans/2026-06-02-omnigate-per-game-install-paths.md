@@ -14,6 +14,42 @@
 
 ---
 
+## Post-review corrections (BINDING — overrides the task bodies below where they conflict)
+
+These corrections came out of the opus plan review and are **authoritative**. The
+detailed task bodies (Tasks 1–20) remain as reference, but where they conflict
+with this section, follow this section.
+
+### CR-1 — Compile-green ordering (fixes C1/C2). The golden rule: **`settings.Path` (both the app `Backends.*.Path` and each provider `Settings.Path`) stays alive until the very last core task (T10), removed only after nothing reads it.** Until then, every new code path **prefers the injected resolved map and falls back to the old `settings.Path` behavior**, so each task compiles and existing tests stay green. Corrected per-task intent:
+- **T3** — ADD `resolvedPaths` field + `SetResolvedPaths(map)` to all three providers (additive). `DetectInstall(ctx)`: if `p.resolvedPaths != nil` → return injected entries that stat-exist; else → existing `DetectInstall(ctx, p.settings.Path)` behavior. **Do NOT remove any field. Do NOT clobber `gameDirFn`** (see CR-5).
+- **T4** — Reroute hoyoverse `gameDir` and the kuro/hyper inline `DetectInstall(ctx, p.settings.Path)` sites to **prefer `p.resolvedPaths[gid]`, falling back to the existing scan** when `resolvedPaths` is nil. Behavior unchanged until injection (T8) turns on.
+- **T5** — App `settings.go` ONLY: add `Games map[string]GameSettings` + `GameSettings`, bump version to 2, wire migration (T6). **KEEP `Backends.*.Path`** (constructProviders + migration still read it). **Do NOT touch provider `Settings` structs.** Strike T5 Step 4's "remove the Path field from each provider Settings struct."
+- **T10** — Becomes the **cleanup** task, run last: now that App injects (T8) and `ListBackends` no longer calls `PrimaryPath` (T9), delete `Backends.*.Path` (app `Settings` + the three `Path:` lines in `constructProviders`), each provider `Settings.Path` field, `PrimaryPath()` + the `core.PathProvider` compile assertions, the `path` entry in each `SettingsSchema()`, and the `settings.Path` fallback branches added in T3/T4. Whole-repo `go build ./...` + `go test ./...` green.
+
+### CR-2 — `resolveOne` deadlock (fixes C3). `sync.RWMutex` is not reentrant. T7 MUST define **two** functions:
+- `resolveBackendLocked(ctx, p, overrides map[string]GameSettings) map[core.GameID]resolvedEntry` — **no locking**; scans `DefaultScan` and `LocateInstalls` **once per backend** (not per game — fixes I1's O(games×scan)) and resolves each `p.Games()` gid from `overrides`/located/default.
+- A thin `resolveOne`/`resolveBackend` wrapper used by the **RPC path only** that `RLock`s, snapshots `a.settings.Games`, calls the `*Locked` form, then `RUnlock`s.
+The **construct path** (`resolveAll` from `constructProviders`, which already holds the `settingsMu` write lock) calls `resolveBackendLocked` with `a.settings.Games` read directly — **never** the RLock wrapper. Add a test that calls `resolveAll` with the write lock held to prove no deadlock.
+
+### CR-3 — Initialize `a.resolved` (fixes I1). Add `resolved: map[core.GameID]resolvedEntry{}` to the `&App{...}` literal in `New` (`app.go:51`), and defensively re-init at the top of `resolveAll`. Assigning to a nil map panics.
+
+### CR-4 — Backend-granular detect-cache invalidation (fixes I2/M5). Add `invalidateDetectFor(id core.BackendID)` to `app.go` (deletes one entry under `detectMu`). `refreshGameRow` (T14) MUST, after re-resolving + re-injecting `SetResolvedPaths`: call `invalidateDetectFor(backend)` so `serveIcon`'s `cachedDetect` re-runs `DetectInstall` on the fresh injected map. `a.resolved` is the source of truth for `ListGames`/`gameInstallDir`; `cachedDetect`→`DetectInstall` (injected) remains only for `serveIcon` and must be invalidated in lockstep.
+
+### CR-5 — Don't clobber the `gameDirFn` test seam (fixes I6). `SetResolvedPaths` MUST NOT assign `p.gameDirFn`. Instead hoyoverse `gameDir` reads, in order: `gameDirFn` (if non-nil — preserves the integration-test seam `SetGameDirFn`), then `p.resolvedPaths[gid]`, then the old `DetectInstall` fallback. Audit existing callers of `SetGameDirFn` (integration tests) — they must keep working unchanged.
+
+### CR-6 — Migration uses exported accessors, not a duplicated table (fixes I3). There is **no import cycle** (`internal/app` already imports the three provider packages). Export from each provider a `DefaultRoot` const (T1 already adds it — make it exported) and a `FolderNames() map[core.GameID]string` (game ID → on-disk folder name) + a `HasGamesSegment` bool (true for hoyoverse). T6 migration reads these — single source of truth, no drift. Add tests: (a) **v0→v2 chain** — a v0 file with `hoyoplay_path = 'D:\Custom'` seeds `Games["hoyoverse/genshin"]` from `D:\Custom\games\<folder>`; (b) over-seeding of not-installed games in a backend is acceptable (they stat-gate to `Installed=false`) — assert harmless, document in the task.
+
+### CR-7 — Specify the test helpers (fixes I5).
+- `fakeInjectProvider` does NOT exist — **extend the existing `fakeProvider`** (`app_test.go:14`) with `def map[core.GameID]string`, `injected map[core.GameID]string`, `DefaultScan` (returns `def`), and `SetResolvedPaths` (stores into `injected`). One fake, no drift.
+- `buildAppWithFakeInstalled(t, gid, dir) *App` — define it once in `app_test.go`: builds `&App{settings:{Version:2,Games:{}}, detect:{}, resolved:{}, logger:slog.Default()}`, registers a `fakeProvider{id, games:[{ID:gid}], def:{gid:dir}}`, sets `a.ctx = context.Background()`, calls `a.resolveAll(ctx)`. The T14 variant needs the override target to differ from `dir` — pass the override dir explicitly in the test, not the helper.
+- T11 `hoyoplaySourceFromDir` / the injectable source interface is **defined in T11 Step 1's research output**; T11 Step 2's test is written against that interface. Mark Step 2 as blocked on Step 1.
+
+### CR-8 — Verify `ListBackends` status consumers before deleting states (fixes I4). In T9, before removing `path_unset`/`launcher_missing`, grep the frontend (`frontend/src`) for `path_unset`, `launcher_missing`, and `BackendStatus`/`status` usage to confirm spec §6.2's "no consumer" claim (the status pills were removed earlier). Record the grep result in the commit.
+
+### CR-9 — Minor: T15 TS optionality matches Go `omitempty` — `resolved_path?`/`override_path?` optional, `path_source` required (M1). Pinia row replacement must be reactive — replace via `this.games.splice(idx,1,row)` or reassign the array (M2). T9 test MUST include the invalid-override row case (`PathSource:"override"`, `Installed:false`) per spec §4.5/§9 (M3).
+
+---
+
 ## File Structure
 
 **Core (`internal/core/`)**
