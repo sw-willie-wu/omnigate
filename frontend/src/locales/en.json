@@ -122,5 +122,22 @@
         "dismiss": "Got it"
       }
     }
+  },
+  "settings": {
+    "title": "Settings",
+    "save": "Save",
+    "cancel": "Cancel",
+    "browse": "Browse…",
+    "clear": "Clear",
+    "path_label": "Install path",
+    "tempdir_label": "Temp folder override",
+    "tempdir_hint": "Leave empty to use the default temp folder",
+    "save_error": "Save failed: {detail}",
+    "save_disabled_inflight": "Cannot save while an update is in progress",
+    "backend": {
+      "hoyoverse": "HoYoverse",
+      "kurogames": "Kuro Games",
+      "hypergryph": "Hypergryph"
+    }
   }
 }

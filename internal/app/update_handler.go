@@ -558,8 +558,11 @@ type predlExposer interface {
 func (a *App) UpdateStatusAll() map[string]GameUpdateSnapshot {
 	snaps := a.updateRegistry.SnapshotAll()
 
+	a.settingsMu.RLock()
+	provs := append([]core.Provider(nil), a.providers...)
+	a.settingsMu.RUnlock()
 	// Overlay provider-sourced fields that are not tracked in GameUpdateState.
-	for _, p := range a.providers {
+	for _, p := range provs {
 		if pe, ok := p.(predlExposer); ok {
 			for _, g := range p.Games() {
 				gid := g.ID
@@ -680,8 +683,11 @@ func removeAll(path string) error {
 // Cross-backend gid collision is structurally impossible by ParseGameID
 // strengthening (Task 3); this filter eliminates noise.
 func (a *App) knownBackendIDs() map[string]struct{} {
-	out := make(map[string]struct{}, len(a.providers))
-	for _, p := range a.providers {
+	a.settingsMu.RLock()
+	provs := append([]core.Provider(nil), a.providers...)
+	a.settingsMu.RUnlock()
+	out := make(map[string]struct{}, len(provs))
+	for _, p := range provs {
 		out[string(p.ID())] = struct{}{}
 	}
 	return out
@@ -699,7 +705,10 @@ func (a *App) knownBackendIDs() map[string]struct{} {
 // skips them to suppress noise.
 func (a *App) scanForRecovery() {
 	skipNames := a.knownBackendIDs()
-	for _, p := range a.providers {
+	a.settingsMu.RLock()
+	provs := append([]core.Provider(nil), a.providers...)
+	a.settingsMu.RUnlock()
+	for _, p := range provs {
 		root := a.tempDirFor(p.ID(), "")
 		a.scanForRecoveryRoot(p.ID(), root, skipNames)
 	}

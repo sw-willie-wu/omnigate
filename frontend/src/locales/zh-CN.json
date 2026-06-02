@@ -122,5 +122,22 @@
         "dismiss": "我知道了"
       }
     }
+  },
+  "settings": {
+    "title": "设置",
+    "save": "保存",
+    "cancel": "取消",
+    "browse": "浏览…",
+    "clear": "清除",
+    "path_label": "安装路径",
+    "tempdir_label": "临时文件夹覆盖",
+    "tempdir_hint": "留空 = 使用默认临时文件夹",
+    "save_error": "保存失败:{detail}",
+    "save_disabled_inflight": "更新进行中无法保存",
+    "backend": {
+      "hoyoverse": "米哈游",
+      "kurogames": "库洛游戏",
+      "hypergryph": "鹰角网络"
+    }
   }
 }

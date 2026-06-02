@@ -2,17 +2,14 @@
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useViewStore } from '../stores/view';
-import { useGamesStore } from '../stores/games';
-import { useUpdatesStore } from '../stores/updates';
 import { i18n, setLang } from '../i18n';
 import { WindowMinimise, Quit } from '../../wailsjs/runtime/runtime';
-import { Refresh } from '../../wailsjs/go/app/App';
 import { useResumePrompt } from '../composables/useResumePrompt';
+import { refreshAll } from '../composables/useRefreshAll';
+import SettingsPanel from './SettingsPanel.vue';
 
 const { t } = useI18n();
 const view = useViewStore();
-const games = useGamesStore();
-const updates = useUpdatesStore();
 const { pending, pendingCount, resume, dismiss } = useResumePrompt();
 
 const panelOpen = ref(false);
@@ -26,16 +23,7 @@ const cycleLang = () => {
 
 const onRefresh = async () => {
   try {
-    await Refresh();
-    await games.load();
-    await games.refreshVersions();
-    await games.loadAssets();
-    // Probe for updates so BottomBar [更新 ↓] can appear (spec §1.2.1
-    // missing-trigger gap fixed during M3.A Task 18 smoke). Best-effort,
-    // parallel; errors swallowed in updates.checkForUpdate.
-    await Promise.allSettled(
-      games.games.filter((g) => g.installed).map((g) => updates.checkForUpdate(g.id)),
-    );
+    await refreshAll();
   } catch (e) {
     console.error('refresh failed', e);
   }
@@ -52,7 +40,7 @@ const onRefresh = async () => {
         <span v-if="pendingCount > 0" class="notif-badge">{{ pendingCount }}</span>
       </button>
       <button class="icon-btn" :class="{active: view.viewMode === 'grid'}" @click="view.setView(view.viewMode === 'grid' ? 'detail' : 'grid')"><span class="material-symbols-outlined">grid_view</span></button>
-      <button class="icon-btn"><span class="material-symbols-outlined">settings</span></button>
+      <button class="icon-btn" @click="view.openSettings()" title="Settings"><span class="material-symbols-outlined">settings</span></button>
       <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize">─</button>
       <button class="icon-btn window-btn close" @click="Quit()" title="Close">×</button>
     </div>
@@ -75,5 +63,6 @@ const onRefresh = async () => {
         </div>
       </div>
     </Teleport>
+    <SettingsPanel />
   </div>
 </template>
