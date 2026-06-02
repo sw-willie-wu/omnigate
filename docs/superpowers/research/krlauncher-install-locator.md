@@ -16,8 +16,12 @@ HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\KRInstall W
     UninstallString = C:\Program Files\Wuthering Waves\uninst.exe
 ```
 `InstallLocation` is blank, but `filepath.Dir(UninstallString)` (or
-`filepath.Dir(DisplayIcon)`) = `C:\Program Files\Wuthering Waves` — the install
-folder, authoritative wherever the user installed it.
+`filepath.Dir(DisplayIcon)`) = `C:\Program Files\Wuthering Waves` — the
+**launcher root**, authoritative wherever the user installed it. NOTE: this is
+the launcher root, NOT the game folder — the actual game (with
+`launcherDownloadConfig.json`) lives in the `FolderName` subfolder
+(`Wuthering Waves Game`). The locator MUST join `FolderNames()` onto this root
+(like the GRYPHLINK locator), not return the root directly.
 
 - The subkey name is `KRInstall Wuthering Waves Overseas` (the `KRInstall`
   prefix is the Kuro installer; `Overseas` is the global region — a CN build

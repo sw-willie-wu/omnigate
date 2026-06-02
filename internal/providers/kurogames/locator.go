@@ -21,16 +21,22 @@ type kuroLocator struct {
 	read kuroUninstallReader
 }
 
-// LocateInstalls derives the Wuthering Waves install folder from the recorded
-// uninstall string (its parent directory). Best-effort: a missing record is
-// simply omitted. Always returns a non-nil map.
+// LocateInstalls derives each game's install folder from the recorded uninstall
+// string. The uninstall executable sits in the LAUNCHER root (e.g.
+// C:\…\Wuthering Waves\uninst.exe); the game itself lives in a subfolder
+// (FolderName, e.g. "Wuthering Waves Game") that holds launcherDownloadConfig.json
+// — so we join FolderName onto the launcher root, NOT return the root directly.
+// Best-effort: a missing record yields an empty (non-nil) map.
 func (l kuroLocator) LocateInstalls(ctx context.Context) (map[core.GameID]string, error) {
 	out := make(map[core.GameID]string, 1)
 	if err := ctx.Err(); err != nil {
 		return out, err
 	}
 	if s, ok := l.read(); ok && s != "" {
-		out["kurogames/wutheringwaves"] = filepath.Dir(s)
+		root := filepath.Dir(s)
+		for gid, folder := range FolderNames() {
+			out[gid] = filepath.Join(root, folder)
+		}
 	}
 	return out, nil
 }
