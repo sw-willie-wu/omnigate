@@ -472,12 +472,6 @@
     flex: 1; min-width: 0; min-height: 0;
     display: flex; flex-direction: column;
   }
-  .settings-header {
-    display: flex; align-items: center;
-    padding: 4px 4px 16px; font-size: 20px; font-weight: 700; letter-spacing: 0.02em;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    flex: 0 0 auto;
-  }
   /* Body tiles the backend sections across the full width (grid-mode feel). */
   .settings-body {
     flex: 1; overflow-y: auto; padding: 22px 4px;

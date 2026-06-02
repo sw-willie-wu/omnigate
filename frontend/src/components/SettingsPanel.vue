@@ -74,10 +74,6 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <div v-if="view.settingsOpen && draft" class="settings-view">
-      <div class="settings-header">
-        <span>{{ t('settings.title') }}</span>
-      </div>
-
       <div class="settings-body">
         <!-- HoYoverse -->
         <div class="settings-section">
