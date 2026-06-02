@@ -273,8 +273,8 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	return a.runApply(ctx)
 }
 
-// gameDir returns the resolved install folder for gid, preferring the
-// App-injected resolved paths and falling back to a default-root scan.
+// gameDir returns the App-injected resolved install folder for gid, or
+// ErrGameNotInstalled when the game is unresolved.
 func (p *Provider) gameDir(_ context.Context, gid core.GameID) (string, error) {
 	if dir, ok := p.resolvedPaths[gid]; ok && dir != "" {
 		return dir, nil
