@@ -377,7 +377,11 @@
 
   /* ━━━ PREDL & PROGRESS BUTTONS ━━━ */
   /* per-game install-path config gear + popover (above the bottom bar) */
-  .game-config { position: relative; flex-shrink: 0; margin-right: 12px; }
+  /* Right cluster keeps predl + gear + Play together so .bottom-bar's
+     space-between only spreads the version pill (left) vs this group (right). */
+  .bottombar-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .bottombar-right .predl-area, .bottombar-right .launch-area { margin-right: 0; }
+  .game-config { position: relative; flex-shrink: 0; }
   .game-config-btn { width: 40px; height: 40px; }
   .game-config-btn .material-symbols-outlined { font-size: 22px; }
   .game-config-backdrop { position: fixed; inset: 0; z-index: 990; background: transparent; }
@@ -386,7 +390,7 @@
     bottom: calc(100% + 12px);
     right: 0;
     z-index: 991;
-    width: 360px;
+    width: 480px;
     background: rgba(15, 15, 25, 0.96);
     backdrop-filter: blur(12px);
     border: 1px solid rgba(214, 176, 75, 0.4);
@@ -411,8 +415,8 @@
   .gamecfg-badge.muted { color: var(--text-2); }
   .gamecfg-resolved {
     font-size: 11px; color: var(--text-2);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    direction: rtl; text-align: left;
+    white-space: normal; word-break: break-all; line-height: 1.4;
+    font-family: 'JetBrains Mono', monospace;
   }
   .gamecfg-label { font-size: 10px; letter-spacing: 0.16em; color: var(--text-2); text-transform: uppercase; margin-top: 4px; }
   .gamecfg-input {
