@@ -11,10 +11,11 @@
 ## Outputs (Phase A/B read these)
 
 ```
+PHASE_B_APPROACH       = Option A (file-level incremental via game_files manifest). NOT packs. See DECISION section below + spec §0.4.
 LOCAL_VERSION_SOURCE   = RESOLVED: <gameDir>/config.ini, AES-256-CBC encrypted (key/IV below) → INI `version=` line. Verified live on a real install 2026-06-02 → version=1.2.5. See §Local version source.
-UPTODATE_DISCRIMINATOR = RESOLVED: local config.ini `version` != get_latest `version` (OR action==1) → update available. Per Collapse HgGameManager.cs. See §Up-to-date discriminator.
-PACKAGE_PATH_LIVE      = yes (live + archive both return non-empty pkg.packs[]); confirm at smoke
-RESPONSE_ENVELOPE      = flat object (NO {rsp:{...}} wrapper). The live HTTP body IS the get_latest object. The archive wraps each capture as {updatedAt,req,rsp} for storage only — `rsp` is the body. Confirm live shape at smoke (already observed flat 2026-06-02).
+UPTODATE_DISCRIMINATOR = RESOLVED via version compare: local config.ini `version` != get_latest `version`. NOTE: do NOT use action==1 when version is known (all fixtures show action==1, up-to-date value never observed → would loop a freshly-updated install). action==1 is a degrade-only hint. See §Up-to-date discriminator.
+PER_FILE_CDN           = {pkg.file_path} serves `/game_files` (AES manifest) + `/<path>` (per-file downloads). The artifact Option A consumes. Confirm full-coverage at smoke (Q3/R1).
+RESPONSE_ENVELOPE      = flat object (NO {rsp:{...}} wrapper) on the GET variant omnigate ships. The live HTTP body IS the get_latest object. (The Collapse plugin uses a POST batch_proxy with a WRAPPED proxy_rsps[].get_latest_game_rsp — different envelope; see spec §0.6.) Archive wraps each capture as {updatedAt,req,rsp} for storage only.
 ```
 
 ## Endpoint
@@ -87,12 +88,20 @@ Each entry of `pkg.packs[]`:
 > The hash algorithm is **MD5** (per-pack `md5` + `pkg.game_files_md5`). There is
 > no SHA in this protocol.
 
-## LOCKED decision — full packs only
+## DECISION (REVISED 2026-06-02) — Option A: file-level incremental via `game_files`
 
-M3.C consumes `pkg.packs[]` (full install / sequential split archive) and
-**ignores `patch` / `pre_patch`** (the v2 HDiffPatch delta format described in the
-archive `MEMO.md`). This keeps Phase B's apply logic to "download all parts →
-concatenate/verify → extract", with no diff engine.
+> **Supersedes the earlier "full packs only" decision.** After reading the Collapse
+> plugin source (`HgGameRepairer.cs` / `HgGameInstaller.Install.cs`), Phase B was
+> re-scoped to **Option A**: M3.C does **NOT** consume `pkg.packs[]` (full split zips)
+> or `patch.patches[]` (delta zips). Instead it mirrors the plugin's **repair layer** —
+> fetch the new version's `game_files` manifest (`{pkg.file_path}/game_files`, AES
+> decrypt → JSON-lines `{path,md5,size}`), MD5-compare vs the local install, and download
+> only changed/missing files individually from `{pkg.file_path}/<path>`, then atomic
+> rename + config.ini AES re-encrypt writeback. **No zip-extract, no concat, no
+> HDiffPatch, no MultiVolumeStream.** The pack/delta protocol below is documented for
+> completeness but is **not consumed** by Option A (it's the rejected Option B / a
+> M3.C.v2 candidate). See the spec §0.4 for the full rationale. The `pack_url_regex`
+> TEST_ANCHOR is retained as a true protocol fact (Phase A drift test) though unused.
 
 ## Pack URL form
 
