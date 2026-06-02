@@ -17,6 +17,9 @@ const sampleSettings = () => ({
     Kurogames: { Path: 'C:/Wuthering', TempDir: '' },
     Hypergryph: { Path: 'C:/Endfield', TempDir: '' },
   },
+  // Per-game overrides set via the BottomBar popover live here; the settings
+  // panel must round-trip them untouched on Save.
+  Games: { 'kurogames/wutheringwaves': { Path: 'D:/WW' } },
 });
 
 const GetSettings = vi.fn();
@@ -78,6 +81,8 @@ describe('SettingsPanel', () => {
     expect(arg.Backends.Hoyoverse.Path).toBe('C:/HoYoPlay');
     expect(arg.App.Language).toBe('zh-TW'); // unshown field preserved
     expect(arg.Backends.Hoyoverse.Region).toBe('global'); // preserved
+    // Per-game overrides (set via the popover) must survive a settings Save.
+    expect(arg.Games['kurogames/wutheringwaves'].Path).toBe('D:/WW');
   });
 
   it('Cancel closes without calling UpdateSettings', async () => {
