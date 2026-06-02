@@ -230,11 +230,6 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 		return err
 	}
 
-	// Process guard.
-	if platformIsProcessRunning(g.ExeName) {
-		return &core.UpdateError{Code: "process_blocked", Retryable: true, Params: map[string]string{"kind": "process_running", "game": string(plan.GameID)}}
-	}
-
 	// Re-verify version (manifest_changed).
 	if cur, ferr := fetchGetLatest(ctx, p.client, ""); ferr == nil && cur.Version != "" && cur.Version != plan.ManifestETag {
 		return &core.UpdateError{Code: "manifest_changed", Retryable: true, Params: map[string]string{"old": plan.ManifestETag, "new": cur.Version}}
@@ -252,6 +247,11 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	}
 	if perr := checkDiskSpace(tempDir, plan.TotalBytes); perr != nil {
 		return perr
+	}
+
+	// Process guard.
+	if platformIsProcessRunning(g.ExeName) {
+		return &core.UpdateError{Code: "process_blocked", Retryable: true, Params: map[string]string{"kind": "process_running", "game": string(plan.GameID)}}
 	}
 
 	progress := newProgressStore(tempDir, string(plan.GameID), plan.Version)
