@@ -15,7 +15,6 @@ import (
 )
 
 type Settings struct {
-	Path    string // launcher install root, e.g. C:\Program Files\HoYoPlay
 	Region  string // "global" or "cn" — only "global" supported in M2
 	TempDir string // override for temp/sidecar root (tests + settings.toml)
 }
@@ -75,28 +74,23 @@ func (p *Provider) Games() []core.GameDescriptor {
 
 func (p *Provider) SettingsSchema() []core.SettingField {
 	return []core.SettingField{
-		{Key: "path", Kind: core.SettingPath,
-			Label: core.LocalizedString{"zh-TW": "HoYoPlay 安裝資料夾", "en": "HoYoPlay install folder"}},
 		{Key: "region", Kind: core.SettingSelectKind,
 			Label:   core.LocalizedString{"zh-TW": "區域", "en": "Region"},
 			Options: []string{"global"}},
 	}
 }
 
-func (p *Provider) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
-	if p.resolvedPaths != nil {
-		out := []core.InstalledGame{}
-		for gid, dir := range p.resolvedPaths {
-			if dir == "" {
-				continue
-			}
-			if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
-				out = append(out, core.InstalledGame{GameID: gid, InstallPath: dir})
-			}
+func (p *Provider) DetectInstall(_ context.Context) ([]core.InstalledGame, error) {
+	out := []core.InstalledGame{}
+	for gid, dir := range p.resolvedPaths {
+		if dir == "" {
+			continue
 		}
-		return out, nil
+		if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
+			out = append(out, core.InstalledGame{GameID: gid, InstallPath: dir})
+		}
 	}
-	return DetectInstall(ctx, p.settings.Path)
+	return out, nil
 }
 
 // DefaultScan returns each known game found under DefaultRoot (layer 3 of
@@ -180,9 +174,6 @@ func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.Launch
 	}
 	return 0, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 }
-
-// PrimaryPath implements core.PathProvider.
-func (p *Provider) PrimaryPath() string { return p.settings.Path }
 
 // IsGameRunning implements core.ProcessChecker.
 func (p *Provider) IsGameRunning(gid core.GameID) (bool, error) {
@@ -880,7 +871,6 @@ func (defaultFreeSpaceProbe) FreeBytes(path string) (uint64, error) {
 // compile-time check
 var (
 	_ core.Provider       = (*Provider)(nil)
-	_ core.PathProvider   = (*Provider)(nil)
 	_ core.Updater        = (*Provider)(nil)
 	_ core.ProcessChecker = (*Provider)(nil)
 )

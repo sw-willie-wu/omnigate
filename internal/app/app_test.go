@@ -16,8 +16,6 @@ type fakeProvider struct {
 	games []core.GameDescriptor
 	// Optional install set; nil means DetectInstall returns ([], nil)
 	installs []core.InstalledGame
-	// optional path for PathProvider
-	path string
 	// DefaultScan result + captured SetResolvedPaths injection (Task 8)
 	def      map[core.GameID]string
 	injected map[core.GameID]string
@@ -45,8 +43,6 @@ func (f *fakeProvider) CheckVersion(ctx context.Context, gid core.GameID) (core.
 func (f *fakeProvider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
 	return 0, nil
 }
-func (f *fakeProvider) PrimaryPath() string { return f.path }
-
 func TestProviderLookup(t *testing.T) {
 	a := newAppForTest(t,
 		&fakeProvider{id: "hoyoverse", games: []core.GameDescriptor{{ID: "hoyoverse/genshin", Backend: "hoyoverse"}}},
@@ -178,16 +174,13 @@ func TestRefreshClearsCache(t *testing.T) {
 func TestListBackends_DerivesStatuses(t *testing.T) {
 	hoyo := &fakeProvider{
 		id:       "hoyoverse",
-		path:     "C:/Program Files/HoYoPlay",
 		installs: []core.InstalledGame{{GameID: "hoyoverse/genshin"}},
 	}
 	emptyKuro := &fakeProvider{
-		id:   "kurogames",
-		path: "C:/Program Files/Wuthering Waves", // path set, no installs
+		id: "kurogames", // no installs
 	}
 	unconfigured := &fakeProvider{
-		id:   "hypergryph",
-		path: "", // path empty
+		id: "hypergryph",
 	}
 	a := newAppForTest(t, hoyo, emptyKuro, unconfigured)
 	statuses := a.ListBackends()

@@ -13,7 +13,6 @@ import (
 )
 
 type Settings struct {
-	Path    string // launcher install root
 	TempDir string // optional override; empty → app layer's kurogamesTempDir() default
 }
 
@@ -57,30 +56,20 @@ func (p *Provider) Games() []core.GameDescriptor {
 }
 
 func (p *Provider) SettingsSchema() []core.SettingField {
-	return []core.SettingField{
-		{Key: "path", Kind: core.SettingPath,
-			Label: core.LocalizedString{
-				"zh-TW": "鳴潮 launcher 安裝資料夾",
-				"zh-CN": "鸣潮 launcher 安装文件夹",
-				"en":    "Wuthering Waves launcher folder",
-			}},
-	}
+	return []core.SettingField{}
 }
 
-func (p *Provider) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
-	if p.resolvedPaths != nil {
-		out := []core.InstalledGame{}
-		for gid, dir := range p.resolvedPaths {
-			if dir == "" {
-				continue
-			}
-			if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
-				out = append(out, core.InstalledGame{GameID: gid, InstallPath: dir})
-			}
+func (p *Provider) DetectInstall(_ context.Context) ([]core.InstalledGame, error) {
+	out := []core.InstalledGame{}
+	for gid, dir := range p.resolvedPaths {
+		if dir == "" {
+			continue
 		}
-		return out, nil
+		if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
+			out = append(out, core.InstalledGame{GameID: gid, InstallPath: dir})
+		}
 	}
-	return DetectInstall(ctx, p.settings.Path)
+	return out, nil
 }
 
 // DefaultScan returns each known game found under DefaultRoot (layer 3 of
@@ -160,9 +149,6 @@ func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.Launch
 	}
 	return Launch(ctx, installPath, gid, opts)
 }
-
-// PrimaryPath implements core.PathProvider.
-func (p *Provider) PrimaryPath() string { return p.settings.Path }
 
 // ExeName implements core.ExeNamer (used by the AssetServer middleware for
 // kind=icon to locate the .exe).
@@ -385,22 +371,9 @@ func isProcessRunning(exeName string) bool {
 
 // gameDir returns the resolved install folder for gid, preferring the
 // App-injected resolved paths and falling back to a default-root scan.
-func (p *Provider) gameDir(ctx context.Context, gid core.GameID) (string, error) {
-	if p.resolvedPaths != nil {
-		if dir, ok := p.resolvedPaths[gid]; ok && dir != "" {
-			return dir, nil
-		}
-		return "", fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
-	}
-	// fallback: original inline behavior
-	games, err := DetectInstall(ctx, p.settings.Path)
-	if err != nil {
-		return "", err
-	}
-	for _, g := range games {
-		if g.GameID == gid {
-			return g.InstallPath, nil
-		}
+func (p *Provider) gameDir(_ context.Context, gid core.GameID) (string, error) {
+	if dir, ok := p.resolvedPaths[gid]; ok && dir != "" {
+		return dir, nil
 	}
 	return "", fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 }
@@ -415,7 +388,6 @@ func (p *Provider) SetResolvedPaths(paths map[core.GameID]string) {
 // compile-time interface compliance (EDIT 3 — deviation: removed AssetServer)
 var (
 	_ core.Provider                = (*Provider)(nil)
-	_ core.PathProvider            = (*Provider)(nil)
 	_ core.ExeNamer                = (*Provider)(nil)
 	_ core.Updater                 = (*Provider)(nil) // M3.A: implements update interface
 	_ core.CheckForUpdateProgress  = (*Provider)(nil) // verify-local progress for BottomBar

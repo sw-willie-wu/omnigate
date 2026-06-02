@@ -85,7 +85,6 @@ func (a *App) constructProviders() error {
 	a.providers = nil
 	hoyo := hoyoverse.New(
 		hoyoverse.Settings{
-			Path:    a.settings.Backends.Hoyoverse.Path,
 			Region:  a.settings.Backends.Hoyoverse.Region,
 			TempDir: a.settings.Backends.Hoyoverse.TempDir,
 		},
@@ -99,7 +98,6 @@ func (a *App) constructProviders() error {
 	}
 	kuro := kurogames.New(
 		kurogames.Settings{
-			Path:    a.settings.Backends.Kurogames.Path,
 			TempDir: a.settings.Backends.Kurogames.TempDir,
 		},
 		a.logger.With("backend", "kurogames"),
@@ -109,7 +107,6 @@ func (a *App) constructProviders() error {
 	}
 	gryph := hypergryph.New(
 		hypergryph.Settings{
-			Path:    a.settings.Backends.Hypergryph.Path,
 			TempDir: a.settings.Backends.Hypergryph.TempDir,
 		},
 		a.logger.With("backend", "hypergryph"),
