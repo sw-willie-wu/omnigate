@@ -29,6 +29,7 @@ type App struct {
 	settingsP      string
 	providers      []core.Provider
 	detect         map[core.BackendID]detectEntry
+	resolved       map[core.GameID]resolvedEntry
 	detectMu       sync.Mutex
 	settingsMu     sync.RWMutex // guards a.settings + a.providers (spec §2.5)
 	logger         *slog.Logger
@@ -52,6 +53,7 @@ func New(settingsPath string, logger *slog.Logger) *App {
 		settings:  s,
 		settingsP: settingsPath,
 		detect:    map[core.BackendID]detectEntry{},
+		resolved:  map[core.GameID]resolvedEntry{},
 		logger:    logger,
 	}
 	if err := a.constructProviders(); err != nil {
@@ -116,7 +118,44 @@ func (a *App) constructProviders() error {
 	if err := a.registerProvider(gryph); err != nil {
 		return err
 	}
+
+	// Resolve + inject per-game install folders. a.ctx is nil at New time (Wails
+	// sets it in Startup); provider DefaultScan→DetectInstall selects on
+	// ctx.Done(), so substitute a non-nil ctx to avoid a nil-deref panic.
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.resolveAll(ctx)
 	return nil
+}
+
+// resolveAll resolves every provider's games and injects the resolved folders.
+// MUST be called with settingsMu held for write (or pre-concurrency from New) —
+// it reads a.settings.Games WITHOUT locking to avoid RWMutex self-deadlock.
+func (a *App) resolveAll(ctx context.Context) {
+	if a.resolved == nil {
+		a.resolved = map[core.GameID]resolvedEntry{}
+	}
+	for _, p := range a.providers {
+		sc, ok := p.(backendScanner)
+		if !ok {
+			continue
+		}
+		var gids []core.GameID
+		for _, g := range p.Games() {
+			gids = append(gids, g.ID)
+		}
+		entries := resolveBackendLocked(ctx, sc, gids, a.settings.Games)
+		inj := make(map[core.GameID]string, len(entries))
+		for gid, e := range entries {
+			a.resolved[gid] = e
+			inj[gid] = e.Path // inject literal path; provider DetectInstall stat-gates existence
+		}
+		if rp, ok := p.(core.ResolvedPathSetter); ok {
+			rp.SetResolvedPaths(inj)
+		}
+	}
 }
 
 // registerProvider adds a provider to the registry after validating that

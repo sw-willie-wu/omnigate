@@ -18,7 +18,15 @@ type fakeProvider struct {
 	installs []core.InstalledGame
 	// optional path for PathProvider
 	path string
+	// DefaultScan result + captured SetResolvedPaths injection (Task 8)
+	def      map[core.GameID]string
+	injected map[core.GameID]string
 }
+
+func (f *fakeProvider) DefaultScan(context.Context) (map[core.GameID]string, error) {
+	return f.def, nil
+}
+func (f *fakeProvider) SetResolvedPaths(paths map[core.GameID]string) { f.injected = paths }
 
 func (f *fakeProvider) ID() core.BackendID                                  { return f.id }
 func (f *fakeProvider) DisplayName() core.LocalizedString                   { return core.LocalizedString{"en": string(f.id)} }
@@ -198,6 +206,37 @@ func TestListBackends_DerivesStatuses(t *testing.T) {
 	}
 	if byID["hypergryph"].Status != "path_unset" {
 		t.Errorf("hypergryph status = %q, want path_unset", byID["hypergryph"].Status)
+	}
+}
+
+func TestResolveAll_InjectsUnderWriteLock(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	fp := &fakeProvider{
+		id:    "fake",
+		games: []core.GameDescriptor{{ID: gid, Backend: "fake"}},
+		def:   map[core.GameID]string{gid: dir},
+	}
+	a := &App{
+		settings: Settings{Version: 2, Games: map[string]GameSettings{}},
+		detect:   map[core.BackendID]detectEntry{},
+		resolved: map[core.GameID]resolvedEntry{},
+		logger:   slog.Default(),
+	}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	// Mirror the real call path: resolveAll runs while the settings write lock
+	// is held (as constructProviders does). Must NOT deadlock.
+	a.settingsMu.Lock()
+	a.resolveAll(a.ctx)
+	a.settingsMu.Unlock()
+
+	if fp.injected[gid] != dir {
+		t.Fatalf("not injected: %+v", fp.injected)
+	}
+	if a.resolved[gid].Source != core.SourceDefault || a.resolved[gid].Path != dir {
+		t.Fatalf("resolved wrong: %+v", a.resolved[gid])
 	}
 }
 
