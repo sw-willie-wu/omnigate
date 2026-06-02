@@ -26,7 +26,8 @@
   /* ━━━ FULL-BLEED BACKGROUND (inside wrap) ━━━ */
   .app-bg-layer { position: absolute; inset: 0; z-index: 0; overflow: hidden; transition: filter 0.3s ease-out; }
   /* Grid mode: blur background so the card grid stands out. */
-  .app-wrap:has(.app.grid-mode) .app-bg-layer { filter: blur(16px) brightness(0.7); }
+  .app-wrap:has(.app.grid-mode) .app-bg-layer,
+  .app-wrap:has(.app.settings-mode) .app-bg-layer { filter: blur(16px) brightness(0.7); }
   .app-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.6s ease-out; }
   .app-bg.fading { opacity: 0; }
   .app-bg-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.6s ease-out; z-index: 1; }
@@ -70,13 +71,14 @@
     transition: grid-template-columns 0.25s ease;
   }
   .app.collapsed { grid-template-columns: 64px 1fr; }
-  .app.grid-mode { grid-template-columns: 1fr; }
+  .app.grid-mode, .app.settings-mode { grid-template-columns: 1fr; }
   .sidebar { grid-column: 1; grid-row: 1 / -1; }
   .topbar { grid-column: 2; grid-row: 1; }
   .main { grid-column: 2; grid-row: 2; }
   .footbar { grid-column: 2; grid-row: 3; }
-  .app.grid-mode .sidebar { display: none; }
-  .app.grid-mode .topbar, .app.grid-mode .main, .app.grid-mode .footbar { grid-column: 1; }
+  .app.grid-mode .sidebar, .app.settings-mode .sidebar { display: none; }
+  .app.grid-mode .topbar, .app.grid-mode .main, .app.grid-mode .footbar,
+  .app.settings-mode .topbar, .app.settings-mode .main, .app.settings-mode .footbar { grid-column: 1; }
 
   /* ━━━ GLASS CHROME ━━━ */
   .topbar {

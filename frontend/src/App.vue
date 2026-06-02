@@ -28,6 +28,7 @@ const toastRef = ref(null);
 const appClass = computed(() => ({
   collapsed: view.sidebarCollapsed,
   'grid-mode': view.viewMode === 'grid',
+  'settings-mode': view.viewMode === 'settings',
 }));
 
 onMounted(async () => {
