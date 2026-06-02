@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"omnigate/internal/providers/hoyoverse"
 )
 
 func TestSettings_LoadDefaultsWhenMissing(t *testing.T) {
@@ -256,5 +258,59 @@ func TestSettingsV2_GamesRoundTrip(t *testing.T) {
 	}
 	if got.Games["hoyoverse/genshin"].Path != `D:\G` {
 		t.Errorf("override not round-tripped: %+v", got.Games)
+	}
+}
+
+func TestMigrateV1_CustomRoot_WritesOverrides(t *testing.T) {
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "games", "Genshin Impact game"), 0o755) // optional; migration must NOT require it
+	raw := "version = 1\n[backends.hoyoverse]\npath = '" + root + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != 2 {
+		t.Fatalf("version=%d", got.Version)
+	}
+	want := filepath.Join(root, "games", "Genshin Impact game")
+	if got.Games["hoyoverse/genshin"].Path != want {
+		t.Errorf("override=%q want %q", got.Games["hoyoverse/genshin"].Path, want)
+	}
+}
+
+func TestMigrateV1_DefaultRoot_NoOverride(t *testing.T) {
+	raw := "version = 1\n[backends.hoyoverse]\npath = '" + hoyoverse.DefaultRoot + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, _ := LoadSettings(p)
+	if _, ok := got.Games["hoyoverse/genshin"]; ok {
+		t.Errorf("unexpected override for default-root user: %+v", got.Games)
+	}
+}
+
+func TestMigrateV1_OfflineCustomRoot_SeedsWithoutStat(t *testing.T) {
+	root := `Z:\NeverMountedDrive\HoYoPlay` // does not exist
+	raw := "version = 1\n[backends.hoyoverse]\npath = '" + root + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, _ := LoadSettings(p)
+	want := filepath.Join(root, "games", "Genshin Impact game")
+	if got.Games["hoyoverse/genshin"].Path != want {
+		t.Errorf("offline override=%q want %q", got.Games["hoyoverse/genshin"].Path, want)
+	}
+}
+
+func TestMigrateV0Chain_HoyoplayPathToOverride(t *testing.T) {
+	// v0 file (hoyoplay_path, no version) → project to path → derive override.
+	root := `D:\CustomHoYo`
+	raw := "[backends.hoyoverse]\nhoyoplay_path = '" + root + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, _ := LoadSettings(p)
+	want := filepath.Join(root, "games", "Genshin Impact game")
+	if got.Games["hoyoverse/genshin"].Path != want {
+		t.Errorf("v0 chain override=%q want %q", got.Games["hoyoverse/genshin"].Path, want)
 	}
 }

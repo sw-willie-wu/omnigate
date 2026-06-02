@@ -5,8 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse"
+	"omnigate/internal/providers/hypergryph"
+	"omnigate/internal/providers/kurogames"
 )
 
 type Settings struct {
@@ -57,8 +63,8 @@ type hoyoverseRawTOML struct {
 }
 
 type rawTOML struct {
-	Version  int                     `toml:"version"`
-	App      AppSettings             `toml:"app"`
+	Version  int         `toml:"version"`
+	App      AppSettings `toml:"app"`
 	Backends struct {
 		Hoyoverse  hoyoverseRawTOML   `toml:"hoyoverse"`
 		Kurogames  KurogamesSettings  `toml:"kurogames"`
@@ -149,10 +155,56 @@ func LoadSettings(path string) (Settings, error) {
 		out.Games = map[string]GameSettings{}
 	}
 
+	// v1→v2 migration: derive per-game overrides from old per-backend roots so
+	// no currently-installed game is lost when install locations move from
+	// per-backend roots to per-game override folders. Runs for any old file
+	// (raw.Version < 2). A default-root user keeps NO override (game stays
+	// auto-detected and re-detectable after a move); a custom-root user gets a
+	// seeded override. Never stats — preserves a custom root on an offline drive.
+	if raw.Version < 2 {
+		migrateV1ToV2(&out)
+	}
+
 	// On any successful load (including post-migration), bump version to 2.
 	out.Version = 2
 
 	return out, nil
+}
+
+// migrateBackend describes one backend's inputs to the v1→v2 migration.
+type migrateBackend struct {
+	root        string                 // already-v0-projected install root
+	defaultRoot string                 // provider DefaultRoot
+	hasSeg      bool                   // provider HasGamesSegment
+	folders     map[core.GameID]string // provider FolderNames()
+}
+
+// migrateV1ToV2 seeds out.Games with per-game overrides derived from each
+// backend's old root. See LoadSettings for the migration policy.
+func migrateV1ToV2(out *Settings) {
+	backends := []migrateBackend{
+		{out.Backends.Hoyoverse.Path, hoyoverse.DefaultRoot, hoyoverse.HasGamesSegment, hoyoverse.FolderNames()},
+		{out.Backends.Kurogames.Path, kurogames.DefaultRoot, kurogames.HasGamesSegment, kurogames.FolderNames()},
+		{out.Backends.Hypergryph.Path, hypergryph.DefaultRoot, hypergryph.HasGamesSegment, hypergryph.FolderNames()},
+	}
+	for _, b := range backends {
+		if b.root == "" || b.root == b.defaultRoot {
+			continue
+		}
+		for gid, folder := range b.folders {
+			key := string(gid)
+			if _, exists := out.Games[key]; exists {
+				continue // don't clobber an explicit games entry
+			}
+			var candidate string
+			if b.hasSeg {
+				candidate = filepath.Join(b.root, "games", folder)
+			} else {
+				candidate = filepath.Join(b.root, folder)
+			}
+			out.Games[key] = GameSettings{Path: candidate}
+		}
+	}
 }
 
 // SaveSettings writes the canonical schema. Always includes version = 2; never
