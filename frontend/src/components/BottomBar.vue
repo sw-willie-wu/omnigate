@@ -159,7 +159,7 @@ async function onCancel() {
 
     <!-- left: predl button OR remove button (when PredlReady) -->
     <div v-if="!inFlight && availablePredl" class="predl-area">
-      <button class="predl-btn" @click="onPredl">{{ predlSizeLabel }}</button>
+      <button data-testid="predl-button" class="predl-btn" @click="onPredl">{{ predlSizeLabel }}</button>
     </div>
     <div v-else-if="!inFlight && predlReady" class="predl-area">
       <button class="predl-btn" @click="onRemovePredl">{{ t('update.remove_predl') }}</button>

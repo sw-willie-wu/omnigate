@@ -107,7 +107,10 @@ func (a *App) constructProviders() error {
 		return err
 	}
 	gryph := hypergryph.New(
-		hypergryph.Settings{Path: a.settings.Backends.Hypergryph.Path},
+		hypergryph.Settings{
+			Path:    a.settings.Backends.Hypergryph.Path,
+			TempDir: a.settings.Backends.Hypergryph.TempDir,
+		},
 		a.logger.With("backend", "hypergryph"),
 	)
 	if err := a.registerProvider(gryph); err != nil {
@@ -465,6 +468,11 @@ func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 			return td
 		}
 		return filepath.Join(osTempDir(), "omnigate", "hoyoverse")
+	case hypergryph.BackendID:
+		if td := a.settings.Backends.Hypergryph.TempDir; td != "" {
+			return td
+		}
+		return filepath.Join(osTempDir(), "omnigate", "hypergryph")
 	}
 	// Default for backends without a settings TempDir field: per-backend subdir
 	// to avoid collisions.
