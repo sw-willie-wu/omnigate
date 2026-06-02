@@ -131,6 +131,31 @@ type LaunchOptions struct {
 	ExtraArgs []string
 }
 
+// InstallSource is how a game's resolved install folder was determined.
+type InstallSource string
+
+const (
+	SourceOverride   InstallSource = "override"   // user-set Settings.Games[id].Path
+	SourceLauncher   InstallSource = "launcher"   // read from the launcher's own records
+	SourceDefault    InstallSource = "default"    // found under the backend DefaultRoot
+	SourceUnresolved InstallSource = "unresolved" // not found anywhere
+)
+
+// InstallLocator is an optional Provider capability: read the launcher's own
+// record of where each installed game lives (registry / AppData), independent
+// of any configured root. Best-effort — partial/empty results and errors are
+// acceptable; the App stat-validates every returned path before trusting it.
+type InstallLocator interface {
+	LocateInstalls(ctx context.Context) (map[GameID]string, error)
+}
+
+// ResolvedPathSetter is an optional Provider capability: accept the App-resolved
+// per-game install folders so the provider's launch/version/update operations
+// use them instead of re-deriving from a single root.
+type ResolvedPathSetter interface {
+	SetResolvedPaths(paths map[GameID]string)
+}
+
 // Provider is the integration point for one launcher backend (one publisher).
 // Phase 1 = hoyoverse only.
 type Provider interface {

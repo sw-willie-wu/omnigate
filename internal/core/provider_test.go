@@ -46,3 +46,11 @@ func TestParseGameID_RejectsMultiSlashSuffix(t *testing.T) {
 		})
 	}
 }
+
+func TestInstallSourceConstants(t *testing.T) {
+	for _, s := range []InstallSource{SourceOverride, SourceLauncher, SourceDefault, SourceUnresolved} {
+		if string(s) == "" {
+			t.Errorf("empty InstallSource constant")
+		}
+	}
+}
