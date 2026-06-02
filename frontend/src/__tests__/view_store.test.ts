@@ -14,14 +14,14 @@ describe('view store settings drawer', () => {
     expect(v.settingsOpen).toBe(false);
   });
 
-  it('settings is a peer view; toggling off returns to the previous content view', () => {
+  it('toggling settings off returns to the home (detail) view, not where it was opened from', () => {
     const v = useViewStore();
     v.setView('grid');
     v.toggleSettings();
     expect(v.viewMode).toBe('settings');
     expect(v.settingsOpen).toBe(true);
     v.toggleSettings();
-    expect(v.viewMode).toBe('grid'); // returned to where we came from
+    expect(v.viewMode).toBe('detail'); // home, not the grid we came from
     expect(v.settingsOpen).toBe(false);
   });
 

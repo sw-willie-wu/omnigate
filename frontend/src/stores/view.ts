@@ -3,12 +3,14 @@ import { defineStore } from 'pinia';
 type ContentView = 'detail' | 'grid';
 type ViewMode = ContentView | 'settings';
 
+// 'detail' is the home view the app boots into; toggling settings off returns
+// here rather than to whatever view settings was opened from.
+const HOME: ContentView = 'detail';
+
 export const useViewStore = defineStore('view', {
   state: () => ({
     sidebarCollapsed: false,
-    viewMode: 'detail' as ViewMode,
-    // The content view to return to when settings is toggled off.
-    prevView: 'detail' as ContentView,
+    viewMode: HOME as ViewMode,
   }),
   getters: {
     // Settings is a peer view, mutually exclusive with grid/detail (it no
@@ -18,17 +20,9 @@ export const useViewStore = defineStore('view', {
   },
   actions: {
     toggleSidebar() { this.sidebarCollapsed = !this.sidebarCollapsed; },
-    setView(v: ContentView) { this.viewMode = v; this.prevView = v; },
-    openSettings() {
-      if (this.viewMode !== 'settings') this.prevView = this.viewMode;
-      this.viewMode = 'settings';
-    },
-    closeSettings() {
-      if (this.viewMode === 'settings') this.viewMode = this.prevView;
-    },
-    toggleSettings() {
-      if (this.viewMode === 'settings') this.closeSettings();
-      else this.openSettings();
-    },
+    setView(v: ContentView) { this.viewMode = v; },
+    openSettings() { this.viewMode = 'settings'; },
+    closeSettings() { if (this.viewMode === 'settings') this.viewMode = HOME; },
+    toggleSettings() { this.viewMode = this.viewMode === 'settings' ? HOME : 'settings'; },
   },
 });
