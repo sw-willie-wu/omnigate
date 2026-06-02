@@ -3,6 +3,9 @@ import { onMounted, computed, ref } from 'vue';
 import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
 import { useUpdatesStore } from './stores/updates';
+import { useBackendsStore } from './stores/backends';
+import { GetSettings } from '../wailsjs/go/app/App';
+import { setLang } from './i18n';
 import BgLayer from './components/BgLayer.vue';
 import Topbar from './components/Topbar.vue';
 import Sidebar from './components/Sidebar.vue';
@@ -18,6 +21,7 @@ import { registerToast } from './composables/useToast';
 const games = useGamesStore();
 const view = useViewStore();
 const updates = useUpdatesStore();
+const backends = useBackendsStore();
 
 const dialogRef = ref(null);
 const toastRef = ref(null);
@@ -28,9 +32,18 @@ const appClass = computed(() => ({
 }));
 
 onMounted(async () => {
+  // Apply the persisted UI language before the first paint settles so the
+  // app opens in the user's chosen locale instead of the i18n.ts default.
+  try {
+    const lang = (await GetSettings())?.App?.Language;
+    if (lang === 'zh-TW' || lang === 'zh-CN' || lang === 'en') setLang(lang);
+  } catch (e) {
+    console.warn('language load failed', e);
+  }
   await games.load();
   await games.refreshVersions();
   await games.loadAssets();
+  await backends.load();
   await updates.loadAll();
   updates.bind();
   registerDialog(dialogRef.value);

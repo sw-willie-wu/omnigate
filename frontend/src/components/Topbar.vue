@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useViewStore } from '../stores/view';
 import { i18n, setLang } from '../i18n';
+import { SetLanguage } from '../../wailsjs/go/app/App';
 import { WindowMinimise, Quit } from '../../wailsjs/runtime/runtime';
 import { useResumePrompt } from '../composables/useResumePrompt';
 import { refreshAll } from '../composables/useRefreshAll';
@@ -17,8 +18,11 @@ function toggleNotifPanel() { panelOpen.value = !panelOpen.value; }
 function closeNotifPanel() { panelOpen.value = false; }
 
 // 2-way toggle: zh-TW ↔ en. zh-CN locale exists but isn't in the toggle.
+// Persist the choice so it survives a restart; best-effort (UI already switched).
 const cycleLang = () => {
-  setLang(i18n.global.locale.value === 'zh-TW' ? 'en' : 'zh-TW');
+  const next = i18n.global.locale.value === 'zh-TW' ? 'en' : 'zh-TW';
+  setLang(next);
+  SetLanguage(next).catch((e) => console.warn('persist language failed', e));
 };
 
 const onRefresh = async () => {

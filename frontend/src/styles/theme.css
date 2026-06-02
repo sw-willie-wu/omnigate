@@ -234,7 +234,15 @@
   .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
   .group-label { font-size: 9px; line-height: 13px; font-weight: 600; letter-spacing: 0.28em; color: var(--text-3); padding: 22px 14px 10px; text-transform: uppercase; display: flex; align-items: baseline; gap: 12px; max-height: 60px; box-sizing: border-box; overflow: hidden; transition: padding 0.25s, max-height 0.25s, opacity 0.2s; }
   .group-label > span { min-width: 100px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 13px; transition: opacity 0.2s; }
-  .group-label::after { content: ''; flex: 1; height: 0; border-bottom: 1px dashed var(--border-strong); transform: translateY(-2px); transition: opacity 0.2s; }
+  .group-label::after { content: ''; flex: 1; height: 0; border-bottom: 1px dashed var(--border-strong); transform: translateY(-2px); transition: opacity 0.2s; order: 3; }
+  /* Per-backend health dot, between the publisher label and the dashed rule. */
+  .group-status-dot { order: 2; flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); align-self: center; box-shadow: 0 0 0 2px rgba(0,0,0,0.25); transition: opacity 0.2s; }
+  .group-status-dot.ok { background: var(--ok); }
+  .group-status-dot.launcher_missing { background: var(--warn); }
+  .group-status-dot.path_unset,
+  .group-status-dot.empty { background: var(--text-3); }
+  .group-status-dot.error { background: var(--crit); }
+  .sidebar.collapsed .group-status-dot { opacity: 0; }
   .game-row { display: grid; grid-template-columns: 36px 1fr 12px; align-items: center; gap: 12px; padding: 11px 14px 11px 14px; cursor: pointer; border-left: 2px solid transparent; transition: background 0.15s, border-color 0.15s, padding 0.25s, grid-template-columns 0.25s; position: relative; min-height: 56px; }
   .game-row > div:not(.game-icon) { min-width: 0; }
   .game-icon { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: #222; display: flex; align-items: center; justify-content: center; font-family: 'Noto Sans TC', sans-serif; font-weight: 900; font-size: 18px; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }

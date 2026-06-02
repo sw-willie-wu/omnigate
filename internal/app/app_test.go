@@ -96,6 +96,39 @@ func TestRegisterProvider_RejectsMultiSlashGID(t *testing.T) {
 	}
 }
 
+func TestSetLanguage_PersistsAndValidates(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.toml")
+	a := &App{
+		settingsP: p,
+		settings:  defaultSettings(),
+	}
+
+	// A supported language updates both in-memory state and the TOML file
+	// without going through the heavy UpdateSettings (no provider rebuild).
+	if err := a.SetLanguage("en"); err != nil {
+		t.Fatalf("SetLanguage(en) error: %v", err)
+	}
+	if got := a.GetSettings().App.Language; got != "en" {
+		t.Errorf("in-memory language = %q, want en", got)
+	}
+	loaded, err := LoadSettings(p)
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+	if loaded.App.Language != "en" {
+		t.Errorf("persisted language = %q, want en", loaded.App.Language)
+	}
+
+	// An unsupported language is rejected and leaves state untouched.
+	if err := a.SetLanguage("fr-FR"); err == nil {
+		t.Errorf("SetLanguage(fr-FR) accepted invalid language; want error")
+	}
+	if got := a.GetSettings().App.Language; got != "en" {
+		t.Errorf("language mutated after invalid set = %q, want en", got)
+	}
+}
+
 func TestCachedDetect_CachesAcrossCalls(t *testing.T) {
 	p := &fakeProvider{
 		id:       "hoyoverse",

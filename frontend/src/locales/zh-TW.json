@@ -5,6 +5,13 @@
     "hypergryph": "鷹角",
     "perfectworld": "完美世界"
   },
+  "backend_status": {
+    "ok": "就緒",
+    "path_unset": "未設定安裝路徑",
+    "launcher_missing": "路徑下找不到啟動器",
+    "empty": "未偵測到遊戲",
+    "error": "後端錯誤"
+  },
   "buttons": {
     "play": "開始遊戲",
     "play_short": "開始",
