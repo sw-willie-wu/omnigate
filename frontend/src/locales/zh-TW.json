@@ -139,5 +139,17 @@
       "kurogames": "庫洛遊戲",
       "hypergryph": "鷹角網路"
     }
+  },
+  "gamecfg": {
+    "path_label": "安裝資料夾",
+    "browse": "瀏覽…",
+    "reset": "重設",
+    "save": "儲存",
+    "save_disabled_inflight": "更新進行中無法變更路徑",
+    "src_launcher": "自動偵測",
+    "src_default": "預設位置",
+    "src_override": "手動",
+    "src_invalid": "手動・找不到",
+    "src_locate": "定位…"
   }
 }

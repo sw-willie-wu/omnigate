@@ -139,5 +139,17 @@
       "kurogames": "Kuro Games",
       "hypergryph": "Hypergryph"
     }
+  },
+  "gamecfg": {
+    "path_label": "Install folder",
+    "browse": "Browse…",
+    "reset": "Reset",
+    "save": "Save",
+    "save_disabled_inflight": "Can't change path during an update",
+    "src_launcher": "Auto-detected",
+    "src_default": "Default location",
+    "src_override": "Manual",
+    "src_invalid": "Set, but not found",
+    "src_locate": "Locate…"
   }
 }

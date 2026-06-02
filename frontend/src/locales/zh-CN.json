@@ -139,5 +139,17 @@
       "kurogames": "库洛游戏",
       "hypergryph": "鹰角网络"
     }
+  },
+  "gamecfg": {
+    "path_label": "安装文件夹",
+    "browse": "浏览…",
+    "reset": "重置",
+    "save": "保存",
+    "save_disabled_inflight": "更新进行中无法更改路径",
+    "src_launcher": "自动检测",
+    "src_default": "默认位置",
+    "src_override": "手动",
+    "src_invalid": "手动・未找到",
+    "src_locate": "定位…"
   }
 }

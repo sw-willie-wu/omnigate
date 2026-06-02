@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
 import { Launch } from '../../wailsjs/go/app/App';
 import { formatSize } from '../utils/format';
+import GameConfigPopover from './GameConfigPopover.vue';
 
 const games = useGamesStore();
 const updates = useUpdatesStore();
@@ -171,6 +172,9 @@ async function onCancel() {
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
     </div>
+
+    <!-- per-game install-path config gear (left of the Play/Update button) -->
+    <GameConfigPopover v-if="games.selected" :row="games.selected" />
 
     <!-- right: Launch / Update / Update-in-flight / Apply Predl -->
     <div class="launch-area">
