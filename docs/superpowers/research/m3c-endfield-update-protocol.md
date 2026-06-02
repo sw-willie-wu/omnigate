@@ -11,8 +11,8 @@
 ## Outputs (Phase A/B read these)
 
 ```
-LOCAL_VERSION_SOURCE   = PENDING-USER: needs real install — see §Local version source
-UPTODATE_DISCRIMINATOR = PENDING-LIVE: archive + live both show action=1,state=0,launcher_action=0 with full packs; see §Up-to-date discriminator
+LOCAL_VERSION_SOURCE   = RESOLVED: <gameDir>/config.ini, AES-256-CBC encrypted (key/IV below) → INI `version=` line. Verified live on a real install 2026-06-02 → version=1.2.5. See §Local version source.
+UPTODATE_DISCRIMINATOR = RESOLVED: local config.ini `version` != get_latest `version` (OR action==1) → update available. Per Collapse HgGameManager.cs. See §Up-to-date discriminator.
 PACKAGE_PATH_LIVE      = yes (live + archive both return non-empty pkg.packs[]); confirm at smoke
 RESPONSE_ENVELOPE      = flat object (NO {rsp:{...}} wrapper). The live HTTP body IS the get_latest object. The archive wraps each capture as {updatedAt,req,rsp} for storage only — `rsp` is the body. Confirm live shape at smoke (already observed flat 2026-06-02).
 ```
@@ -120,85 +120,74 @@ Phase B's drift test (`m3c_protocol_doc_test.go`) parses the block below.
 
 ## Local version source
 
-> **`LOCAL_VERSION_SOURCE = PENDING-USER`** — resolving this requires a real
-> Endfield install, which this research session does not have. Below is the
-> investigation procedure to run on a real install, in priority order. This step
-> resolves **two** questions at once:
-> 1. Where the GRYPHLINK launcher records the **installed game version** (so
->    `version.go` can populate `VersionInfo.Current`).
-> 2. Whether a **custom (non-default) install location** can be auto-discovered
->    (detection parity — relevant to `detect.go`/`bg.go`).
+> **`LOCAL_VERSION_SOURCE = RESOLVED 2026-06-02`** — `<gameDir>/config.ini`,
+> AES-256-CBC encrypted. Decrypt → INI text; read the `version=` line. **Verified
+> live on a real install** (`C:\Program Files\GRYPHLINK\games\EndField Game\config.ini`,
+> 256 bytes) → decrypts to:
+>
+> ```ini
+> [Game]
+> version=1.2.5
+> entry=Endfield.exe
+> entry_md5=3154e0efecfc2db4585da5389325fe91
+> appcode=YDUTE5gscDZ229CW
+> region=sg
+> channel=6
+> sub_channel=6
+> ```
+>
+> This is the kuro-`launcherDownloadConfig.json` equivalent. After an update,
+> write the new version back by **re-encrypting** config.ini with the same key/IV.
 
-### What M2/pre-spec research already ruled OUT
+### AES parameters (from Collapse plugin `HgCrypto.cs`; verified working)
 
-(From the prior `version.go` stub comment — do not re-investigate these:)
+- **Algorithm:** AES-256-CBC, PKCS7 padding.
+- **Key (32 bytes):** `C0 F3 0E 1C E7 63 BB C2 1C C3 55 A3 43 03 AC 50 39 94 44 BF F6 8C 4A 22 AF 39 8C 0A 16 6E E1 43`
+- **IV (16 bytes):** `33 46 78 61 19 27 50 64 95 01 93 72 64 60 84 00`
+- These are a **reverse-engineered constant already publicly published** in
+  `misaka10843/Hi3Helper.Plugin.Hypergryph/Hi3Helper.Hypergryph.Core/Utils/HgCrypto.cs`
+  (a Collapse Launcher plugin). Omnigate hardcodes them with attribution
+  (consistent with the existing kurogames `AppCred` hardcoded constant). Used
+  ONLY for interop with the official launcher's local config format. If omnigate
+  is published and this draws concern, swap to build-time/runtime injection.
 
-- `Endfield.exe` FileVersion → the Unity **engine** version (`2021.3.34f5`), not
-  the game version.
-- `Endfield_Data/app.info` → only `"Gryphline\nEndfield"`, no version.
-- GRYPHLINK's `<root>/<x.y.z>/` folder → the **launcher** version, not the game.
+### `game_files` — same AES → file-level MD5 manifest
 
-### Candidate sources to check on a real install (priority order)
+`<gameDir>/game_files` (159 KB on the test install) decrypts with the SAME AES
+key/IV to JSON-lines: `{"path":"...","md5":"...","size":N}` per installed file —
+the full per-file manifest. Enables MD5 change-detection + repair (the kuro
+`filterChangedFiles` equivalent). Phase B uses this.
 
-1. **A launcher-written JSON/config under the game dir** holding a version that
-   matches `rsp.version` (e.g. `1.2.5`). Check, near `Endfield.exe` / under the
-   install root:
-   - any `*.json` / `*.config` / `manifest*` / `version*` / `config.ini` written
-     by GRYPHLINK (not Unity). Grep installed files for the literal installed
-     version string (e.g. `1.2.5`) to locate the authoritative record.
-   - The protocol's `pkg.game_files_md5` and `file_path` (`.../<ver>_<rand>/files`)
-     suggest the launcher persists the installed version somewhere to drive its
-     own update check — find that store.
-2. **Windows registry**: `HKCU\Software\Hypergryph\…\Endfield` (and `HKLM`
-   fallback). Inspect for an install-path value AND a version value. (`reg query
-   HKCU\Software\Hypergryph /s` on a real machine.) A registry install-path value
-   would also answer the custom-location auto-discovery question.
-3. **A sidecar under `%LOCALAPPDATA%` / the GRYPHLINK launcher data dir** — the
-   launcher likely keeps a per-game record (installed version + install path) it
-   reads to render its own "update available" state. Look under
-   `%LOCALAPPDATA%`, `%APPDATA%`, and the GRYPHLINK install dir for a games/state
-   JSON. This is the most promising for BOTH the version and custom-path questions
-   because a launcher must persist exactly this to function offline.
+### What M2/pre-spec research ruled OUT (do not re-investigate)
 
-Community references to mine on a real install (no install needed to *read* them,
-but they describe layouts to verify): `AugustLigh/LLauncher`,
-`daydreamer-json/ak-endfield-api-archive` (`MEMO.md`, `src/utils/`).
-
-### Degrade path if none is reliable
-
-Spec §6: if no clean local source surfaces, `version.go` leaves
-`VersionInfo.Current` **empty** (sidebar shows `就緒` with no `· vX.Y` suffix) and
-still populates `Latest` from `get_latest.version`. Task A3 Step 0 branches on
-this outcome.
+- `Endfield.exe` FileVersion → Unity **engine** version (`2021.3.34f5`).
+- `Endfield_Data/app.info` → only `"Gryphline\nEndfield"`.
+- GRYPHLINK `<root>/<x.y.z>/` folder → **launcher** version (was `1.3.0`, self-updated
+  to `1.4.0`), not the game.
+- `HKCU\Software\GRYPHLINK\Launcher\<hash>` → has `install_path` but NO game version.
+- `eld_*.db` (e.g. `eld_Games.db`) → SQLCipher-encrypted, not openable; not needed
+  (config.ini is the clean source).
+- Resource-index files (`Endfield_Data/Persistent/index_main.json`) use a DIFFERENT
+  cipher (base64 + additive Vigenère, key `Assets/Beyond/DynamicAssets/Gameplay/UI/Fonts/`)
+  and carry the **VFS res_version** (`7215718-17`), not the semver — that's the
+  in-client hot-update layer, out of M3.C scope.
 
 ## Up-to-date discriminator
 
-> **`UPTODATE_DISCRIMINATOR = PENDING-LIVE`** — not observable from fixtures.
+> **`UPTODATE_DISCRIMINATOR = RESOLVED`** — compare the **local** `config.ini`
+> `version` against `get_latest`'s `version`. Per Collapse `HgGameManager.cs`:
+> `IsGameHasUpdate = (ApiGameVersion != CurrentGameVersion) || latestGameInfo.Action == 1`.
 
-Across **all 9 archive samples** (`output/.../game/6/all_patch.json`), including
-queries that send `version=<installed>` (e.g. `1.0.13`, `1.0.14`, `1.1.9`), every
-response is identical on the discriminator fields:
+So `action`/`state`/`launcher_action` are NOT the primary discriminator (they stay
+`1/0/0` regardless — confirmed across all 9 archive samples + the live GET). The
+real signal is the **version-string comparison**, which we can now do because the
+local version is readable (config.ini). `action==1` is an additional
+update-available hint. `client_version` in the response also echoes the latest
+(`1.2.5`).
 
-```
-action = 1,  state = 0,  launcher_action = 0,  pkg.packs = non-empty (full set)
-```
-
-The live unversioned GET (2026-06-02) likewise returns `action=1, state=0,
-launcher_action=0`, `request_version=""`, `client_version="1.2.5"`, full packs.
-
-So an **up-to-date** response (client already on latest) is NOT captured anywhere
-available to this session. The user/smoke must perform a **live GET with
-`&version=<latest>`** (i.e. claim to already have the newest build) and record how
-the response differs. Likely discriminators to confirm:
-
-- `pkg.packs` becomes **empty** (nothing to download), and/or
-- `action` / `launcher_action` changes to a "no update" code, and/or
-- `version == request_version` is itself the signal.
-
-Phase B's `CheckForUpdate` must use the confirmed discriminator. Until then,
-treat "non-empty `pkg.packs` AND `version != local`" as update-available, and
-record the real up-to-date body into
-`testdata/get_latest-uptodate-sample.json` during the smoke.
+`testdata/get_latest-uptodate-sample.json` is therefore no longer needed for the
+discriminator (version compare suffices); still worth capturing at smoke for
+completeness.
 
 ## Sources
 
@@ -208,4 +197,13 @@ record the real up-to-date body into
   - `output/akEndfield/launcher/game/6/latest.json` (full `1.2.5` response)
   - `output/akEndfield/launcher/game/6/all_patch.json` (9 `{updatedAt,req,rsp}` captures)
   - `src/utils/api/akEndfield/launcher.ts` (param names + semver validation)
-  - `MEMO.md` (v2 `patch` HDiffPatch format — explicitly out of scope for M3.C)
+  - `MEMO.md` (v2 `patch` HDiffPatch format)
+- **AUTHORITATIVE reference — Collapse Launcher Hypergryph plugin** `misaka10843/Hi3Helper.Plugin.Hypergryph` (fully reverse-engineered Endfield; trust per project policy, same as M3.B's Collapse Sophon reference). Verbatim mirror sources for M3.C:
+  - `Hi3Helper.Hypergryph.Core/Utils/HgCrypto.cs` — AES-256-CBC key/IV + decrypt/encrypt.
+  - `Hi3Helper.Hypergryph.Core/Utils/ConfigTool.cs` — read config.ini → `ParseVersion`.
+  - `Hi3Helper.Hypergryph.Core/Management/HgGameManager.cs` — version + `IsGameHasUpdate`.
+  - `Hi3Helper.Hypergryph.Core/Management/HgGameInstaller.Install.cs` — install/update flow.
+  - `Hi3Helper.Hypergryph.Core/Management/Api/HgApiContext.cs` + `HgApiStructs.cs` — get_latest.
+  - `Hi3Helper.Hypergryph.Core/Utils/MultiVolumeStream.cs` — `.zip.NNN` volume concat.
+  - `SharpHDiffPatch.Core/` — C# HDiffPatch (Phase B incremental).
+  - Found via `lTinchl/Xel-Launcher` (C# Hypergryph launcher) → its dep `Hi3Helper.Plugin.Endfield`.
