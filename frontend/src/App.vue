@@ -3,12 +3,15 @@ import { onMounted, computed, ref } from 'vue';
 import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
 import { useUpdatesStore } from './stores/updates';
+import { GetSettings } from '../wailsjs/go/app/App';
+import { setLang } from './i18n';
 import BgLayer from './components/BgLayer.vue';
 import Topbar from './components/Topbar.vue';
 import Sidebar from './components/Sidebar.vue';
 import DetailView from './components/DetailView.vue';
 import GridView from './components/GridView.vue';
 import BottomBar from './components/BottomBar.vue';
+import SettingsPanel from './components/SettingsPanel.vue';
 import Footbar from './components/Footbar.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import ToastHost from './components/ToastHost.vue';
@@ -25,9 +28,18 @@ const toastRef = ref(null);
 const appClass = computed(() => ({
   collapsed: view.sidebarCollapsed,
   'grid-mode': view.viewMode === 'grid',
+  'settings-mode': view.viewMode === 'settings',
 }));
 
 onMounted(async () => {
+  // Apply the persisted UI language before the first paint settles so the
+  // app opens in the user's chosen locale instead of the i18n.ts default.
+  try {
+    const lang = (await GetSettings())?.App?.Language;
+    if (lang === 'zh-TW' || lang === 'zh-CN' || lang === 'en') setLang(lang);
+  } catch (e) {
+    console.warn('language load failed', e);
+  }
   await games.load();
   await games.refreshVersions();
   await games.loadAssets();
@@ -54,7 +66,8 @@ onMounted(async () => {
       <Sidebar />
       <Topbar />
       <main class="main">
-        <DetailView v-if="view.viewMode === 'detail'" />
+        <SettingsPanel v-if="view.viewMode === 'settings'" />
+        <DetailView v-else-if="view.viewMode === 'detail'" />
         <GridView v-else />
         <BottomBar v-if="view.viewMode === 'detail'" />
       </main>

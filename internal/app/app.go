@@ -107,7 +107,10 @@ func (a *App) constructProviders() error {
 		return err
 	}
 	gryph := hypergryph.New(
-		hypergryph.Settings{Path: a.settings.Backends.Hypergryph.Path},
+		hypergryph.Settings{
+			Path:    a.settings.Backends.Hypergryph.Path,
+			TempDir: a.settings.Backends.Hypergryph.TempDir,
+		},
 		a.logger.With("backend", "hypergryph"),
 	)
 	if err := a.registerProvider(gryph); err != nil {
@@ -381,6 +384,26 @@ func (a *App) UpdateSettings(s Settings) error {
 	return err
 }
 
+// SetLanguage persists the UI language preference. Unlike UpdateSettings it
+// touches only App.Language and skips the provider rebuild + detection-cache
+// invalidation, so the Topbar language toggle stays cheap (no game re-probe).
+func (a *App) SetLanguage(lang string) error {
+	switch lang {
+	case "zh-TW", "zh-CN", "en":
+	default:
+		return fmt.Errorf("unsupported language %q", lang)
+	}
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
+	s := a.settings
+	s.App.Language = lang
+	if err := SaveSettings(a.settingsP, s); err != nil {
+		return err
+	}
+	a.settings = s
+	return nil
+}
+
 // Refresh clears the detection cache. Wails-bound; the frontend's manual
 // refresh button calls this.
 func (a *App) Refresh() {
@@ -465,6 +488,11 @@ func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 			return td
 		}
 		return filepath.Join(osTempDir(), "omnigate", "hoyoverse")
+	case hypergryph.BackendID:
+		if td := a.settings.Backends.Hypergryph.TempDir; td != "" {
+			return td
+		}
+		return filepath.Join(osTempDir(), "omnigate", "hypergryph")
 	}
 	// Default for backends without a settings TempDir field: per-backend subdir
 	// to avoid collisions.

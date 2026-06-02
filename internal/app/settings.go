@@ -37,7 +37,10 @@ type KurogamesSettings struct {
 	Path    string `toml:"path"`
 	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/<gameID>
 }
-type HypergryphSettings struct{ Path string `toml:"path"` }
+type HypergryphSettings struct {
+	Path    string `toml:"path"`
+	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/hypergryph
+}
 
 // hoyoverseRawTOML is used for the M1 → M2 migration: M1 wrote
 // `hoyoplay_path` under [backends.hoyoverse]. On Load, if Path is empty and
@@ -128,6 +131,9 @@ func LoadSettings(path string) (Settings, error) {
 	}
 	if raw.Backends.Hypergryph.Path != "" {
 		out.Backends.Hypergryph.Path = raw.Backends.Hypergryph.Path
+	}
+	if raw.Backends.Hypergryph.TempDir != "" {
+		out.Backends.Hypergryph.TempDir = raw.Backends.Hypergryph.TempDir
 	}
 
 	// On any successful load (including post-migration), bump version to 1.

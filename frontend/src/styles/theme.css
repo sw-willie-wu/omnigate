@@ -26,7 +26,8 @@
   /* ━━━ FULL-BLEED BACKGROUND (inside wrap) ━━━ */
   .app-bg-layer { position: absolute; inset: 0; z-index: 0; overflow: hidden; transition: filter 0.3s ease-out; }
   /* Grid mode: blur background so the card grid stands out. */
-  .app-wrap:has(.app.grid-mode) .app-bg-layer { filter: blur(16px) brightness(0.7); }
+  .app-wrap:has(.app.grid-mode) .app-bg-layer,
+  .app-wrap:has(.app.settings-mode) .app-bg-layer { filter: blur(16px) brightness(0.7); }
   .app-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.6s ease-out; }
   .app-bg.fading { opacity: 0; }
   .app-bg-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.6s ease-out; z-index: 1; }
@@ -70,13 +71,14 @@
     transition: grid-template-columns 0.25s ease;
   }
   .app.collapsed { grid-template-columns: 64px 1fr; }
-  .app.grid-mode { grid-template-columns: 1fr; }
+  .app.grid-mode, .app.settings-mode { grid-template-columns: 1fr; }
   .sidebar { grid-column: 1; grid-row: 1 / -1; }
   .topbar { grid-column: 2; grid-row: 1; }
   .main { grid-column: 2; grid-row: 2; }
   .footbar { grid-column: 2; grid-row: 3; }
-  .app.grid-mode .sidebar { display: none; }
-  .app.grid-mode .topbar, .app.grid-mode .main, .app.grid-mode .footbar { grid-column: 1; }
+  .app.grid-mode .sidebar, .app.settings-mode .sidebar { display: none; }
+  .app.grid-mode .topbar, .app.grid-mode .main, .app.grid-mode .footbar,
+  .app.settings-mode .topbar, .app.settings-mode .main, .app.settings-mode .footbar { grid-column: 1; }
 
   /* ━━━ GLASS CHROME ━━━ */
   .topbar {
@@ -462,46 +464,21 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Full-page overlay: blurs the app behind (like grid mode), fades in/out.
-     Content fills the page (no centered card); clicking the blurred margin closes. */
-  .settings-overlay {
-    position: fixed; inset: 0; z-index: 1000;
-    background: rgba(8, 8, 12, 0.55);
-    backdrop-filter: blur(16px) brightness(0.85);
-    display: flex;
-    padding: 40px 56px;
-  }
-  .settings-fade-enter-active, .settings-fade-leave-active { transition: opacity 0.2s ease; }
-  .settings-fade-enter-from, .settings-fade-leave-to { opacity: 0; }
-  .settings-card {
-    flex: 1; min-width: 0;
+  /* Settings is a peer view filling the main content area (not an overlay), so
+     the titlebar / sidebar / footbar stay visible. It reuses grid view's
+     .grid-section-label headers so the two full-width views read as one family. */
+  .settings-view {
+    flex: 1; min-width: 0; min-height: 0;
     display: flex; flex-direction: column;
-    background: transparent; border: 0; box-shadow: none;
   }
-  .settings-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 4px 4px 16px; font-size: 20px; font-weight: 700; letter-spacing: 0.02em;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    flex: 0 0 auto;
-  }
-  .settings-close { background: transparent; border: 0; color: var(--text-2); font-size: 26px; cursor: pointer; line-height: 1; }
-  .settings-close:hover { color: white; }
-  /* Body tiles the backend sections across the full width (grid-mode feel). */
   .settings-body {
     flex: 1; overflow-y: auto; padding: 22px 4px;
-    display: grid; align-content: start;
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-    gap: 18px 24px;
+    display: flex; flex-direction: column;
   }
-  .settings-section {
-    background: rgba(20, 20, 30, 0.55);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 12px;
-    padding: 16px 18px;
-  }
-  .settings-section-title { font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
-  .settings-label { display: block; font-size: 11px; color: var(--text-2); margin: 8px 0 4px; }
-  .settings-row { display: flex; gap: 6px; align-items: center; }
+  .settings-group { margin-bottom: 22px; }
+  .settings-label { display: block; font-size: 11px; color: var(--text-2); margin: 10px 0 4px; }
+  /* Inputs cap at a readable width instead of stretching the full page. */
+  .settings-row { display: flex; gap: 6px; align-items: center; max-width: 720px; }
   .settings-row input {
     flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px;
     border: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.25); color: var(--text);
@@ -512,7 +489,7 @@
     background: rgba(255,255,255,0.08); color: var(--text); white-space: nowrap;
   }
   .settings-browse:hover, .settings-clear:hover { background: rgba(255,255,255,0.14); }
-  .settings-error { grid-column: 1 / -1; color: var(--warn); font-size: 12px; }
+  .settings-error { color: var(--warn); font-size: 12px; }
   .settings-footer {
     display: flex; justify-content: flex-end; gap: 8px;
     padding: 16px 4px 4px; border-top: 1px solid rgba(255,255,255,0.08);

@@ -220,3 +220,21 @@ func TestSettings_HoyoverseSettings_TempDir_Omitempty(t *testing.T) {
 		t.Errorf("zero-value TempDir should be omitted; got:\n%s", string(data))
 	}
 }
+
+func TestSettings_HypergryphTempDirRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	s := defaultSettings() // NOTE: unexported (settings.go:61); NOT DefaultSettings
+	s.Backends.Hypergryph.Path = `C:\Games\GRYPHLINK`
+	s.Backends.Hypergryph.TempDir = `D:\omnigate-temp`
+	if err := SaveSettings(path, s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := LoadSettings(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.Backends.Hypergryph.TempDir != `D:\omnigate-temp` {
+		t.Errorf("TempDir = %q, want D:\\omnigate-temp", loaded.Backends.Hypergryph.TempDir)
+	}
+}
