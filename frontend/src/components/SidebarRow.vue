@@ -1,13 +1,35 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useGamesStore, type GameRow } from '../stores/games';
 import { useUpdatesStore } from '../stores/updates';
 import { useI18n } from 'vue-i18n';
+import { fallbackIcon } from '../utils/iconFallback';
 
 const props = defineProps<{ row: GameRow }>();
 const games = useGamesStore();
 const updates = useUpdatesStore();
 const { t, locale } = useI18n();
+
+// Icon source with bundled fallback. The live icon (row.icon_url) wins once it
+// loads; if it is absent (assets not yet fetched) or fails to load — e.g.
+// kurogames/hypergryph /_asset/* 404 under `wails dev` — we fall back to the
+// PNG bundled for this game. triedFallback guards against an error loop if the
+// fallback itself can't load.
+const fb = computed(() => fallbackIcon(props.row.id));
+const iconSrc = ref(props.row.icon_url || fb.value || '');
+const triedFallback = ref(false);
+watch(
+  () => props.row.icon_url,
+  (v) => {
+    triedFallback.value = false;
+    iconSrc.value = v || fb.value || '';
+  },
+);
+function onIconError() {
+  if (triedFallback.value || !fb.value) return;
+  triedFallback.value = true;
+  iconSrc.value = fb.value;
+}
 
 const status = () => {
   if (!props.row.installed) return { key: 'not_installed', label: '—', cls: '' };
@@ -42,7 +64,7 @@ const inflightLabel = computed(() => {
 <template>
   <div class="game-row" :class="{active: row.id === games.selectedID}" @click="games.select(row.id)" :title="row.display_name[locale as string] || row.display_name.en">
     <div class="game-icon">
-      <img v-if="row.icon_url" :src="row.icon_url" :alt="row.display_name.en" />
+      <img v-if="iconSrc" :src="iconSrc" :alt="row.display_name.en" @error="onIconError" />
       <span v-else>{{ (row.display_name['zh-TW'] || row.display_name.en)[0] }}</span>
     </div>
     <div>
