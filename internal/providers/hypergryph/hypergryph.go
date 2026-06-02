@@ -11,7 +11,8 @@ import (
 )
 
 type Settings struct {
-	Path string
+	Path    string
+	TempDir string // optional override; empty → app layer's hypergryph temp default
 }
 
 type Provider struct {
