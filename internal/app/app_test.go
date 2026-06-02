@@ -329,3 +329,68 @@ func TestTempDirFor_DefaultBranch(t *testing.T) {
 		t.Errorf("tempDirFor default = %q, want %q", got, want)
 	}
 }
+
+func TestSetGameOverride_PersistsResolvesReturnsRow(t *testing.T) {
+	overrideDir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	row, err := a.SetGameOverride(string(gid), overrideDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceOverride) || row.ResolvedPath != overrideDir || row.OverridePath != overrideDir || !row.Installed {
+		t.Fatalf("row=%+v", row)
+	}
+	a.settingsMu.RLock()
+	got := a.settings.Games[string(gid)].Path
+	a.settingsMu.RUnlock()
+	if got != overrideDir {
+		t.Errorf("not persisted: %q", got)
+	}
+}
+
+func TestClearGameOverride_RevertsToDetection(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir) // default-scan resolves to dir
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	_, _ = a.SetGameOverride(string(gid), t.TempDir())
+	row, err := a.ClearGameOverride(string(gid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceDefault) || row.ResolvedPath != dir || row.OverridePath != "" {
+		t.Fatalf("after clear row=%+v (want default %q, no override)", row, dir)
+	}
+}
+
+func TestRefreshGame_ReResolvesNoSettingsChange(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	row, err := a.RefreshGame(string(gid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceDefault) || row.ResolvedPath != dir || !row.Installed {
+		t.Fatalf("row=%+v", row)
+	}
+	// No override should have been written.
+	a.settingsMu.RLock()
+	_, present := a.settings.Games[string(gid)]
+	a.settingsMu.RUnlock()
+	if present {
+		t.Errorf("RefreshGame mutated settings.Games")
+	}
+}
+
+func TestSetGameOverride_UnknownGameErrors(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	if _, err := a.SetGameOverride("other/missing", t.TempDir()); err == nil {
+		t.Fatalf("SetGameOverride(unknown) succeeded; want error")
+	}
+}

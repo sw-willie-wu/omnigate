@@ -118,11 +118,7 @@ func (a *App) constructProviders() error {
 	// Resolve + inject per-game install folders. a.ctx is nil at New time (Wails
 	// sets it in Startup); provider DefaultScan→DetectInstall selects on
 	// ctx.Done(), so substitute a non-nil ctx to avoid a nil-deref panic.
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	a.resolveAll(ctx)
+	a.resolveAll(a.resolveCtx())
 	return nil
 }
 
@@ -134,24 +130,46 @@ func (a *App) resolveAll(ctx context.Context) {
 		a.resolved = map[core.GameID]resolvedEntry{}
 	}
 	for _, p := range a.providers {
-		sc, ok := p.(backendScanner)
-		if !ok {
-			continue
-		}
-		var gids []core.GameID
-		for _, g := range p.Games() {
-			gids = append(gids, g.ID)
-		}
-		entries := resolveBackendLocked(ctx, sc, gids, a.settings.Games)
-		inj := make(map[core.GameID]string, len(entries))
-		for gid, e := range entries {
-			a.resolved[gid] = e
-			inj[gid] = e.Path // inject literal path; provider DetectInstall stat-gates existence
-		}
-		if rp, ok := p.(core.ResolvedPathSetter); ok {
-			rp.SetResolvedPaths(inj)
-		}
+		a.resolveProviderLocked(ctx, p)
 	}
+}
+
+// resolveProviderLocked resolves one provider's games, writes the results into
+// a.resolved, and injects the resolved folders via SetResolvedPaths.
+//
+// LOCKING: same contract as resolveAll — MUST be called with settingsMu held for
+// write (or pre-concurrency from New). It reads a.settings.Games and writes
+// a.resolved WITHOUT internal locking to avoid RWMutex self-deadlock.
+func (a *App) resolveProviderLocked(ctx context.Context, p core.Provider) {
+	if a.resolved == nil {
+		a.resolved = map[core.GameID]resolvedEntry{}
+	}
+	sc, ok := p.(backendScanner)
+	if !ok {
+		return
+	}
+	var gids []core.GameID
+	for _, g := range p.Games() {
+		gids = append(gids, g.ID)
+	}
+	entries := resolveBackendLocked(ctx, sc, gids, a.settings.Games)
+	inj := make(map[core.GameID]string, len(entries))
+	for gid, e := range entries {
+		a.resolved[gid] = e
+		inj[gid] = e.Path // inject literal path; provider DetectInstall stat-gates existence
+	}
+	if rp, ok := p.(core.ResolvedPathSetter); ok {
+		rp.SetResolvedPaths(inj)
+	}
+}
+
+// resolveCtx returns a.ctx, substituting context.Background() when Wails has not
+// yet called Startup (a.ctx nil) to avoid a nil-deref in provider scans.
+func (a *App) resolveCtx() context.Context {
+	if a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
 }
 
 // registerProvider adds a provider to the registry after validating that
@@ -228,6 +246,15 @@ func (a *App) invalidateDetect() {
 	a.detectMu.Unlock()
 }
 
+// invalidateDetectFor clears the detection cache entry for a single backend.
+// Used by the per-game override RPCs so serveIcon's cachedDetect re-runs for the
+// affected backend without dropping every other backend's cache.
+func (a *App) invalidateDetectFor(id core.BackendID) {
+	a.detectMu.Lock()
+	delete(a.detect, id)
+	a.detectMu.Unlock()
+}
+
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 }
@@ -265,21 +292,102 @@ func (a *App) ListGames() ([]GameRow, error) {
 	out := []GameRow{}
 	for _, p := range a.providers {
 		for _, g := range p.Games() {
-			e := a.resolved[g.ID]
-			row := GameRow{
-				ID:           string(g.ID),
-				Backend:      string(g.Backend),
-				DisplayName:  g.DisplayName,
-				PathSource:   string(e.Source),
-				ResolvedPath: e.Path,
-				InstallPath:  e.Path,
-				Installed:    e.Source != core.SourceUnresolved && statDir(e.Path),
-				OverridePath: a.settings.Games[string(g.ID)].Path,
-			}
-			out = append(out, row)
+			out = append(out, a.gameRowLocked(g))
 		}
 	}
 	return out, nil
+}
+
+// gameRowLocked builds a single GameRow from a.resolved + a.settings.Games.
+//
+// LOCKING: the caller MUST hold settingsMu for read (or write); this reads both
+// maps WITHOUT locking.
+func (a *App) gameRowLocked(g core.GameDescriptor) GameRow {
+	e := a.resolved[g.ID]
+	return GameRow{
+		ID:           string(g.ID),
+		Backend:      string(g.Backend),
+		DisplayName:  g.DisplayName,
+		PathSource:   string(e.Source),
+		ResolvedPath: e.Path,
+		InstallPath:  e.Path,
+		Installed:    e.Source != core.SourceUnresolved && statDir(e.Path),
+		OverridePath: a.settings.Games[string(g.ID)].Path,
+	}
+}
+
+// SetGameOverride sets an explicit install-folder override for one game,
+// persists settings, re-resolves the owning provider, and returns the updated
+// row. Spec §6.1 / plan CR-4.
+func (a *App) SetGameOverride(gameID, path string) (GameRow, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return GameRow{}, err
+	}
+	a.settingsMu.Lock()
+	if a.settings.Games == nil {
+		a.settings.Games = map[string]GameSettings{}
+	}
+	a.settings.Games[gameID] = GameSettings{Path: path}
+	if err := SaveSettings(a.settingsP, a.settings); err != nil {
+		a.settingsMu.Unlock()
+		return GameRow{}, err
+	}
+	a.resolveProviderLocked(a.resolveCtx(), p) // re-resolve+inject under the write lock
+	a.settingsMu.Unlock()
+	a.invalidateDetectFor(p.ID()) // so serveIcon's cachedDetect re-runs
+	return a.gameRow(gid, p)
+}
+
+// ClearGameOverride removes any install-folder override for one game, persists
+// settings, re-resolves the owning provider (reverting to launcher/default
+// detection), and returns the updated row. Spec §6.1 / plan CR-4.
+func (a *App) ClearGameOverride(gameID string) (GameRow, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return GameRow{}, err
+	}
+	a.settingsMu.Lock()
+	delete(a.settings.Games, gameID)
+	if err := SaveSettings(a.settingsP, a.settings); err != nil {
+		a.settingsMu.Unlock()
+		return GameRow{}, err
+	}
+	a.resolveProviderLocked(a.resolveCtx(), p)
+	a.settingsMu.Unlock()
+	a.invalidateDetectFor(p.ID())
+	return a.gameRow(gid, p)
+}
+
+// RefreshGame re-resolves the owning provider for one game WITHOUT changing
+// settings, then returns the updated row. Used to pick up filesystem changes
+// (e.g. a game installed/removed out-of-band). Spec §6.1 / plan CR-4.
+func (a *App) RefreshGame(gameID string) (GameRow, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return GameRow{}, err
+	}
+	a.settingsMu.Lock()
+	a.resolveProviderLocked(a.resolveCtx(), p)
+	a.settingsMu.Unlock()
+	a.invalidateDetectFor(p.ID())
+	return a.gameRow(gid, p)
+}
+
+// gameRow returns the single updated GameRow for gid from provider p. It takes
+// settingsMu for read; callers MUST have released any write lock first.
+func (a *App) gameRow(gid core.GameID, p core.Provider) (GameRow, error) {
+	a.settingsMu.RLock()
+	defer a.settingsMu.RUnlock()
+	for _, g := range p.Games() {
+		if g.ID == gid {
+			return a.gameRowLocked(g), nil
+		}
+	}
+	return GameRow{}, fmt.Errorf("unknown game %s", gid)
 }
 
 func (a *App) ListBackends() []BackendStatus {
