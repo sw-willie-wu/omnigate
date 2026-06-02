@@ -15,7 +15,7 @@ const sampleSettings = () => ({
   Backends: {
     Hoyoverse: { Path: 'C:/HoYoPlay', Region: 'global', TempDir: '' },
     Kurogames: { Path: 'C:/Wuthering', TempDir: '' },
-    Hypergryph: { Path: 'C:/Endfield' },
+    Hypergryph: { Path: 'C:/Endfield', TempDir: '' },
   },
 });
 
@@ -52,21 +52,30 @@ describe('SettingsPanel', () => {
     const w = mountOpen();
     await flushPromises();
     expect(GetSettings).toHaveBeenCalled();
+    // First text input should now be HoYoverse TempDir (empty string)
     const firstInput = w.findAll('input[type="text"]')[0];
-    expect((firstInput.element as HTMLInputElement).value).toBe('C:/HoYoPlay');
+    expect((firstInput.element as HTMLInputElement).value).toBe('');
+    // Verify no Path inputs exist (they were removed)
+    const pathInputs = w.findAll('input[type="text"]').filter(
+      (input) => (input.element as HTMLInputElement).value === 'C:/HoYoPlay'
+    );
+    expect(pathInputs).toHaveLength(0);
   });
 
   it('Save calls UpdateSettings with the (edited) draft, preserving unshown fields', async () => {
     const w = mountOpen();
     await flushPromises();
-    // Edit the hoyoverse path input (first text input in the panel).
+    // Edit the HoYoverse TempDir input (first text input in the panel, now that Path is removed).
     const input = w.findAll('input[type="text"]')[0];
-    await input.setValue('D:/NewHoYo');
+    await input.setValue('D:/NewTemp');
     await w.find('[data-test="settings-save"]').trigger('click');
     await flushPromises();
     expect(UpdateSettings).toHaveBeenCalledTimes(1);
     const arg = UpdateSettings.mock.calls[0][0];
-    expect(arg.Backends.Hoyoverse.Path).toBe('D:/NewHoYo');
+    // Verify TempDir was edited
+    expect(arg.Backends.Hoyoverse.TempDir).toBe('D:/NewTemp');
+    // Verify Path is PRESERVED (unchanged, though not shown in the UI)
+    expect(arg.Backends.Hoyoverse.Path).toBe('C:/HoYoPlay');
     expect(arg.App.Language).toBe('zh-TW'); // unshown field preserved
     expect(arg.Backends.Hoyoverse.Region).toBe('global'); // preserved
   });
