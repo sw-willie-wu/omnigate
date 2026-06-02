@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -90,5 +91,45 @@ func writeEncryptedConfig(t *testing.T, dir, version string) {
 	cipher.NewCBCEncrypter(block, endfieldAESIV).CryptBlocks(ct, padded)
 	if err := os.WriteFile(filepath.Join(dir, "config.ini"), ct, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteLocalVersion_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	orig := "[Game]\nversion=1.2.5\nentry=Endfield.exe\nchannel=6\n"
+	ct, err := encryptAESCBC([]byte(orig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.ini"), ct, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLocalVersion(dir, "1.2.6"); err != nil {
+		t.Fatalf("writeLocalVersion: %v", err)
+	}
+	got, err := readLocalVersion(dir)
+	if err != nil {
+		t.Fatalf("readback: %v", err)
+	}
+	if got != "1.2.6" {
+		t.Errorf("version after writeback = %q, want 1.2.6", got)
+	}
+	// other keys preserved
+	content, _ := decryptConfigFile(filepath.Join(dir, "config.ini"))
+	if !strings.Contains(content, "entry=Endfield.exe") || !strings.Contains(content, "channel=6") {
+		t.Errorf("other config keys lost: %q", content)
+	}
+}
+
+func TestSetConfigVersion(t *testing.T) {
+	in := "[Game]\nversion=1.0.0\nentry=x\n"
+	out := setConfigVersion(in, "2.0.0")
+	if !strings.Contains(out, "version=2.0.0") || strings.Contains(out, "1.0.0") {
+		t.Errorf("setConfigVersion = %q", out)
+	}
+	// no version line → appended
+	out2 := setConfigVersion("[Game]\nentry=x\n", "3.0.0")
+	if !strings.Contains(out2, "version=3.0.0") {
+		t.Errorf("setConfigVersion append = %q", out2)
 	}
 }

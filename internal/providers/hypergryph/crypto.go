@@ -74,3 +74,28 @@ func pkcs7Unpad(b []byte, blockSize int) ([]byte, error) {
 	}
 	return b[:len(b)-pad], nil
 }
+
+// encryptAESCBC encrypts plaintext with the Endfield key/IV (AES-256-CBC + PKCS7).
+// Inverse of decryptAESCBC — used for config.ini version writeback (spec §5/§6).
+func encryptAESCBC(plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(endfieldAESKey)
+	if err != nil {
+		return nil, err
+	}
+	bs := block.BlockSize()
+	padded := pkcs7Pad(plaintext, bs)
+	out := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, endfieldAESIV).CryptBlocks(out, padded)
+	return out, nil
+}
+
+// pkcs7Pad appends PKCS7 padding to a multiple of blockSize.
+func pkcs7Pad(b []byte, blockSize int) []byte {
+	pad := blockSize - (len(b) % blockSize)
+	out := make([]byte, len(b)+pad)
+	copy(out, b)
+	for i := len(b); i < len(out); i++ {
+		out[i] = byte(pad)
+	}
+	return out
+}
