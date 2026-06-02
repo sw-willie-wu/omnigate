@@ -8,6 +8,11 @@ import (
 	"omnigate/internal/core"
 )
 
+// DefaultRoot is the layer-3 fallback install root for this backend (the former
+// settings default). Per-game resolution scans here when no override or
+// launcher-config entry applies. Exported so settings migration can reference it.
+const DefaultRoot = `C:\Program Files\HoYoPlay`
+
 // DetectInstall scans a HoYoPlay install folder (default: C:\Program Files\HoYoPlay)
 // and returns each known game whose folder is present.
 //

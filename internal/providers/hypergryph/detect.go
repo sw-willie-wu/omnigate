@@ -8,6 +8,11 @@ import (
 	"omnigate/internal/core"
 )
 
+// DefaultRoot is the layer-3 fallback install root for this backend (the former
+// settings default). Per-game resolution scans here when no override or
+// launcher-config entry applies. Exported so settings migration can reference it.
+const DefaultRoot = `C:\Program Files\GRYPHLINK`
+
 // DetectInstall scans the GRYPHLINK launcher root and returns each known
 // game whose folder + canonical .exe is present.
 func DetectInstall(ctx context.Context, gryphPath string) ([]core.InstalledGame, error) {

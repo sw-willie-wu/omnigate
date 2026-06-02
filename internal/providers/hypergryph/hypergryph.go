@@ -70,6 +70,21 @@ func (p *Provider) DetectInstall(ctx context.Context) ([]core.InstalledGame, err
 	return DetectInstall(ctx, p.settings.Path)
 }
 
+// DefaultScan returns each known game found under DefaultRoot (layer 3 of
+// per-game install-path resolution). Keyed by game ID; empty (non-nil) when
+// nothing is installed.
+func (p *Provider) DefaultScan(ctx context.Context) (map[core.GameID]string, error) {
+	games, err := DetectInstall(ctx, DefaultRoot)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[core.GameID]string, len(games))
+	for _, g := range games {
+		out[g.GameID] = g.InstallPath
+	}
+	return out, nil
+}
+
 func (p *Provider) GetIcon(_ context.Context, gid core.GameID) (string, error) {
 	g := findByID(gid)
 	if g == nil {

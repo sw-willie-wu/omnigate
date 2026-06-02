@@ -62,3 +62,14 @@ func TestDetectInstall_FolderWithoutExeIsSkipped(t *testing.T) {
 	}
 	_ = core.GameID("") // silence unused import in some setups
 }
+
+func TestDefaultScan_UsesDefaultRoot(t *testing.T) {
+	p := New(Settings{}, nil)
+	got, err := p.DefaultScan(context.Background())
+	if err != nil {
+		t.Fatalf("DefaultScan err: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("DefaultScan returned nil map (want non-nil, possibly empty)")
+	}
+}
