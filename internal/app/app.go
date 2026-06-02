@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -248,40 +247,37 @@ type GameRow struct {
 	Latest         string               `json:"latest_version,omitempty"`
 	HasPredownload bool                 `json:"has_predownload"`
 	IconURL        string               `json:"icon_url,omitempty"`
+	ResolvedPath   string               `json:"resolved_path,omitempty"`
+	PathSource     string               `json:"path_source"`
+	OverridePath   string               `json:"override_path,omitempty"`
 }
 
 // BackendStatus is one entry from ListBackends.
 type BackendStatus struct {
 	BackendID   string               `json:"backend_id"`
 	DisplayName core.LocalizedString `json:"display_name"`
-	Status      string               `json:"status"` // ok | path_unset | launcher_missing | empty | error
+	Status      string               `json:"status"` // ok | empty
 	Detail      string               `json:"detail,omitempty"`
 }
 
 func (a *App) ListGames() ([]GameRow, error) {
+	// a.resolved is the source of truth for install paths; read it (and the
+	// override map) under the same RLock that snapshots providers.
 	a.settingsMu.RLock()
-	provs := append([]core.Provider(nil), a.providers...)
-	a.settingsMu.RUnlock()
+	defer a.settingsMu.RUnlock()
 	out := []GameRow{}
-	for _, p := range provs {
-		installed, err := a.cachedDetect(a.ctx, p)
-		if err != nil {
-			a.logger.Warn("DetectInstall failed", "backend", p.ID(), "err", err)
-			continue
-		}
-		seen := map[core.GameID]core.InstalledGame{}
-		for _, ig := range installed {
-			seen[ig.GameID] = ig
-		}
+	for _, p := range a.providers {
 		for _, g := range p.Games() {
+			e := a.resolved[g.ID]
 			row := GameRow{
-				ID:          string(g.ID),
-				Backend:     string(g.Backend),
-				DisplayName: g.DisplayName,
-			}
-			if ig, ok := seen[g.ID]; ok {
-				row.Installed = true
-				row.InstallPath = ig.InstallPath
+				ID:           string(g.ID),
+				Backend:      string(g.Backend),
+				DisplayName:  g.DisplayName,
+				PathSource:   string(e.Source),
+				ResolvedPath: e.Path,
+				InstallPath:  e.Path,
+				Installed:    e.Source != core.SourceUnresolved && statDir(e.Path),
+				OverridePath: a.settings.Games[string(g.ID)].Path,
 			}
 			out = append(out, row)
 		}
@@ -291,42 +287,21 @@ func (a *App) ListGames() ([]GameRow, error) {
 
 func (a *App) ListBackends() []BackendStatus {
 	a.settingsMu.RLock()
-	provs := append([]core.Provider(nil), a.providers...)
-	a.settingsMu.RUnlock()
-	out := make([]BackendStatus, 0, len(provs))
-	for _, p := range provs {
+	defer a.settingsMu.RUnlock()
+	out := make([]BackendStatus, 0, len(a.providers))
+	for _, p := range a.providers {
 		bs := BackendStatus{
 			BackendID:   string(p.ID()),
 			DisplayName: p.DisplayName(),
+			Status:      "empty",
 		}
-		// Path-based status derivation
-		var path string
-		if pp, ok := p.(core.PathProvider); ok {
-			path = pp.PrimaryPath()
-		}
-		switch {
-		case path == "":
-			bs.Status = "path_unset"
-		default:
-			if _, err := os.Stat(path); err != nil {
-				if os.IsNotExist(err) {
-					bs.Status = "launcher_missing"
-					bs.Detail = path
-				} else {
-					bs.Status = "error"
-					bs.Detail = err.Error()
-				}
-			} else {
-				games, err := a.cachedDetect(a.ctx, p)
-				switch {
-				case err != nil:
-					bs.Status = "error"
-					bs.Detail = err.Error()
-				case len(games) == 0:
-					bs.Status = "empty"
-				default:
-					bs.Status = "ok"
-				}
+		// Status is derived from a.resolved: "ok" if any of the backend's games
+		// resolves to a stat-valid directory, else "empty".
+		for _, g := range p.Games() {
+			e := a.resolved[g.ID]
+			if e.Source != core.SourceUnresolved && statDir(e.Path) {
+				bs.Status = "ok"
+				break
 			}
 		}
 		out = append(out, bs)
