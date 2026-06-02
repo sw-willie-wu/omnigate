@@ -33,7 +33,7 @@ func checkDiskSpace(dir string, needed int64) error {
 		return &core.UpdateError{
 			Code:      "disk_full",
 			Retryable: false,
-			Params:    map[string]string{"need_bytes": strconv.FormatInt(needed, 10), "free_bytes": strconv.FormatInt(free, 10)},
+			Params:    map[string]string{"need": strconv.FormatInt(needed, 10), "have": strconv.FormatInt(free, 10)},
 		}
 	}
 	return nil
