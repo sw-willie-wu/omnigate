@@ -25,7 +25,8 @@
 | `internal/providers/hypergryph/testdata/get_latest-sample.json` | new | Sanitized live `get_latest` (no version) |
 | `internal/providers/hypergryph/testdata/get_latest-uptodate-sample.json` | new | Sanitized live `get_latest` (with version) |
 | `internal/providers/hypergryph/update_manifest.go` | new | `get_latest` client + response structs + `sanitizeURL` + `SetAPIBaseURL` seam |
-| `internal/providers/hypergryph/version.go` | **mod** | Real local-version detection + `Latest` from `get_latest` |
+| `internal/providers/hypergryph/crypto.go` | new | AES-256-CBC decrypt + reverse-engineered key/IV (Collapse plugin, attributed) for config.ini / game_files |
+| `internal/providers/hypergryph/version.go` | **mod** | Decrypt config.ini → `version=` (local) + `Latest` from `get_latest` |
 | `internal/providers/hypergryph/hypergryph.go` | **mod** | Give `CheckVersion` an `*http.Client`; no new interfaces |
 | Tests | new | `update_manifest_test.go`, `version_test.go`, `m3c_protocol_doc_test.go`, `sanitize_url_fuzz_test.go`, `update_integration_test.go` |
 
@@ -314,13 +315,11 @@ git commit -m "feat(m3c-a): get_latest client + response structs + sanitizeURL +
 
 ## Task A3: `version.go` rewrite — real local + latest version
 
-- [ ] **Step 0 (BLOCKING precondition — research-derived):** Open the research doc and confirm `LOCAL_VERSION_SOURCE` is **resolved** (not `<SPIKE>`). Then:
-  - **File path** → implement `readLocalVersion` to read+parse that exact file (shown below is the file-JSON shape — adapt the filename + field consts).
-  - **Registry key** → implement a Windows-guarded registry read (`golang.org/x/sys/windows/registry`) with an `_other.go` stub; replace the file-based test with a registry test (or a `readLocalVersion` seam test).
-  - **`"none (degrade)"`** → DELETE the `versionFileName`/`localVersionField` consts + `readLocalVersion` + the file-based tests (`TestReadLocalVersion_*`, `TestFetchVersion_PopulatesLatestFromServer`'s fixture write); keep `fetchVersion` with `cur` always `""` and ship only `TestFetchVersion_NoLocalSource_Degrades`.
+> **RESOLVED (Task A1 breakthrough):** `LOCAL_VERSION_SOURCE = <installPath>/config.ini`, AES-256-CBC encrypted (PKCS7). Decrypt → INI text → read the `version=` line. Verified live → `version=1.2.5`. The AES key/IV are a reverse-engineered constant already public in the Collapse plugin `misaka10843/Hi3Helper.Plugin.Hypergryph` (`HgCrypto.cs`); hardcode with attribution (like kurogames `AppCred`). Staleness = local `version` != `get_latest.version`. The degrade path (spec §6) is now only a fallback for when config.ini is absent/unreadable.
 
 **Files:**
-- Modify: `internal/providers/hypergryph/version.go`
+- Create: `internal/providers/hypergryph/crypto.go` (AES-256-CBC decrypt helper + key/IV)
+- Modify: `internal/providers/hypergryph/version.go` (read+decrypt config.ini → `version=`)
 - Modify: `internal/providers/hypergryph/hypergryph.go` (give `CheckVersion` an `*http.Client`)
 - Modify: `internal/providers/hypergryph/version_test.go` (**file already exists** — see Step 1)
 
@@ -332,7 +331,10 @@ git commit -m "feat(m3c-a): get_latest client + response structs + sanitizeURL +
 package hypergryph
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -341,12 +343,9 @@ import (
 	"testing"
 )
 
-// Assumes LOCAL_VERSION_SOURCE is a JSON file under the install dir named
-// versionFileName with field localVersionField (both defined in version.go).
-// If the spike found a registry source or "none", replace this test per Step 0.
-func TestReadLocalVersion_FromFile(t *testing.T) {
+func TestReadLocalVersion_FromConfigIni(t *testing.T) {
 	dir := t.TempDir()
-	writeLocalVersionFixture(t, dir, "1.2.3")
+	writeEncryptedConfig(t, dir, "1.2.3")
 	got, err := readLocalVersion(dir)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -375,7 +374,7 @@ func TestFetchVersion_PopulatesLatestFromServer(t *testing.T) {
 	defer SetAPIBaseURL("")
 
 	dir := t.TempDir()
-	writeLocalVersionFixture(t, dir, "1.2.3")
+	writeEncryptedConfig(t, dir, "1.2.3")
 	vi, err := fetchVersion(context.Background(), srv.Client(), dir, "endfield/global")
 	if err != nil {
 		t.Fatalf("fetchVersion: %v", err)
@@ -385,10 +384,9 @@ func TestFetchVersion_PopulatesLatestFromServer(t *testing.T) {
 	}
 }
 
-// TestFetchVersion_NoLocalSource_Degrades covers spec §6: when no local
-// version source exists, Current stays "" (sidebar shows 就緒 with no suffix)
-// and Latest is still populated from get_latest. THIS IS THE PRIMARY test if
-// LOCAL_VERSION_SOURCE == "none (degrade)".
+// TestFetchVersion_NoLocalSource_Degrades covers spec §6: when config.ini is
+// absent, Current stays "" (sidebar shows 就緒 with no suffix) and Latest is
+// still populated from get_latest.
 func TestFetchVersion_NoLocalSource_Degrades(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"action": 1, "version": "1.2.9", "pkg": map[string]any{"packs": []any{}}})
@@ -397,7 +395,6 @@ func TestFetchVersion_NoLocalSource_Degrades(t *testing.T) {
 	SetAPIBaseURL(srv.URL)
 	defer SetAPIBaseURL("")
 
-	// Empty install dir → readLocalVersion returns "" → degrade branch.
 	vi, err := fetchVersion(context.Background(), srv.Client(), t.TempDir(), "endfield/global")
 	if err != nil {
 		t.Fatalf("degrade should not error: %v", err)
@@ -410,12 +407,22 @@ func TestFetchVersion_NoLocalSource_Degrades(t *testing.T) {
 	}
 }
 
-// writeLocalVersionFixture writes the LOCAL_VERSION_SOURCE file. Adapt to the
-// spike-confirmed filename/shape.
-func writeLocalVersionFixture(t *testing.T, dir, version string) {
+// writeEncryptedConfig writes a real AES-256-CBC-encrypted config.ini (same
+// key/IV as crypto.go) so readLocalVersion exercises the actual decrypt path —
+// no committed binary fixture, fully deterministic.
+func writeEncryptedConfig(t *testing.T, dir, version string) {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{localVersionField: version})
-	if err := os.WriteFile(filepath.Join(dir, versionFileName), body, 0o644); err != nil {
+	plain := []byte("[Game]\nversion=" + version + "\nentry=Endfield.exe\n")
+	block, err := aes.NewCipher(endfieldAESKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs := block.BlockSize()
+	pad := bs - len(plain)%bs
+	padded := append(plain, bytes.Repeat([]byte{byte(pad)}, pad)...)
+	ct := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, endfieldAESIV).CryptBlocks(ct, padded)
+	if err := os.WriteFile(filepath.Join(dir, "config.ini"), ct, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -424,37 +431,58 @@ func writeLocalVersionFixture(t *testing.T, dir, version string) {
 - [ ] **Step 2: Run it; verify it fails to compile.**
 
 Run: `go test ./internal/providers/hypergryph/ -run 'TestReadLocalVersion|TestFetchVersion'`
-Expected: FAIL — `undefined: readLocalVersion`, `versionFileName`, etc.
+Expected: FAIL — `undefined: endfieldAESKey`, `readLocalVersion`, etc.
 
-- [ ] **Step 3: Rewrite `version.go`.** (File-JSON variant; adapt per Step 0.)
+- [ ] **Step 3a: Create `crypto.go`** (AES-256-CBC decrypt + the reverse-engineered key/IV, with attribution).
 
 ```go
 package hypergryph
 
 import (
-	"context"
-	"encoding/json"
+	"crypto/aes"
+	"crypto/cipher"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
-	"path/filepath"
-
-	"omnigate/internal/core"
 )
 
-// LOCAL_VERSION_SOURCE (Task A1 spike). Replace these two consts with the
-// spike-confirmed filename + JSON field. If the spike found NO source, delete
-// readLocalVersion and have fetchVersion leave Current empty (degrade path).
-const (
-	versionFileName   = "<SPIKE: e.g. game_config.json>"
-	localVersionField = "<SPIKE: e.g. version>"
+// Endfield stores config.ini and the game_files manifest AES-256-CBC encrypted
+// (PKCS7). The key + IV are a reverse-engineered constant ALREADY PUBLICLY
+// PUBLISHED in the Collapse Launcher plugin
+// "misaka10843/Hi3Helper.Plugin.Hypergryph"
+// (Hi3Helper.Hypergryph.Core/Utils/HgCrypto.cs). They are hardcoded here, with
+// attribution, ONLY to interoperate with the official GRYPHLINK launcher's
+// local config format — mirroring how kurogames hardcodes its reverse-engineered
+// AppCred. No secret is newly disclosed. If omnigate is published and this draws
+// concern, switch to build-time/runtime injection.
+var (
+	endfieldAESKey = []byte{
+		0xC0, 0xF3, 0x0E, 0x1C, 0xE7, 0x63, 0xBB, 0xC2, 0x1C, 0xC3, 0x55, 0xA3, 0x43, 0x03, 0xAC, 0x50,
+		0x39, 0x94, 0x44, 0xBF, 0xF6, 0x8C, 0x4A, 0x22, 0xAF, 0x39, 0x8C, 0x0A, 0x16, 0x6E, 0xE1, 0x43,
+	}
+	endfieldAESIV = []byte{
+		0x33, 0x46, 0x78, 0x61, 0x19, 0x27, 0x50, 0x64, 0x95, 0x01, 0x93, 0x72, 0x64, 0x60, 0x84, 0x00,
+	}
 )
 
-// readLocalVersion reads the installed version from the launcher-written file
-// under installPath. Missing file → ("", nil) (treated as unknown, not error).
-func readLocalVersion(installPath string) (string, error) {
-	path := filepath.Join(installPath, versionFileName)
+// decryptAESCBC decrypts AES-256-CBC + PKCS7 ciphertext with the Endfield key/IV.
+func decryptAESCBC(ciphertext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(endfieldAESKey)
+	if err != nil {
+		return nil, err
+	}
+	bs := block.BlockSize()
+	if len(ciphertext) == 0 || len(ciphertext)%bs != 0 {
+		return nil, fmt.Errorf("invalid ciphertext length %d", len(ciphertext))
+	}
+	out := make([]byte, len(ciphertext))
+	cipher.NewCBCDecrypter(block, endfieldAESIV).CryptBlocks(out, ciphertext)
+	return pkcs7Unpad(out, bs)
+}
+
+// decryptConfigFile reads + AES-decrypts a file to a UTF-8 string. Missing file
+// → ("", nil). Decrypt failure → error.
+func decryptConfigFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -462,19 +490,68 @@ func readLocalVersion(installPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var doc map[string]any
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return "", fmt.Errorf("hypergryph: parse %s: %w", versionFileName, err)
+	plain, err := decryptAESCBC(data)
+	if err != nil {
+		return "", fmt.Errorf("hypergryph: decrypt %s: %w", path, err)
 	}
-	if v, ok := doc[localVersionField].(string); ok {
-		return v, nil
-	}
-	return "", nil
+	return string(plain), nil
 }
 
-// fetchVersion returns Current (local source) + Latest (get_latest.version).
-// Latest fetch failure is non-fatal: returns Current with Latest=Current so the
-// sidebar still shows a version (degrade — never block on network).
+func pkcs7Unpad(b []byte, blockSize int) ([]byte, error) {
+	if len(b) == 0 {
+		return nil, errors.New("empty plaintext")
+	}
+	pad := int(b[len(b)-1])
+	if pad == 0 || pad > blockSize || pad > len(b) {
+		return nil, fmt.Errorf("invalid pkcs7 padding %d", pad)
+	}
+	for _, c := range b[len(b)-pad:] {
+		if int(c) != pad {
+			return nil, errors.New("invalid pkcs7 padding bytes")
+		}
+	}
+	return b[:len(b)-pad], nil
+}
+```
+
+- [ ] **Step 3b: Rewrite `version.go`** (decrypt config.ini → `version=`).
+
+```go
+package hypergryph
+
+import (
+	"context"
+	"net/http"
+	"path/filepath"
+	"strings"
+
+	"omnigate/internal/core"
+)
+
+// readLocalVersion reads <installPath>/config.ini (AES-256-CBC encrypted; see
+// crypto.go) and returns its `version=` value. Missing config.ini → ("", nil)
+// (unknown, not an error). Mirrors Collapse ConfigTool.cs + HgGameManager.cs.
+func readLocalVersion(installPath string) (string, error) {
+	content, err := decryptConfigFile(filepath.Join(installPath, "config.ini"))
+	if err != nil {
+		return "", err
+	}
+	return parseConfigVersion(content), nil
+}
+
+// parseConfigVersion extracts the `version=` value from decrypted config.ini.
+func parseConfigVersion(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "version="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// fetchVersion returns Current (local config.ini) + Latest (get_latest.version).
+// Latest fetch failure is non-fatal (Latest falls back to Current). If config.ini
+// is absent/unreadable, Current is empty (degrade, spec §6) — never blocks.
 func fetchVersion(ctx context.Context, client *http.Client, installPath string, _ core.GameID) (core.VersionInfo, error) {
 	cur, err := readLocalVersion(installPath)
 	if err != nil {
@@ -485,9 +562,6 @@ func fetchVersion(ctx context.Context, client *http.Client, installPath string, 
 		latest = resp.Version
 	}
 	if cur == "" {
-		// Degrade (spec §6): no local source → leave Current EMPTY so the
-		// sidebar shows 就緒 with no `· vX.Y` suffix (same as today). Latest is
-		// retained for Phase B's staleness check but not displayed alone.
 		return core.VersionInfo{Latest: latest}, nil
 	}
 	return core.VersionInfo{Current: cur, Latest: latest}, nil
