@@ -33,7 +33,8 @@ type Provider struct {
 	// hpatchzRun is a test seam for hpatchz invocation (T20-E). nil → hpatchz.Run.
 	hpatchzRun func(ctx context.Context, oldFile, diffFile, newFile string) error
 	// gameDirFn is a test seam to bypass DetectInstall. nil → use DetectInstall.
-	gameDirFn func(core.GameID) (string, error)
+	gameDirFn     func(core.GameID) (string, error)
+	resolvedPaths map[core.GameID]string
 }
 
 // New returns a new HoYoverse Provider. logger may be nil; falls back to
@@ -83,6 +84,18 @@ func (p *Provider) SettingsSchema() []core.SettingField {
 }
 
 func (p *Provider) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
+	if p.resolvedPaths != nil {
+		out := []core.InstalledGame{}
+		for gid, dir := range p.resolvedPaths {
+			if dir == "" {
+				continue
+			}
+			if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
+				out = append(out, core.InstalledGame{GameID: gid, InstallPath: dir})
+			}
+		}
+		return out, nil
+	}
 	return DetectInstall(ctx, p.settings.Path)
 }
 
@@ -494,6 +507,13 @@ func (p *Provider) SetBranchAPIBaseURL(u string) { p.branchAPIBase = u }
 // can point the provider at a temp gameDir without going through DetectInstall.
 func (p *Provider) SetGameDirFn(fn func(core.GameID) (string, error)) {
 	p.gameDirFn = fn
+}
+
+// SetResolvedPaths injects the App-resolved per-game install folders. The
+// provider's DetectInstall + per-game operations then use these instead of
+// scanning a single root.
+func (p *Provider) SetResolvedPaths(paths map[core.GameID]string) {
+	p.resolvedPaths = paths
 }
 
 // SetHpatchzRun overrides the hpatchz invocation. Used by integration tests

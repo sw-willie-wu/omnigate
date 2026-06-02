@@ -18,10 +18,11 @@ type Settings struct {
 }
 
 type Provider struct {
-	settings Settings
-	logger   *slog.Logger
-	client   *http.Client
-	clock    RetryClock
+	settings      Settings
+	logger        *slog.Logger
+	client        *http.Client
+	clock         RetryClock
+	resolvedPaths map[core.GameID]string
 }
 
 func New(settings Settings, logger *slog.Logger) *Provider {
@@ -67,6 +68,18 @@ func (p *Provider) SettingsSchema() []core.SettingField {
 }
 
 func (p *Provider) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
+	if p.resolvedPaths != nil {
+		out := []core.InstalledGame{}
+		for gid, dir := range p.resolvedPaths {
+			if dir == "" {
+				continue
+			}
+			if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
+				out = append(out, core.InstalledGame{GameID: gid, InstallPath: dir})
+			}
+		}
+		return out, nil
+	}
 	return DetectInstall(ctx, p.settings.Path)
 }
 
@@ -298,6 +311,13 @@ func (p *Provider) installPathFor(ctx context.Context, gid core.GameID) (string,
 		}
 	}
 	return "", fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
+}
+
+// SetResolvedPaths injects the App-resolved per-game install folders. The
+// provider's DetectInstall + per-game operations then use these instead of
+// scanning a single root.
+func (p *Provider) SetResolvedPaths(paths map[core.GameID]string) {
+	p.resolvedPaths = paths
 }
 
 var (
