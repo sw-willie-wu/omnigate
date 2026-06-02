@@ -128,47 +128,37 @@ func (p *Provider) GetBackgrounds(_ context.Context, gid core.GameID) ([]core.Ba
 }
 
 func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error) {
-	installs, err := p.DetectInstall(ctx)
+	installPath, err := p.gameDir(gid)
 	if err != nil {
 		return core.VersionInfo{}, err
 	}
-	for _, ig := range installs {
-		if ig.GameID == gid {
-			vi, err := fetchVersion(ctx, ig.InstallPath, gid)
-			if err != nil {
-				return vi, err
-			}
-			// Best-effort: fetch index.json (~17 KiB) so vi.Latest reflects
-			// what the server is actually shipping. Network blip → fall back
-			// to local-only (fetchVersion already set Latest = Current).
-			// 10s budget keeps Refresh responsive even on slow connections.
-			fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			if idx, _, ferr := fetchIndex(fetchCtx, p.httpClient, indexJSONURL()); ferr == nil {
-				if idx.Default.Version != "" {
-					vi.Latest = idx.Default.Version
-				}
-				if idx.Predownload != nil && idx.Predownload.Version != "" && idx.Predownload.Version != vi.Current {
-					vi.Predownload = &core.PredownloadInfo{TargetVersion: idx.Predownload.Version}
-				}
-			}
-			return vi, nil
+	vi, err := fetchVersion(ctx, installPath, gid)
+	if err != nil {
+		return vi, err
+	}
+	// Best-effort: fetch index.json (~17 KiB) so vi.Latest reflects
+	// what the server is actually shipping. Network blip → fall back
+	// to local-only (fetchVersion already set Latest = Current).
+	// 10s budget keeps Refresh responsive even on slow connections.
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if idx, _, ferr := fetchIndex(fetchCtx, p.httpClient, indexJSONURL()); ferr == nil {
+		if idx.Default.Version != "" {
+			vi.Latest = idx.Default.Version
+		}
+		if idx.Predownload != nil && idx.Predownload.Version != "" && idx.Predownload.Version != vi.Current {
+			vi.Predownload = &core.PredownloadInfo{TargetVersion: idx.Predownload.Version}
 		}
 	}
-	return core.VersionInfo{}, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
+	return vi, nil
 }
 
 func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
-	installs, err := p.DetectInstall(ctx)
+	installPath, err := p.gameDir(gid)
 	if err != nil {
 		return 0, err
 	}
-	for _, ig := range installs {
-		if ig.GameID == gid {
-			return Launch(ctx, ig.InstallPath, gid, opts)
-		}
-	}
-	return 0, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
+	return Launch(ctx, installPath, gid, opts)
 }
 
 // PrimaryPath implements core.PathProvider.
@@ -217,22 +207,11 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 	}
 
 	// Find install path
-	p.logger.Debug("kurogames CheckForUpdate: DetectInstall", "game", gid, "settings_path", p.settings.Path)
-	installs, err := DetectInstall(ctx, p.settings.Path)
+	p.logger.Debug("kurogames CheckForUpdate: gameDir", "game", gid)
+	installPath, err := p.gameDir(gid)
 	if err != nil {
-		p.logger.Warn("kurogames CheckForUpdate: DetectInstall failed", "game", gid, "err", err)
+		p.logger.Warn("kurogames CheckForUpdate: gameDir failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
-	}
-	var installPath string
-	for _, ig := range installs {
-		if ig.GameID == gid {
-			installPath = ig.InstallPath
-			break
-		}
-	}
-	if installPath == "" {
-		p.logger.Warn("kurogames CheckForUpdate: install path empty", "game", gid, "installs_count", len(installs))
-		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 	}
 	p.logger.Debug("kurogames CheckForUpdate: install path resolved", "game", gid, "install_path", installPath)
 
@@ -326,19 +305,9 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	}
 
 	// Find install path
-	installs, err := DetectInstall(ctx, p.settings.Path)
+	installPath, err := p.gameDir(plan.GameID)
 	if err != nil {
 		return err
-	}
-	var installPath string
-	for _, ig := range installs {
-		if ig.GameID == plan.GameID {
-			installPath = ig.InstallPath
-			break
-		}
-	}
-	if installPath == "" {
-		return fmt.Errorf("%w: %s", core.ErrGameNotInstalled, plan.GameID)
 	}
 
 	// 2nd game-running guard (spec §2.7)
@@ -412,6 +381,28 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 // non-Windows builds always returns false.
 func isProcessRunning(exeName string) bool {
 	return platformIsProcessRunning(exeName)
+}
+
+// gameDir returns the resolved install folder for gid, preferring the
+// App-injected resolved paths and falling back to a default-root scan.
+func (p *Provider) gameDir(gid core.GameID) (string, error) {
+	if p.resolvedPaths != nil {
+		if dir, ok := p.resolvedPaths[gid]; ok && dir != "" {
+			return dir, nil
+		}
+		return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+	}
+	// fallback: original inline behavior
+	games, err := DetectInstall(context.Background(), p.settings.Path)
+	if err != nil {
+		return "", err
+	}
+	for _, g := range games {
+		if g.GameID == gid {
+			return g.InstallPath, nil
+		}
+	}
+	return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 }
 
 // SetResolvedPaths injects the App-resolved per-game install folders. The

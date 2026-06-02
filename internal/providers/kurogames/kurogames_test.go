@@ -24,3 +24,17 @@ func TestSetResolvedPaths_DetectInstallReturnsExisting(t *testing.T) {
 		t.Fatalf("got %+v, want only %s at %s", got, gid, dir)
 	}
 }
+
+func TestGameDirFromResolved(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("kurogames/wutheringwaves")
+	p := New(Settings{}, nil)
+	p.SetResolvedPaths(map[core.GameID]string{gid: dir})
+	got, err := p.gameDir(gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != dir {
+		t.Fatalf("gameDir = %q, want %q", got, dir)
+	}
+}
