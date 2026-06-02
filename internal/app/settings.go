@@ -10,9 +10,10 @@ import (
 )
 
 type Settings struct {
-	Version  int             `toml:"version"`
-	App      AppSettings     `toml:"app"`
-	Backends BackendSettings `toml:"backends"`
+	Version  int                     `toml:"version"`
+	App      AppSettings             `toml:"app"`
+	Backends BackendSettings         `toml:"backends"`
+	Games    map[string]GameSettings `toml:"games"`
 }
 
 type AppSettings struct {
@@ -42,6 +43,10 @@ type HypergryphSettings struct {
 	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/hypergryph
 }
 
+type GameSettings struct {
+	Path string `toml:"path,omitempty"`
+}
+
 // hoyoverseRawTOML is used for the M1 → M2 migration: M1 wrote
 // `hoyoplay_path` under [backends.hoyoverse]. On Load, if Path is empty and
 // HoYoplayPath is non-empty, project HoYoplayPath into Path and warn.
@@ -52,18 +57,19 @@ type hoyoverseRawTOML struct {
 }
 
 type rawTOML struct {
-	Version  int         `toml:"version"`
-	App      AppSettings `toml:"app"`
+	Version  int                     `toml:"version"`
+	App      AppSettings             `toml:"app"`
 	Backends struct {
 		Hoyoverse  hoyoverseRawTOML   `toml:"hoyoverse"`
 		Kurogames  KurogamesSettings  `toml:"kurogames"`
 		Hypergryph HypergryphSettings `toml:"hypergryph"`
 	} `toml:"backends"`
+	Games map[string]GameSettings `toml:"games"`
 }
 
 func defaultSettings() Settings {
 	return Settings{
-		Version: 1,
+		Version: 2,
 		App: AppSettings{
 			Language:            "zh-TW",
 			BannerAnimationPref: "video-when-available",
@@ -74,6 +80,7 @@ func defaultSettings() Settings {
 			Kurogames:  KurogamesSettings{Path: `C:\Program Files\Wuthering Waves`},
 			Hypergryph: HypergryphSettings{Path: `C:\Program Files\GRYPHLINK`},
 		},
+		Games: map[string]GameSettings{},
 	}
 }
 
@@ -136,16 +143,22 @@ func LoadSettings(path string) (Settings, error) {
 		out.Backends.Hypergryph.TempDir = raw.Backends.Hypergryph.TempDir
 	}
 
-	// On any successful load (including post-migration), bump version to 1.
-	out.Version = 1
+	// games (per-game overrides)
+	out.Games = raw.Games
+	if out.Games == nil {
+		out.Games = map[string]GameSettings{}
+	}
+
+	// On any successful load (including post-migration), bump version to 2.
+	out.Version = 2
 
 	return out, nil
 }
 
-// SaveSettings writes the canonical schema. Always includes version = 1; never
+// SaveSettings writes the canonical schema. Always includes version = 2; never
 // emits hoyoplay_path.
 func SaveSettings(path string, s Settings) error {
-	s.Version = 1 // canonicalize
+	s.Version = 2 // canonicalize
 	b, err := toml.Marshal(s)
 	if err != nil {
 		return err
