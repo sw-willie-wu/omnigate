@@ -95,7 +95,7 @@ git commit -m "research(m3c): Endfield get_latest protocol + fixtures + local ve
 
 ## Task A2: `get_latest` client + response structs + `sanitizeURL`
 
-> **Step 0 (research-derived corrections):** Open the research doc. Match the struct tags below to the **actual** field names + envelope in `testdata/get_latest-sample.json`. If the live body nests under a `rsp` object, wrap `getLatestResponse` in an envelope struct and unwrap in `fetchGetLatest`.
+> **Step 0 (research-derived corrections):** Open the research doc. (1) Match the struct tags below to the **actual** field names + envelope in `testdata/get_latest-sample.json`; if the live body nests under a `rsp` object, wrap `getLatestResponse` in an envelope struct and unwrap in `fetchGetLatest`. (2) Inspect a real pack URL in the fixture: confirm the `<ver>_<rand>/packs/` shape matches `randSegRe`; **if the live URLs also carry an account ID or device ID** (Endfield's `get_latest` is unauthenticated, but verify), port kurogames' `accountIDRe`/`deviceIDRe` redaction into `sanitizeURL` and extend `TestSanitizeURL_*` to assert those tokens are gone. `gameAppCode` here has the same string value as `bg.go`'s existing `endfieldGameFolder` const (the CDN game-folder == launcher appcode) — that duplication is intentional; do NOT dedupe them into one symbol (different call sites).
 
 **Files:**
 - Create: `internal/providers/hypergryph/update_manifest.go`
@@ -156,8 +156,9 @@ func TestFetchGetLatest_HitsServer(t *testing.T) {
 
 func TestSanitizeURL_RedactsRandSegment(t *testing.T) {
 	in := "https://beyond.hg-cdn.com/YDUTE5gscDZ229CW/1.2/update/6/6/Windows/1.2.5_GyQOi4WaWC2Ju0kW/packs/x.zip.001"
-	if got := sanitizeURL(in); got == in {
-		t.Fatal("expected rand segment redaction")
+	want := "https://beyond.hg-cdn.com/YDUTE5gscDZ229CW/1.2/update/6/6/Windows/1.2.5_<RAND>/packs/x.zip.001"
+	if got := sanitizeURL(in); got != want {
+		t.Fatalf("sanitizeURL:\n got %q\nwant %q", got, want)
 	}
 }
 ```
@@ -196,8 +197,12 @@ const (
 	defaultAPIBase     = "https://launcher.gryphline.com/api"
 )
 
-// apiBase is overridable in tests via SetAPIBaseURL (adopting M3.B/hoyoverse's
-// URL-injection seam — an improvement over M3.A/kurogames' hard-coded URL).
+// apiBase is overridable in tests via SetAPIBaseURL. NOTE: this is a
+// PACKAGE-LEVEL var + package-level func, intentionally NOT hoyoverse's
+// method form (`func (p *Provider) SetAPIBaseURL`). The package-level form is
+// chosen so package tests (update_manifest_test / version_test) can override
+// without constructing a Provider. Do NOT copy hoyoverse's method signature —
+// the tests below call `SetAPIBaseURL(...)` as a bare function.
 var apiBase = defaultAPIBase
 
 // SetAPIBaseURL overrides the launcher API base for integration tests. Pass ""
@@ -309,16 +314,19 @@ git commit -m "feat(m3c-a): get_latest client + response structs + sanitizeURL +
 
 ## Task A3: `version.go` rewrite — real local + latest version
 
-> **Step 0 (research-derived corrections):** Open the research doc's `LOCAL_VERSION_SOURCE`. If it is a file path, implement `readLocalVersion` to read+parse that exact file (shown below is the file-JSON shape — adapt the filename + field). If it is a registry key, implement a Windows-guarded registry read instead (`golang.org/x/sys/windows/registry`) with an `_other.go` stub. If it is `"none (degrade)"`, implement the degrade branch: `Current` stays `""`, only `Latest` is populated.
+- [ ] **Step 0 (BLOCKING precondition — research-derived):** Open the research doc and confirm `LOCAL_VERSION_SOURCE` is **resolved** (not `<SPIKE>`). Then:
+  - **File path** → implement `readLocalVersion` to read+parse that exact file (shown below is the file-JSON shape — adapt the filename + field consts).
+  - **Registry key** → implement a Windows-guarded registry read (`golang.org/x/sys/windows/registry`) with an `_other.go` stub; replace the file-based test with a registry test (or a `readLocalVersion` seam test).
+  - **`"none (degrade)"`** → DELETE the `versionFileName`/`localVersionField` consts + `readLocalVersion` + the file-based tests (`TestReadLocalVersion_*`, `TestFetchVersion_PopulatesLatestFromServer`'s fixture write); keep `fetchVersion` with `cur` always `""` and ship only `TestFetchVersion_NoLocalSource_Degrades`.
 
 **Files:**
 - Modify: `internal/providers/hypergryph/version.go`
 - Modify: `internal/providers/hypergryph/hypergryph.go` (give `CheckVersion` an `*http.Client`)
-- Test: `internal/providers/hypergryph/version_test.go`
+- Modify: `internal/providers/hypergryph/version_test.go` (**file already exists** — see Step 1)
 
-- [ ] **Step 1: Write the failing test.**
+- [ ] **Step 1: Replace the existing `version_test.go`.**
 
-Create `internal/providers/hypergryph/version_test.go`:
+⚠️ `version_test.go` ALREADY EXISTS with `TestFetchVersion_AlwaysEmpty_M2Limitation`, which calls the OLD 3-arg `fetchVersion(ctx, path, gid)`. Step 3 changes `fetchVersion` to 4 args, so that test must be **removed** (its "always empty" premise is exactly what Phase A deletes) or the build breaks. **Replace the entire file contents** with:
 
 ```go
 package hypergryph
@@ -374,6 +382,31 @@ func TestFetchVersion_PopulatesLatestFromServer(t *testing.T) {
 	}
 	if vi.Current != "1.2.3" || vi.Latest != "1.2.9" {
 		t.Fatalf("got %+v", vi)
+	}
+}
+
+// TestFetchVersion_NoLocalSource_Degrades covers spec §6: when no local
+// version source exists, Current stays "" (sidebar shows 就緒 with no suffix)
+// and Latest is still populated from get_latest. THIS IS THE PRIMARY test if
+// LOCAL_VERSION_SOURCE == "none (degrade)".
+func TestFetchVersion_NoLocalSource_Degrades(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"action": 1, "version": "1.2.9", "pkg": map[string]any{"packs": []any{}}})
+	}))
+	defer srv.Close()
+	SetAPIBaseURL(srv.URL)
+	defer SetAPIBaseURL("")
+
+	// Empty install dir → readLocalVersion returns "" → degrade branch.
+	vi, err := fetchVersion(context.Background(), srv.Client(), t.TempDir(), "endfield/global")
+	if err != nil {
+		t.Fatalf("degrade should not error: %v", err)
+	}
+	if vi.Current != "" {
+		t.Fatalf("degrade: Current must be empty (spec §6), got %q", vi.Current)
+	}
+	if vi.Latest != "1.2.9" {
+		t.Fatalf("degrade: Latest should be populated, got %q", vi.Latest)
 	}
 }
 
@@ -452,8 +485,10 @@ func fetchVersion(ctx context.Context, client *http.Client, installPath string, 
 		latest = resp.Version
 	}
 	if cur == "" {
-		// Degrade: no local source. Show Latest as both so sidebar isn't blank.
-		return core.VersionInfo{Current: latest, Latest: latest}, nil
+		// Degrade (spec §6): no local source → leave Current EMPTY so the
+		// sidebar shows 就緒 with no `· vX.Y` suffix (same as today). Latest is
+		// retained for Phase B's staleness check but not displayed alone.
+		return core.VersionInfo{Latest: latest}, nil
 	}
 	return core.VersionInfo{Current: cur, Latest: latest}, nil
 }
@@ -484,7 +519,19 @@ Update the `CheckVersion` method body to pass `p.client`:
 return fetchVersion(ctx, p.client, ig.InstallPath, gid)
 ```
 
-(Add `"net/http"` and `"time"` imports.)
+Update the import block (current imports are only `context`, `fmt`, `log/slog`, `omnigate/internal/core`) to add `net/http` and `time`:
+
+```go
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"omnigate/internal/core"
+)
+```
 
 - [ ] **Step 5: Run tests + build; verify pass.**
 
@@ -515,6 +562,7 @@ package hypergryph
 import (
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -532,8 +580,11 @@ func TestProtocolDocPackURLRegex(t *testing.T) {
 	if len(m) < 2 {
 		t.Fatal("pack_url_regex TEST_ANCHOR not found")
 	}
-	pat := regexp.MustCompile("(?m)^\\s*(.+?)\\s*$").FindStringSubmatch(m[1])
-	compiled, err := regexp.Compile(pat[1])
+	pat := strings.TrimSpace(m[1])
+	if pat == "" {
+		t.Fatal("pack_url_regex TEST_ANCHOR block is empty")
+	}
+	compiled, err := regexp.Compile(pat)
 	if err != nil {
 		t.Fatalf("doc regex does not compile: %v", err)
 	}
@@ -626,8 +677,8 @@ No commit (verification only).
 **This task requires the user — subagents can't drive the GUI or guarantee a real Endfield install.**
 
 - [ ] **Step 1:** Run `wails dev` (or the built binary) with a real Endfield install configured (Settings → Hypergryph path = the GRYPHLINK/Endfield game dir).
-- [ ] **Step 2:** Confirm the Endfield sidebar row shows `就緒 · v<X.Y>` with the **correct installed version** (matches what the GRYPHLINK launcher reports). If the spike found no local source, confirm it shows the latest version without error (degrade path).
-- [ ] **Step 3:** Toggle offline (or block the CDN) and confirm `CheckVersion` degrades gracefully (no crash; shows local version with `Latest=Current`).
+- [ ] **Step 2:** Confirm version display. **If a local source was found:** the Endfield row shows `就緒 · v<X.Y>` with the **correct installed version** (matches what the GRYPHLINK launcher reports). **If the spike found no local source (degrade, spec §6):** the row shows `就緒` with **no** `· vX.Y` suffix, no error.
+- [ ] **Step 3:** Toggle offline (or block the CDN) and confirm `CheckVersion` degrades gracefully (no crash). With a local source: shows local version (`Latest` falls back to `Current`). Without a local source: shows `就緒` with no suffix.
 - [ ] **Step 4:** Confirm the live `get_latest` `version` matches the current public Endfield version (validates the protocol end-to-end).
 - [ ] **Step 5 (checkpoint):** With the protocol validated on a real install, decide with the user:
   - Tag this point (e.g. `v0.5.0-m3c-a`) and/or keep on `m3c/spec`.
