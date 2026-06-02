@@ -123,7 +123,7 @@ func (p *Provider) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.
 }
 
 func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error) {
-	installPath, err := p.gameDir(gid)
+	installPath, err := p.gameDir(ctx, gid)
 	if err != nil {
 		return core.VersionInfo{}, err
 	}
@@ -131,7 +131,7 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 }
 
 func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
-	installPath, err := p.gameDir(gid)
+	installPath, err := p.gameDir(ctx, gid)
 	if err != nil {
 		return 0, err
 	}
@@ -288,15 +288,15 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 
 // gameDir returns the resolved install folder for gid, preferring the
 // App-injected resolved paths and falling back to a default-root scan.
-func (p *Provider) gameDir(gid core.GameID) (string, error) {
+func (p *Provider) gameDir(ctx context.Context, gid core.GameID) (string, error) {
 	if p.resolvedPaths != nil {
 		if dir, ok := p.resolvedPaths[gid]; ok && dir != "" {
 			return dir, nil
 		}
-		return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+		return "", fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 	}
 	// fallback: original inline behavior
-	games, err := DetectInstall(context.Background(), p.settings.Path)
+	games, err := DetectInstall(ctx, p.settings.Path)
 	if err != nil {
 		return "", err
 	}
@@ -305,7 +305,7 @@ func (p *Provider) gameDir(gid core.GameID) (string, error) {
 			return g.InstallPath, nil
 		}
 	}
-	return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+	return "", fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 }
 
 // installPathFor resolves the install path for gid via gameDir, validating the game exists.
@@ -313,7 +313,7 @@ func (p *Provider) installPathFor(ctx context.Context, gid core.GameID) (string,
 	if findByID(gid) == nil {
 		return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
-	dir, err := p.gameDir(gid)
+	dir, err := p.gameDir(ctx, gid)
 	if err != nil {
 		return "", err
 	}

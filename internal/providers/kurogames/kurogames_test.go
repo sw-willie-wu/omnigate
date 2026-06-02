@@ -30,7 +30,7 @@ func TestGameDirFromResolved(t *testing.T) {
 	gid := core.GameID("kurogames/wutheringwaves")
 	p := New(Settings{}, nil)
 	p.SetResolvedPaths(map[core.GameID]string{gid: dir})
-	got, err := p.gameDir(gid)
+	got, err := p.gameDir(context.Background(), gid)
 	if err != nil {
 		t.Fatal(err)
 	}

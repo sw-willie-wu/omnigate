@@ -128,7 +128,7 @@ func (p *Provider) GetBackgrounds(_ context.Context, gid core.GameID) ([]core.Ba
 }
 
 func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error) {
-	installPath, err := p.gameDir(gid)
+	installPath, err := p.gameDir(ctx, gid)
 	if err != nil {
 		return core.VersionInfo{}, err
 	}
@@ -154,7 +154,7 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 }
 
 func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
-	installPath, err := p.gameDir(gid)
+	installPath, err := p.gameDir(ctx, gid)
 	if err != nil {
 		return 0, err
 	}
@@ -208,7 +208,7 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 
 	// Find install path
 	p.logger.Debug("kurogames CheckForUpdate: gameDir", "game", gid)
-	installPath, err := p.gameDir(gid)
+	installPath, err := p.gameDir(ctx, gid)
 	if err != nil {
 		p.logger.Warn("kurogames CheckForUpdate: gameDir failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
@@ -305,7 +305,7 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	}
 
 	// Find install path
-	installPath, err := p.gameDir(plan.GameID)
+	installPath, err := p.gameDir(ctx, plan.GameID)
 	if err != nil {
 		return err
 	}
@@ -385,15 +385,15 @@ func isProcessRunning(exeName string) bool {
 
 // gameDir returns the resolved install folder for gid, preferring the
 // App-injected resolved paths and falling back to a default-root scan.
-func (p *Provider) gameDir(gid core.GameID) (string, error) {
+func (p *Provider) gameDir(ctx context.Context, gid core.GameID) (string, error) {
 	if p.resolvedPaths != nil {
 		if dir, ok := p.resolvedPaths[gid]; ok && dir != "" {
 			return dir, nil
 		}
-		return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+		return "", fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 	}
 	// fallback: original inline behavior
-	games, err := DetectInstall(context.Background(), p.settings.Path)
+	games, err := DetectInstall(ctx, p.settings.Path)
 	if err != nil {
 		return "", err
 	}
@@ -402,7 +402,7 @@ func (p *Provider) gameDir(gid core.GameID) (string, error) {
 			return g.InstallPath, nil
 		}
 	}
-	return "", fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+	return "", fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 }
 
 // SetResolvedPaths injects the App-resolved per-game install folders. The
