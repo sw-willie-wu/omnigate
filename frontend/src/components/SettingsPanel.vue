@@ -76,8 +76,8 @@ function onKeydown(e: KeyboardEvent) {
   <div v-if="view.settingsOpen && draft" class="settings-view">
       <div class="settings-body">
         <!-- HoYoverse -->
-        <div class="settings-section">
-          <div class="settings-section-title">{{ t('settings.backend.hoyoverse') }}</div>
+        <div class="settings-group">
+          <div class="grid-section-label"><span>{{ t('settings.backend.hoyoverse') }}</span></div>
           <label class="settings-label">{{ t('settings.path_label') }}</label>
           <div class="settings-row">
             <input type="text" v-model="draft.Backends.Hoyoverse.Path" />
@@ -92,8 +92,8 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- Kuro -->
-        <div class="settings-section">
-          <div class="settings-section-title">{{ t('settings.backend.kurogames') }}</div>
+        <div class="settings-group">
+          <div class="grid-section-label"><span>{{ t('settings.backend.kurogames') }}</span></div>
           <label class="settings-label">{{ t('settings.path_label') }}</label>
           <div class="settings-row">
             <input type="text" v-model="draft.Backends.Kurogames.Path" />
@@ -108,8 +108,8 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- Hypergryph -->
-        <div class="settings-section">
-          <div class="settings-section-title">{{ t('settings.backend.hypergryph') }}</div>
+        <div class="settings-group">
+          <div class="grid-section-label"><span>{{ t('settings.backend.hypergryph') }}</span></div>
           <label class="settings-label">{{ t('settings.path_label') }}</label>
           <div class="settings-row">
             <input type="text" v-model="draft.Backends.Hypergryph.Path" />
