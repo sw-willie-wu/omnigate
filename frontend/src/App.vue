@@ -11,6 +11,7 @@ import Sidebar from './components/Sidebar.vue';
 import DetailView from './components/DetailView.vue';
 import GridView from './components/GridView.vue';
 import BottomBar from './components/BottomBar.vue';
+import SettingsPanel from './components/SettingsPanel.vue';
 import Footbar from './components/Footbar.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import ToastHost from './components/ToastHost.vue';
@@ -64,7 +65,8 @@ onMounted(async () => {
       <Sidebar />
       <Topbar />
       <main class="main">
-        <DetailView v-if="view.viewMode === 'detail'" />
+        <SettingsPanel v-if="view.viewMode === 'settings'" />
+        <DetailView v-else-if="view.viewMode === 'detail'" />
         <GridView v-else />
         <BottomBar v-if="view.viewMode === 'detail'" />
       </main>

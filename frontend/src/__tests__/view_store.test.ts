@@ -13,4 +13,24 @@ describe('view store settings drawer', () => {
     v.closeSettings();
     expect(v.settingsOpen).toBe(false);
   });
+
+  it('settings is a peer view; toggling off returns to the previous content view', () => {
+    const v = useViewStore();
+    v.setView('grid');
+    v.toggleSettings();
+    expect(v.viewMode).toBe('settings');
+    expect(v.settingsOpen).toBe(true);
+    v.toggleSettings();
+    expect(v.viewMode).toBe('grid'); // returned to where we came from
+    expect(v.settingsOpen).toBe(false);
+  });
+
+  it('switching to a content view while in settings exits settings (no stacking)', () => {
+    const v = useViewStore();
+    v.openSettings();
+    expect(v.viewMode).toBe('settings');
+    v.setView('grid');
+    expect(v.viewMode).toBe('grid');
+    expect(v.settingsOpen).toBe(false);
+  });
 });

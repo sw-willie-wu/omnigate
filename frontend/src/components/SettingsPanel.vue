@@ -73,13 +73,9 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="settings-fade">
-      <div v-if="view.settingsOpen && draft" class="settings-overlay" @click.self="onCancel">
-        <div class="settings-card">
+  <div v-if="view.settingsOpen && draft" class="settings-view">
       <div class="settings-header">
         <span>{{ t('settings.title') }}</span>
-        <button class="settings-close" @click="onCancel" aria-label="Close">×</button>
       </div>
 
       <div class="settings-body">
@@ -138,8 +134,5 @@ function onKeydown(e: KeyboardEvent) {
           @click="onSave"
         >{{ t('settings.save') }}</button>
       </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  </div>
 </template>
