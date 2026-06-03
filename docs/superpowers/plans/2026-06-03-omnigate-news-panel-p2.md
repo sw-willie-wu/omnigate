@@ -312,7 +312,7 @@ func TestNews_Hoyoverse_ParsesAndMaps(t *testing.T) {
 		if !strings.HasPrefix(it.URL, "https://www.hoyolab.com/article/100") {
 			t.Errorf("URL = %q", it.URL)
 		}
-		if it.Date != "2026-05-19" && it.Date != "" { // created_at 1779247719 → 2026-05-19 (UTC)
+		if it.Date != "2026-05-20" && it.Date != "" { // created_at 1779247719 → 2026-05-20 (UTC)
 			// date formatting asserted loosely; just ensure non-empty
 		}
 		if it.Date == "" {
@@ -986,7 +986,7 @@ git commit -m "feat(hypergryph): GetNews via public Endfield bulletin API"
 - Create: `frontend/src/stores/news.ts`
 - Test: `frontend/src/stores/__tests__/news.spec.ts`
 
-> **Wails binding mock**：vitest 測試不連真 Wails。news.ts 從 `../../wailsjs/go/app/App` import `GetNews`；測試用 `vi.mock` 假掉它（沿用既有 store 測試模式）。
+> **Wails binding mock**：vitest 測試不連真 Wails。news.ts 從 `../../wailsjs/go/app/App` import `GetNews`；測試用 `vi.mock` 假掉它（沿用既有**元件**測試的 mock 模式，如 `BottomBar.test.ts`；store 測試本身為新增）。
 
 - [ ] **Step 1: 寫 failing test**
 
