@@ -4,8 +4,8 @@ import { useGamesStore } from '../stores/games';
 import { useUpdatesStore } from '../stores/updates';
 import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
-import { Launch } from '../../wailsjs/go/app/App';
 import { formatSize } from '../utils/format';
+import { formatRelativeTime } from '../utils/lastPlayed';
 import GameConfigPopover from './GameConfigPopover.vue';
 
 const games = useGamesStore();
@@ -96,7 +96,15 @@ const pillLabel = computed(() => {
 const pillClass = computed(() => ({
   warn: !!availableUpdate.value,
   info: !availableUpdate.value && hasAnyPredl.value,
+  ok: !availableUpdate.value && !hasAnyPredl.value, // ready → green
 }));
+
+const lastPlayedLabel = computed<string>(() => {
+  const iso = games.selected?.last_played;
+  if (!iso) return t('labels.never_played');
+  const rel = formatRelativeTime(iso, new Date(), (k, p) => t(k, p as any));
+  return `${t('labels.last_played')} · ${rel}`;
+});
 
 // Progress percentage (Download phase by bytes; Apply phase by file count)
 const progressPct = computed(() => {
@@ -115,7 +123,7 @@ const verifyLabel = computed(() => {
 });
 
 async function onLaunch() {
-  if (games.selected) try { await Launch(games.selected.id); } catch (e) { console.error(e); }
+  if (games.selected) try { await games.launchGame(games.selected.id); } catch (e) { console.error(e); }
 }
 async function onUpdate() {
   if (isStarting.value || !games.selected) return;
@@ -153,9 +161,14 @@ async function onCancel() {
 <template>
   <div v-if="games.selected" class="bottom-bar">
     <div v-if="errorLabel" class="update-error">{{ errorLabel }}</div>
-    <div class="hero-stats-line">
-      <span class="pill" :class="pillClass">{{ pillLabel }}</span>
-      <span v-if="!availableUpdate" class="v">v{{ games.selected.current_version || games.selected.latest_version || '?' }}</span>
+    <div class="hero-meta">
+      <div class="hero-stats-line">
+        <span class="pill" :class="pillClass">{{ pillLabel }}</span>
+        <span v-if="!availableUpdate" class="v">v{{ games.selected.current_version || games.selected.latest_version || '?' }}</span>
+      </div>
+      <div class="last-played">
+        <span class="lp-clock">◷</span>{{ lastPlayedLabel }}
+      </div>
     </div>
 
     <!-- right cluster: predl + per-game config gear + Play/Update, kept together

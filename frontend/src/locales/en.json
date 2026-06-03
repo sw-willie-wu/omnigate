@@ -32,7 +32,12 @@
     "days_ago": "{n} DAYS AGO",
     "ready_pill": "READY",
     "update_pill": "UPDATE AVAILABLE",
-    "predl_pill": "PREDOWNLOAD"
+    "predl_pill": "PREDOWNLOAD",
+    "last_played": "Last played",
+    "never_played": "Never played",
+    "played_today": "Today {time}",
+    "played_yesterday": "Yesterday {time}",
+    "played_days_ago": "{n} days ago"
   },
   "footer": {
     "summary": "{games} GAMES"
@@ -151,5 +156,6 @@
     "src_override": "Manual",
     "src_invalid": "Set, but not found",
     "src_locate": "Locate…"
-  }
+  },
+  "nav": { "overview": "Overview", "gacha": "Gacha Analytics", "coming_soon": "Coming soon" }
 }

@@ -20,7 +20,7 @@ const groups = computed<Group[]>(() => {
 <template>
   <aside class="sidebar" :class="{collapsed: view.sidebarCollapsed}">
     <div class="sidebar-header">
-      <button class="icon-btn" @click="view.toggleSidebar()" title="Toggle">{{ view.sidebarCollapsed ? '›' : '‹' }}</button>
+      <button class="icon-btn" @click="view.toggleSidebar()" title="Toggle"><span class="material-symbols-outlined">{{ view.sidebarCollapsed ? 'menu' : 'menu_open' }}</span></button>
     </div>
     <template v-for="g in groups" :key="g.backend">
       <div class="group-label"><span>{{ t(`publishers.${g.backend}`) }}</span></div>

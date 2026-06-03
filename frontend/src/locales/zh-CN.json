@@ -32,7 +32,12 @@
     "days_ago": "{n} 天前",
     "ready_pill": "就绪",
     "update_pill": "可更新",
-    "predl_pill": "可预下载"
+    "predl_pill": "可预下载",
+    "last_played": "上次游玩",
+    "never_played": "尚未游玩",
+    "played_today": "今天 {time}",
+    "played_yesterday": "昨天 {time}",
+    "played_days_ago": "{n} 天前"
   },
   "footer": {
     "summary": "{games} 款游戏"
@@ -151,5 +156,6 @@
     "src_override": "手动",
     "src_invalid": "手动・未找到",
     "src_locate": "定位…"
-  }
+  },
+  "nav": { "overview": "总览", "gacha": "抽卡分析", "coming_soon": "即将推出" }
 }

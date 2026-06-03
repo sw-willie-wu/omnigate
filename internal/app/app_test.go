@@ -394,3 +394,27 @@ func TestSetGameOverride_UnknownGameErrors(t *testing.T) {
 		t.Fatalf("SetGameOverride(unknown) succeeded; want error")
 	}
 }
+
+func TestLaunch_RecordsLastPlayed(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	a.playState = loadPlayState(filepath.Join(t.TempDir(), "playstate.json"))
+
+	if _, err := a.Launch(string(gid)); err != nil {
+		t.Fatalf("Launch failed: %v", err)
+	}
+	if a.playState.Get(string(gid)).IsZero() {
+		t.Fatalf("Launch did not record last-played")
+	}
+	rows, _ := a.ListGames()
+	var lp string
+	for i := range rows {
+		if rows[i].ID == string(gid) {
+			lp = rows[i].LastPlayed
+		}
+	}
+	if lp == "" {
+		t.Fatalf("ListGames row missing last_played")
+	}
+}
