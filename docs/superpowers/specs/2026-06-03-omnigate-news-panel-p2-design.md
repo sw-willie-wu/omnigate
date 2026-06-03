@@ -79,10 +79,11 @@ type NewsProvider interface {
 ### C. Provider 實作（各新 `news.go` + `news_test.go`）
 
 - **hoyoverse**（重用 `apiClient`/`apiEnvelope`）：呼叫 HoYoPlay 情報內容端點解析 `content.posts[]`。
-  > **端點待釘死**：Collapse 模型分 `LauncherSpriteURL`（backgrounds，= 我們已用的 `getAllGameBasicInfo`）與 `LauncherNewsURL`（content）。content 區可能在 `getAllGameBasicInfo` 同回應、或 sibling `getGameContent`，**plan 階段對照 Collapse `HypApiLoader.cs` 釘死確切 path 與 query**。欄位形狀已確認。
+  > **端點待釘死（UNVERIFIED against this repo）**：Collapse 模型分 `LauncherSpriteURL`（backgrounds，= 我們已用的 `getAllGameBasicInfo`）與 `LauncherNewsURL`（content）。content 區可能在 `getAllGameBasicInfo` 同回應、或 sibling `getGameContent`，**plan 階段對照 Collapse `HypApiLoader.cs` 釘死確切 path 與 query**。欄位形狀（`content.posts[]` 的 type/title/link/date/縮圖）**是從 Collapse 原始碼參照確認、非本 repo**（現有 `api.go::rawBasicInfo` 只解析 `backgrounds`、無 posts 解析）；端點選擇不影響資料模型。
   - 映射：`type` → `POST_TYPE_ANNOUNCE→announce` / `POST_TYPE_ACTIVITY→activity` / `POST_TYPE_INFO→info`；`title`→Title；`link`→URL；`date`→Date；縮圖 `url`/`hover_url`→Thumbnail。
   - lang map：zh-TW→`zh-tw`、zh-CN→`zh-cn`、en→`en-us`（未知→`en-us`）。
 - **kurogames**（新 `news.go`）：GET `https://prod-alicdn-gamestarter.kurogame.com/launcher/50004_obOHXFrFanqsaIEOmuKroCcbZkQRBC7c/G153/information/<lang>.json`。
+  > **URL path 與 JSON shape UNVERIFIED**（與 hoyoverse 端點同等信心，研究自社群來源、未經本 repo 驗證）：repo 既知的 kuro index URL 是 `…/launcher/game/G153/<AppCred>/index.json`（段序 `game/G153/<cred>`，見 `update_manifest.go`），與此情報 URL（`<cred>/G153/information`）段序/`information` 段不同；`guidance.*`/`jumpUrl`/`slideshow` 形狀亦未在 repo 出現。**plan 階段須對照來源（DynamiByte gist / Collapse `Hi3Helper.Plugin.Wuwa`）實查確認 URL 段序、`information` 段、JSON 形狀與 lang slug**。
   - 映射：`guidance.notice.contents[]`→announce、`guidance.activity.contents[]`→activity、`guidance.news.contents[]`→info；每項 `content`→Title、`jumpUrl`→URL、`time`→Date；無逐項縮圖 → Thumbnail 空。
   - lang map：zh-TW→`zh-Hant`、zh-CN→`zh-Hans`、en→`en`（**確切 slug plan 階段對照來源釘死**；未知→`en`）。
 - **hypergryph**（新 `news.go`）：**爬 `https://endfield.gryphline.com/<lang>/news` 的 HTML**。
@@ -96,7 +97,7 @@ type NewsProvider interface {
 
 - 新 `stores/news.ts`（Pinia）：per-gid 狀態 `{ items: NewsItem[], loading: bool, error: bool, loaded: bool }`。
   - `load(gid)`：**惰性**——該 gid 已 `loaded` 則不重抓；否則 set loading→呼叫 `GetNews(gid)`→填 items/clear loading；catch→set error。
-  - Topbar 重新整理時**清空快取**（比照既有 store 在 refresh 鏈被重置的模式；plan 對照 `Topbar.onRefresh` 鏈釘確切接點）。
+  - Topbar 重新整理時**清空快取並強制重抓**。⚠️ **修正既有認知**：現行 refresh 鏈是 `composables/useRefreshAll.ts`（`Topbar.vue` 呼叫），它**只是冪等地重呼 `games.load()` 等、不 reset 任何 store**。因此光把 `news.load(gid)` 加進 refreshAll 會被惰性 `loaded` guard 擋成 no-op、情報變陳舊。**plan 必須在 `refreshAll` 明確加一步「清空 news store（或對當前 gid 略過 loaded guard 強制重抓）」**——repo 目前沒有任何 store reset hook 可比照。
 - 新 `components/NewsPanel.vue`：mount 在 `DetailView` 右上（目前 `DetailView.vue` 是空 placeholder，P1 已預留右上給 P2）。
   - 標頭：bell icon +「最新情報」。
   - 篩選 pill：`全部 / 公告 / 活動`（選中金）。`info` 類別**只在「全部」**出現（公告=announce、活動=activity）。
@@ -105,6 +106,7 @@ type NewsProvider interface {
   - **三狀態（mockup §3.5 強制）**：載入中 skeleton／空狀態「暫無情報」／錯誤狀態（不開天窗）。
   - 監看 `games.selected` 變更 → 呼叫 `news.load(selectedGid)`。
 - 縮圖 = 外部 CDN URL 直接 `<img :src>`（同既有 background 由 CDN 載入的做法；webview 已允許外部圖）。
+- **安全**：news 標題/日期等來自外部（尤其 Endfield 爬取的 HTML）一律走 Vue 純文字插值 `{{ }}`（自動轉義），**禁用 `v-html`**，防爬取內容 XSS。（repo 現無任何 `v-html`，維持此現況。）
 - i18n：新增 keys（標頭、三個篩選、空/錯誤狀態、查看全部、類別標籤），**zh-TW/zh-CN/en 三檔 parity**（`i18n_parity.test.ts` 守）。
 
 ### E. 測試
