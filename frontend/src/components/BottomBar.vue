@@ -96,6 +96,7 @@ const pillLabel = computed(() => {
 const pillClass = computed(() => ({
   warn: !!availableUpdate.value,
   info: !availableUpdate.value && hasAnyPredl.value,
+  ok: !availableUpdate.value && !hasAnyPredl.value, // ready → green
 }));
 
 // Progress percentage (Download phase by bytes; Apply phase by file count)

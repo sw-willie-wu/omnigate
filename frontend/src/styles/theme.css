@@ -317,6 +317,7 @@
   }
   .hero-stats-line .pill.warn { color: var(--warn); border-color: rgba(232,157,90,0.5); }
   .hero-stats-line .pill.info { color: var(--info); border-color: rgba(122,171,214,0.5); }
+  .hero-stats-line .pill.ok { color: var(--ok); border-color: rgba(139,196,114,0.5); }
   .hero-stats-line .sep { color: rgba(214,176,75,0.6); }
   .hero-stats-line .v { color: var(--text); letter-spacing: 0.05em; }
   .hero-stats-line .lbl { color: rgba(255,255,255,0.45); letter-spacing: 0.18em; }
