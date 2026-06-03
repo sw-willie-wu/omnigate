@@ -561,11 +561,10 @@ func TestGetNews_RoutesToProvider(t *testing.T) {
 		items:        []core.NewsItem{{Title: "Hello", Category: core.NewsAnnounce, URL: "https://x/1"}},
 	}
 	a := &App{settings: Settings{Version: 2}, logger: slog.Default()}
-	a.settings.App.Language = "zh-TW"
 	a.providers = []core.Provider{fp}
 	a.ctx = context.Background()
 
-	out, err := a.GetNews(string(gid))
+	out, err := a.GetNews(string(gid), "zh-TW")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +582,7 @@ func TestGetNews_ProviderWithoutNews_ReturnsEmpty(t *testing.T) {
 	a.providers = []core.Provider{&fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}}}
 	a.ctx = context.Background()
 
-	out, err := a.GetNews(string(gid))
+	out, err := a.GetNews(string(gid), "en")
 	if err != nil {
 		t.Fatalf("want nil err, got %v", err)
 	}

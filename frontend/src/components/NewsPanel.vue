@@ -6,12 +6,12 @@ import { OpenExternalURL } from '../../wailsjs/go/app/App';
 
 const props = defineProps<{ gid: string }>();
 const news = useNewsStore();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 type Filter = 'all' | 'announce' | 'activity' | 'info';
 const filter = ref<Filter>('all');
 
-const state = computed(() => news.stateFor(props.gid));
+const state = computed(() => news.stateFor(props.gid, locale.value));
 const visible = computed(() => {
   const items = state.value.items;
   if (filter.value === 'all') return items;
@@ -26,9 +26,10 @@ function open(url: string) {
 }
 
 function reload() {
-  if (props.gid) news.load(props.gid);
+  if (props.gid) news.load(props.gid, locale.value);
 }
-watch(() => props.gid, reload);
+// reload on game change AND on UI language change (news is language-specific).
+watch([() => props.gid, locale], reload);
 onMounted(reload);
 </script>
 

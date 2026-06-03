@@ -428,11 +428,13 @@ func (a *App) gameRow(gid core.GameID, p core.Provider) (GameRow, error) {
 	return GameRow{}, fmt.Errorf("unknown game %s", gid)
 }
 
-// GetNews returns the public news feed for gameID, or an empty slice if the
-// game's provider does not implement NewsProvider or the fetch fails. Best-
-// effort: a fetch error is logged and surfaced (the frontend shows empty/error
-// state), never fatal.
-func (a *App) GetNews(gameID string) ([]core.NewsItem, error) {
+// GetNews returns the public news feed for gameID in the given UI language
+// (en/zh-TW/zh-CN), or an empty slice if the game's provider does not implement
+// NewsProvider or the fetch fails. lang is passed explicitly by the frontend
+// (the current i18n locale) so the result is deterministic and does not race
+// the async App.SetLanguage persistence. Best-effort: a fetch error is logged
+// and surfaced (the frontend shows empty/error state), never fatal.
+func (a *App) GetNews(gameID string, lang string) ([]core.NewsItem, error) {
 	gid := core.GameID(gameID)
 	p, err := a.provider(gid)
 	if err != nil {
@@ -442,9 +444,6 @@ func (a *App) GetNews(gameID string) ([]core.NewsItem, error) {
 	if !ok {
 		return []core.NewsItem{}, nil
 	}
-	a.settingsMu.RLock()
-	lang := a.settings.App.Language
-	a.settingsMu.RUnlock()
 
 	ctx := a.ctx
 	if ctx == nil {

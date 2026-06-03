@@ -22,29 +22,37 @@ function blank(): NewsState {
   return { items: [], loading: false, error: false, loaded: false };
 }
 
+// Cache key includes the UI language: news content is language-specific, so a
+// language switch must surface a different cache entry (and refetch) rather
+// than reuse the previous-language items.
+function cacheKey(gid: string, lang: string): string {
+  return `${gid}|${lang}`;
+}
+
 export const useNewsStore = defineStore('news', {
   state: () => ({
-    byGid: {} as Record<string, NewsState>,
+    byKey: {} as Record<string, NewsState>,
   }),
   getters: {
-    stateFor: (state) => (gid: string): NewsState => state.byGid[gid] ?? blank(),
-    itemsFor: (state) => (gid: string): NewsItem[] => state.byGid[gid]?.items ?? [],
+    stateFor: (state) => (gid: string, lang: string): NewsState => state.byKey[cacheKey(gid, lang)] ?? blank(),
+    itemsFor: (state) => (gid: string, lang: string): NewsItem[] => state.byKey[cacheKey(gid, lang)]?.items ?? [],
   },
   actions: {
-    async load(gid: string) {
+    async load(gid: string, lang: string) {
       if (!gid) return;
-      const cur = this.byGid[gid];
+      const k = cacheKey(gid, lang);
+      const cur = this.byKey[k];
       if (cur && (cur.loaded || cur.loading)) return; // lazy: skip if loaded/in-flight
-      this.byGid[gid] = { items: [], loading: true, error: false, loaded: false };
+      this.byKey[k] = { items: [], loading: true, error: false, loaded: false };
       try {
-        const items = (await GetNews(gid)) as unknown as NewsItem[];
-        this.byGid[gid] = { items: items ?? [], loading: false, error: false, loaded: true };
+        const items = (await GetNews(gid, lang)) as unknown as NewsItem[];
+        this.byKey[k] = { items: items ?? [], loading: false, error: false, loaded: true };
       } catch {
-        this.byGid[gid] = { items: [], loading: false, error: true, loaded: true };
+        this.byKey[k] = { items: [], loading: false, error: true, loaded: true };
       }
     },
     reset() {
-      this.byGid = {};
+      this.byKey = {};
     },
   },
 });
