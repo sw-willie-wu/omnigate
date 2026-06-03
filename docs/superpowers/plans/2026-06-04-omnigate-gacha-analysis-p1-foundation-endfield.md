@@ -32,7 +32,8 @@
 
 **Modify:**
 - `internal/core/errors.go` — add `ErrGachaURLUnavailable` sentinel + `ErrorCode` case.
-- `internal/app/app.go` — App struct gets `gachaStore`; `New` opens it; add `Close()` if absent.
+- `internal/app/app.go` — App struct gets `gachaStore`; `New` opens it; add `Close()`.
+- `main.go` — wire `OnShutdown: func(context.Context){ a.Close() }`.
 - `frontend/src/components/DetailView.vue` — branch content on `view.homeTab`.
 - `frontend/src/components/NavStrip.vue` — enable the gacha tab.
 - `frontend/src/composables/useRefreshAll.ts` — call `gacha.reset()`.
@@ -1264,16 +1265,19 @@ package app
 
 import (
 	"context"
+	"log/slog"
+	"path/filepath"
 	"testing"
 
 	"omnigate/internal/core"
+	"omnigate/internal/store"
 )
 
-// Embed the existing test fakeProvider (see app_test.go) so ID()/Games()/etc.
-// are satisfied — mirror how fakeNewsProvider is built. Do NOT embed the bare
-// core.Provider interface (nil → panics on ID()/Games() during provider lookup).
+// fakeGachaProvider embeds fakeProvider BY VALUE (exactly like fakeNewsProvider
+// in app_test.go) so ID()/Games() are satisfied without a nil-pointer panic
+// during provider lookup. The embedded fakeProvider is populated in the helper.
 type fakeGachaProvider struct {
-	*fakeProvider
+	fakeProvider
 	res core.GachaFetchResult
 	err error
 }
@@ -1283,6 +1287,31 @@ func (f *fakeGachaProvider) FetchGacha(_ context.Context, _ core.GameID, _, _ st
 }
 func (f *fakeGachaProvider) GachaConfig(_ core.GameID) core.GachaConfig {
 	return core.GachaConfig{HeadlineRank: 6, Banners: []core.BannerConfig{}, Currency: "NT$", ExpectedPity: 60}
+}
+
+// newTestAppWithGacha builds a minimal App with one provider for the Endfield
+// gid, a temp-dir SQLite store, and a seeded resolved path. If gp is nil, the
+// registered provider does NOT implement core.GachaProvider (unsupported case).
+func newTestAppWithGacha(t *testing.T, gp *fakeGachaProvider) *App {
+	t.Helper()
+	gid := core.GameID("hypergryph/endfield")
+	base := fakeProvider{id: "hypergryph", games: []core.GameDescriptor{{ID: gid, Backend: "hypergryph"}}}
+	a := &App{settings: Settings{Version: 2}, logger: slog.Default()}
+	a.ctx = context.Background()
+	a.resolved = map[core.GameID]resolvedEntry{gid: {Path: t.TempDir(), Source: core.SourceDefault}}
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "gacha.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	a.gachaStore = st
+	if gp == nil {
+		a.providers = []core.Provider{&base}
+	} else {
+		gp.fakeProvider = base
+		a.providers = []core.Provider{gp}
+	}
+	return a
 }
 
 func TestRefreshThenGetSummary(t *testing.T) {
@@ -1318,12 +1347,10 @@ func TestGachaUnsupportedProvider(t *testing.T) {
 }
 ```
 
-> Implementer: `newTestAppWithGacha(t, gp)` is a small helper to add to `gacha_test.go`.
-> Build a minimal App with one provider for gid `hypergryph/endfield`, a temp-dir
-> SQLite store, and `a.resolved` pre-seeded with a valid path. Mirror the existing
-> `app_test.go` fake-provider construction (see `fakeProvider`/`fakeNewsProvider`
-> there). If `gp` is nil, register a provider that does NOT implement GachaProvider.
-> The helper must register `a.gachaStore = <temp SQLiteStore>` and `t.Cleanup` close it.
+> The `newTestAppWithGacha` helper and `fakeGachaProvider` are both defined in the
+> code block above (mirrors the real `fakeProvider`/`fakeNewsProvider` value-embed
+> pattern in `app_test.go`). If `fakeProvider`'s field names differ from `{id, games}`
+> when you read `app_test.go`, adjust the literal to match — everything else holds.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1347,7 +1374,7 @@ In `internal/app/app.go`:
 	}
 ```
 - Add a helper in `internal/app/gacha.go` (next step) `gachaDBPathFor`.
-- If the App has a shutdown/`OnShutdown` hook, close the store there; otherwise add:
+- Add a close method and wire it into shutdown:
 ```go
 // Close releases App-held resources (gacha DB). Safe to call once.
 func (a *App) Close() {
@@ -1356,6 +1383,11 @@ func (a *App) Close() {
 	}
 }
 ```
+`main.go` currently sets only `OnStartup`. Add an `OnShutdown` to the Wails `options.App` so the DB closes cleanly on exit:
+```go
+		OnShutdown: func(context.Context) { a.Close() },
+```
+(`a` is the App passed to `OnStartup: a.Startup`. With `SetMaxOpenConns(1)` + short txns the DB is crash-safe even without this, but wire it for cleanliness.)
 
 - [ ] **Step 4: Write the bindings**
 
@@ -1479,7 +1511,7 @@ Expected: PASS (no `-race`; CGO_ENABLED=0 host).
 - [ ] **Step 7: Commit**
 
 ```bash
-git add internal/app/gacha.go internal/app/gacha_test.go internal/app/app.go
+git add internal/app/gacha.go internal/app/gacha_test.go internal/app/app.go main.go
 git commit -m "feat(gacha-p3): App RefreshGacha/GetGachaSummary bindings + SQLite store lifecycle (token never logged)"
 ```
 
