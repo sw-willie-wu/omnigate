@@ -384,6 +384,8 @@ git commit -m "feat(kurogames): LastPlayedFiles probe (UE4 Client.log in install
 
 - [ ] **Step 1: 寫 failing test**
 
+> **先補測試檔 import**：`internal/app/app_test.go` 現有 import 為 `context, errors, log/slog, path/filepath, testing, omnigate/internal/core`。下方測試新增用到 `os`（`os.WriteFile`/`os.Chtimes`）與 `time`（`time.Now`/`time.Time`/`time.Hour`/`time.Second`），需在 import 區塊補上 `"os"` 與 `"time"`（依字母序：`os` 放在 `log/slog` 後、`path/filepath` 前；`time` 放在 `testing` 後）。`path/filepath` 與 `core` 已 import、勿重複。
+
 在 `internal/app/app_test.go` 檔尾新增（測試直接驗證 `lastPlayedLocked` 的 max 行為，含 fakeProvider 實作 `LastPlayedProbe`）：
 
 ```go
