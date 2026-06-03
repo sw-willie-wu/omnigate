@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -425,6 +426,60 @@ func (a *App) gameRow(gid core.GameID, p core.Provider) (GameRow, error) {
 		}
 	}
 	return GameRow{}, fmt.Errorf("unknown game %s", gid)
+}
+
+// GetNews returns the public news feed for gameID, or an empty slice if the
+// game's provider does not implement NewsProvider or the fetch fails. Best-
+// effort: a fetch error is logged and surfaced (the frontend shows empty/error
+// state), never fatal.
+func (a *App) GetNews(gameID string) ([]core.NewsItem, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return nil, err
+	}
+	np, ok := p.(core.NewsProvider)
+	if !ok {
+		return []core.NewsItem{}, nil
+	}
+	a.settingsMu.RLock()
+	lang := a.settings.App.Language
+	a.settingsMu.RUnlock()
+
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	items, err := np.GetNews(ctx, gid, lang)
+	if err != nil {
+		a.logger.Warn("GetNews failed", "gid", gameID, "err", err)
+		return nil, err
+	}
+	if items == nil {
+		items = []core.NewsItem{}
+	}
+	return items, nil
+}
+
+// OpenExternalURL opens rawURL in the user's default browser. Only http/https
+// are allowed (reject file://, javascript:, etc. to avoid arbitrary-scheme
+// launch). No-op if the Wails ctx is not yet set.
+func (a *App) OpenExternalURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("refusing to open non-http(s) url scheme %q", u.Scheme)
+	}
+	if a.ctx == nil {
+		return nil
+	}
+	wruntime.BrowserOpenURL(a.ctx, rawURL)
+	return nil
 }
 
 func (a *App) ListBackends() []BackendStatus {
