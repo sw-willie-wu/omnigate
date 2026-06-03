@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -295,17 +296,46 @@ func (a *App) ListGames() ([]GameRow, error) {
 	out := []GameRow{}
 	for _, p := range a.providers {
 		for _, g := range p.Games() {
-			out = append(out, a.gameRowLocked(g))
+			out = append(out, a.gameRowLocked(p, g))
 		}
 	}
 	return out, nil
+}
+
+// statModTime returns a path's mtime, or (zero,false) if it cannot be stat'd.
+// Package var so tests can stub it (mirrors the osTempDir/osRemoveAll seams).
+var statModTime = func(p string) (time.Time, bool) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return fi.ModTime(), true
+}
+
+// lastPlayedLocked returns the effective last-played time for gid: the later of
+// the recorded playstate timestamp and the mtime of any LastPlayedProbe file
+// (which reflects play outside omnigate). Caller holds settingsMu (R or W) —
+// same lock discipline as gameRowLocked. playState may be nil (test helpers).
+func (a *App) lastPlayedLocked(p core.Provider, gid core.GameID, installDir string) time.Time {
+	var ts time.Time
+	if a.playState != nil {
+		ts = a.playState.Get(string(gid))
+	}
+	if probe, ok := p.(core.LastPlayedProbe); ok {
+		for _, f := range probe.LastPlayedFiles(gid, installDir) {
+			if mt, ok := statModTime(f); ok && mt.After(ts) {
+				ts = mt
+			}
+		}
+	}
+	return ts
 }
 
 // gameRowLocked builds a single GameRow from a.resolved + a.settings.Games.
 //
 // LOCKING: the caller MUST hold settingsMu for read (or write); this reads both
 // maps WITHOUT locking.
-func (a *App) gameRowLocked(g core.GameDescriptor) GameRow {
+func (a *App) gameRowLocked(p core.Provider, g core.GameDescriptor) GameRow {
 	e := a.resolved[g.ID]
 	row := GameRow{
 		ID:           string(g.ID),
@@ -317,10 +347,8 @@ func (a *App) gameRowLocked(g core.GameDescriptor) GameRow {
 		Installed:    e.Source != core.SourceUnresolved && statDir(e.Path),
 		OverridePath: a.settings.Games[string(g.ID)].Path,
 	}
-	if a.playState != nil {
-		if ts := a.playState.Get(string(g.ID)); !ts.IsZero() {
-			row.LastPlayed = ts.Format(time.RFC3339)
-		}
+	if ts := a.lastPlayedLocked(p, g.ID, e.Path); !ts.IsZero() {
+		row.LastPlayed = ts.Format(time.RFC3339)
 	}
 	return row
 }
@@ -393,7 +421,7 @@ func (a *App) gameRow(gid core.GameID, p core.Provider) (GameRow, error) {
 	defer a.settingsMu.RUnlock()
 	for _, g := range p.Games() {
 		if g.ID == gid {
-			return a.gameRowLocked(g), nil
+			return a.gameRowLocked(p, g), nil
 		}
 	}
 	return GameRow{}, fmt.Errorf("unknown game %s", gid)

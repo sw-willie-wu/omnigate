@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"omnigate/internal/core"
 )
@@ -416,5 +418,126 @@ func TestLaunch_RecordsLastPlayed(t *testing.T) {
 	}
 	if lp == "" {
 		t.Fatalf("ListGames row missing last_played")
+	}
+}
+
+// fakeProbeProvider embeds fakeProvider and adds a LastPlayedProbe returning a
+// fixed file list, so we can drive lastPlayedLocked's stat/max logic.
+type fakeProbeProvider struct {
+	fakeProvider
+	files []string
+}
+
+func (f *fakeProbeProvider) LastPlayedFiles(_ core.GameID, _ string) []string {
+	return f.files
+}
+
+func writeFileWithMtime(t *testing.T, path string, mt time.Time) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLastPlayedLocked_FileNewerThanPlaystate(t *testing.T) {
+	dir := t.TempDir()
+	logf := filepath.Join(dir, "output_log.txt")
+	fileMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, logf, fileMt)
+
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	// playstate older than the file:
+	a.playState.last["g/x"] = fileMt.Add(-24 * time.Hour)
+
+	p := &fakeProbeProvider{files: []string{logf}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(fileMt) {
+		t.Errorf("want file mtime %v, got %v", fileMt, got)
+	}
+}
+
+func TestLastPlayedLocked_PlaystateNewerThanFile(t *testing.T) {
+	dir := t.TempDir()
+	logf := filepath.Join(dir, "output_log.txt")
+	fileMt := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, logf, fileMt)
+
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	a.playState.last["g/x"] = psMt
+
+	p := &fakeProbeProvider{files: []string{logf}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(psMt) {
+		t.Errorf("want playstate %v, got %v", psMt, got)
+	}
+}
+
+func TestLastPlayedLocked_NoProbeInterface(t *testing.T) {
+	dir := t.TempDir()
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	a.playState.last["g/x"] = psMt
+
+	// plain fakeProvider does NOT implement LastPlayedProbe → playstate only.
+	got := a.lastPlayedLocked(&fakeProvider{}, "g/x", "")
+	if !got.Equal(psMt) {
+		t.Errorf("want playstate %v, got %v", psMt, got)
+	}
+}
+
+func TestLastPlayedLocked_MissingFileFallsBack(t *testing.T) {
+	dir := t.TempDir()
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	a.playState.last["g/x"] = psMt
+
+	missing := filepath.Join(dir, "does-not-exist.txt")
+	p := &fakeProbeProvider{files: []string{missing}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(psMt) {
+		t.Errorf("want playstate %v (missing file ignored), got %v", psMt, got)
+	}
+}
+
+func TestLastPlayedLocked_MultipleFilesNewestWins(t *testing.T) {
+	dir := t.TempDir()
+	older := filepath.Join(dir, "output_log.txt")
+	newer := filepath.Join(dir, "Player.log")
+	olderMt := time.Now().Add(-10 * time.Hour).Truncate(time.Second)
+	newerMt := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, older, olderMt)
+	writeFileWithMtime(t, newer, newerMt)
+
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	a.playState.last["g/x"] = newerMt.Add(-24 * time.Hour) // older than both files
+
+	// Candidate order puts the OLDER file first; the loop must still pick newer.
+	p := &fakeProbeProvider{files: []string{older, newer}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(newerMt) {
+		t.Errorf("want newest file mtime %v, got %v", newerMt, got)
+	}
+}
+
+func TestLastPlayedLocked_NilPlayState(t *testing.T) {
+	dir := t.TempDir()
+	logf := filepath.Join(dir, "output_log.txt")
+	fileMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, logf, fileMt)
+
+	a := &App{} // playState nil — must not panic
+	p := &fakeProbeProvider{files: []string{logf}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(fileMt) {
+		t.Errorf("want file mtime %v, got %v", fileMt, got)
 	}
 }
