@@ -288,7 +288,7 @@
   .bottom-bar {
     position: absolute;
     bottom: 24px; left: 56px; right: 24px;
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: flex-end; justify-content: space-between;
     gap: 24px; z-index: 5;
   }
   /* Error line floats ABOVE the bar (anchored to the positioned .bottom-bar)
@@ -586,3 +586,13 @@
   .view-detail { position: relative; flex: 1; min-height: 0; }
   .hero-scrim-bottom { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(0deg, rgba(8,9,12,0.92) 0%, rgba(8,9,12,0.25) 40%, transparent 62%); }
   .hero-scrim-left { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(8,9,12,0.5), transparent 28%); }
+  .hero-meta { display: flex; flex-direction: column; gap: 8px; }
+  .last-played { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; letter-spacing: 0.02em; }
+  .last-played .lp-clock { font-size: 12px; opacity: 0.8; }
+  .bottom-bar .game-config-btn { width: 56px; height: 56px; border-radius: 14px; background: rgba(20,22,28,0.72); border: 1px solid var(--line-2); color: var(--text-2); backdrop-filter: blur(8px); }
+  .bottom-bar .game-config-btn:hover { color: var(--gold-hi); border-color: rgba(230,197,115,0.4); }
+  .bottom-bar .launch-btn { height: 56px; border-radius: 14px; padding: 0 38px; color: var(--gold-hi); font-weight: 900; letter-spacing: 0.08em; background: linear-gradient(180deg, rgba(230,197,115,0.18), rgba(230,197,115,0.05)); border: 1.5px solid rgba(230,197,115,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px -8px var(--gold-glow); backdrop-filter: blur(6px); }
+  /* play triangle tracks the gold-glass CTA text colour (was near-black --bg) */
+  .bottom-bar .launch-btn .play-tri { border-left-color: var(--gold-hi); }
+  /* disabled CTA must not read as clickable under the new gold glow */
+  .bottom-bar .launch-btn:disabled { opacity: 0.5; cursor: default; box-shadow: none; }

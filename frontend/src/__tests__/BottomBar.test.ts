@@ -129,4 +129,26 @@ describe('BottomBar smoke', () => {
   });
 
   // Full 8-row table-driven test deferred to follow-up M3.A.v2 pass.
+
+  test('meta line shows never_played when last_played is unset', async () => {
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
+    const wrapper = mount(BottomBar, { global: { plugins: [i18n] } });
+    const games = useGamesStore();
+    games.games = [{ id: 'fake/g', backend: 'fake', display_name: { en: 'G' }, installed: true, has_predownload: false, current_version: '1.0' }];
+    games.selectedID = 'fake/g';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.last-played').text()).toContain('Never played');
+  });
+
+  test('meta line shows last-played when set', async () => {
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
+    const wrapper = mount(BottomBar, { global: { plugins: [i18n] } });
+    const games = useGamesStore();
+    games.games = [{ id: 'fake/g', backend: 'fake', display_name: { en: 'G' }, installed: true, has_predownload: false, current_version: '1.0', last_played: new Date().toISOString() }];
+    games.selectedID = 'fake/g';
+    await wrapper.vm.$nextTick();
+    const txt = wrapper.find('.last-played').text();
+    expect(txt).toContain('Last played');
+    expect(txt).toContain('Today');
+  });
 });
