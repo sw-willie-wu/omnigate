@@ -4,7 +4,16 @@
     --bg: #0a0a0c; --panel: rgba(15,15,25,0.55); --elev: rgba(30,30,42,0.65); --border: rgba(255,255,255,0.08); --border-strong: rgba(255,255,255,0.14);
     --text: #f0eee5; --text-2: #b8b8c4; --text-3: #7a7a86;
     --accent: #d6b04b; --accent-dim: #8a722f;
-    --warn: #e89d5a; --info: #7aabd6; --crit: #d66666; --ok: #8bc472;
+    --gold-hi: #f4dd9b;
+    --gold-deep: #b88f3c;
+    --gold-glow: rgba(230,197,115,0.28);
+    --gold-soft: rgba(230,197,115,0.12);
+    --ready-soft: rgba(116,214,138,0.14);
+    --hot: #ff6f6f;
+    --tx-dim: #4a5060;
+    --line-1: rgba(255,255,255,0.06);
+    --line-2: rgba(255,255,255,0.10);
+    --warn: #e8b865; --info: #6fa8ff; --crit: #d66666; --ok: #74d68a;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
@@ -104,7 +113,7 @@
   .icon-btn:disabled:hover { color: var(--text-2); }
   .notif-btn { position: relative; }
   .notif-btn.active { color: var(--warn); }
-  .notif-btn.open { color: var(--warn); background: rgba(232,157,90,0.12); }
+  .notif-btn.open { color: var(--warn); background: rgba(232,184,101,0.12); }
   .notif-badge {
     position: absolute;
     top: 2px; right: 2px;
@@ -315,9 +324,9 @@
     color: var(--accent);
     letter-spacing: 0.22em; font-weight: 600;
   }
-  .hero-stats-line .pill.warn { color: var(--warn); border-color: rgba(232,157,90,0.5); }
-  .hero-stats-line .pill.info { color: var(--info); border-color: rgba(122,171,214,0.5); }
-  .hero-stats-line .pill.ok { color: var(--ok); border-color: rgba(139,196,114,0.5); }
+  .hero-stats-line .pill.warn { color: var(--warn); border-color: rgba(232,184,101,0.5); }
+  .hero-stats-line .pill.info { color: var(--info); border-color: rgba(111,168,255,0.5); }
+  .hero-stats-line .pill.ok { color: var(--ok); border-color: rgba(116,214,138,0.5); }
   .hero-stats-line .sep { color: rgba(214,176,75,0.6); }
   .hero-stats-line .v { color: var(--text); letter-spacing: 0.05em; }
   .hero-stats-line .lbl { color: rgba(255,255,255,0.45); letter-spacing: 0.18em; }
@@ -345,9 +354,9 @@
   .grid-card-art { aspect-ratio: 16/9; position: relative; overflow: hidden; border-bottom: 1px solid var(--border); }
   .grid-card-art img { width: 100%; height: 100%; object-fit: cover; filter: saturate(0.95) brightness(0.85); }
   .grid-card-status-pill { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); padding: 3px 8px; font-size: 9px; line-height: 13px; letter-spacing: 0.16em; font-weight: 600; border: 1px solid rgba(214,176,75,0.4); color: rgba(255,255,255,0.95); }
-  .grid-card-status-pill.ready { color: var(--ok); border-color: rgba(139,196,114,0.4); }
-  .grid-card-status-pill.update { color: var(--warn); border-color: rgba(232,157,90,0.5); }
-  .grid-card-status-pill.predownload { color: var(--info); border-color: rgba(122,171,214,0.5); }
+  .grid-card-status-pill.ready { color: var(--ok); border-color: rgba(116,214,138,0.4); }
+  .grid-card-status-pill.update { color: var(--warn); border-color: rgba(232,184,101,0.5); }
+  .grid-card-status-pill.predownload { color: var(--info); border-color: rgba(111,168,255,0.5); }
   .grid-card-status-pill.downloading { color: var(--text); border-color: rgba(184,184,196,0.5); }
   .grid-card-name { position: absolute; bottom: 8px; left: 12px; right: 8px; font-family: 'Noto Sans TC', sans-serif; font-size: 14px; line-height: 18px; font-weight: 700; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
   .grid-progress { position: absolute; bottom: 0; left: 0; height: 2px; background: var(--accent); }
