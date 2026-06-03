@@ -156,6 +156,19 @@ type ResolvedPathSetter interface {
 	SetResolvedPaths(paths map[GameID]string)
 }
 
+// LastPlayedProbe is an optional Provider capability. Given a game and its
+// resolved install dir, it returns filesystem paths whose mtime indicates the
+// game was launched — including launches outside omnigate (the game engine's
+// player log, rewritten on each launch). The App stats each path and takes the
+// most recent mtime, then maxes it against the recorded playstate timestamp.
+//
+// Implementations MUST be pure path construction: no filesystem IO, no errors.
+// Non-existent paths are filtered by the App's stat step. An empty/nil return
+// means "no extra signal" (the App falls back to the playstate timestamp).
+type LastPlayedProbe interface {
+	LastPlayedFiles(gid GameID, installDir string) []string
+}
+
 // Provider is the integration point for one launcher backend (one publisher).
 // Phase 1 = hoyoverse only.
 type Provider interface {
