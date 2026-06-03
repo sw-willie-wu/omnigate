@@ -33,6 +33,7 @@ type App struct {
 	settingsMu     sync.RWMutex // guards a.settings + a.providers (spec §2.5)
 	logger         *slog.Logger
 	updateRegistry *UpdateStateRegistry
+	playState      *playState
 }
 
 // New returns an App. settingsPath may be "" → default to alongside the binary.
@@ -55,6 +56,7 @@ func New(settingsPath string, logger *slog.Logger) *App {
 		resolved:  map[core.GameID]resolvedEntry{},
 		logger:    logger,
 	}
+	a.playState = loadPlayState(playStatePathFor(settingsPath))
 	if err := a.constructProviders(); err != nil {
 		logger.Error("provider construction failed", "err", err)
 	}
@@ -274,6 +276,7 @@ type GameRow struct {
 	ResolvedPath   string               `json:"resolved_path,omitempty"`
 	PathSource     string               `json:"path_source"`
 	OverridePath   string               `json:"override_path,omitempty"`
+	LastPlayed     string               `json:"last_played,omitempty"`
 }
 
 // BackendStatus is one entry from ListBackends.
@@ -304,7 +307,7 @@ func (a *App) ListGames() ([]GameRow, error) {
 // maps WITHOUT locking.
 func (a *App) gameRowLocked(g core.GameDescriptor) GameRow {
 	e := a.resolved[g.ID]
-	return GameRow{
+	row := GameRow{
 		ID:           string(g.ID),
 		Backend:      string(g.Backend),
 		DisplayName:  g.DisplayName,
@@ -314,6 +317,12 @@ func (a *App) gameRowLocked(g core.GameDescriptor) GameRow {
 		Installed:    e.Source != core.SourceUnresolved && statDir(e.Path),
 		OverridePath: a.settings.Games[string(g.ID)].Path,
 	}
+	if a.playState != nil {
+		if ts := a.playState.Get(string(g.ID)); !ts.IsZero() {
+			row.LastPlayed = ts.Format(time.RFC3339)
+		}
+	}
+	return row
 }
 
 // SetGameOverride sets an explicit install-folder override for one game,
@@ -481,7 +490,11 @@ func (a *App) Launch(gameID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return p.Launch(a.ctx, gid, core.LaunchOptions{})
+	pid, err := p.Launch(a.ctx, gid, core.LaunchOptions{})
+	if err == nil && a.playState != nil {
+		a.playState.Record(string(gid))
+	}
+	return pid, err
 }
 
 func (a *App) GetSettings() Settings {
