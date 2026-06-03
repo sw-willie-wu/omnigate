@@ -18,6 +18,20 @@
     "error": "情报加载失败",
     "view_all": "查看全部情报"
   },
+  "gacha": {
+    "loading": "加载中…",
+    "unsupported": "此游戏尚未支持抽卡分析。",
+    "empty": "尚无记录。请先在游戏内打开一次抽卡记录，再刷新。",
+    "url_hint": "记录链接已失效。请在游戏内重新打开抽卡记录后再刷新。",
+    "refresh": "刷新记录",
+    "total_pulls": "总抽数",
+    "spend_est": "已花费（估算）",
+    "headline_cnt": "最高星数",
+    "avg_pity": "平均出货",
+    "luck": "幸运值",
+    "worst": "最非",
+    "pull_count": "{n} 抽出货"
+  },
   "buttons": {
     "play": "开始游戏",
     "play_short": "开始",

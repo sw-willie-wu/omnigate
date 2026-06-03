@@ -18,6 +18,20 @@
     "error": "Failed to load news",
     "view_all": "View all news"
   },
+  "gacha": {
+    "loading": "Loading…",
+    "unsupported": "Gacha analysis isn't supported for this game yet.",
+    "empty": "No records yet. Open the gacha history in-game once, then refresh.",
+    "url_hint": "Records link expired. Open the gacha history in-game again, then refresh.",
+    "refresh": "Refresh records",
+    "total_pulls": "Total pulls",
+    "spend_est": "Spent (est.)",
+    "headline_cnt": "Top-rarity",
+    "avg_pity": "Avg per top",
+    "luck": "Luck",
+    "worst": "Worst",
+    "pull_count": "{n} pulls"
+  },
   "buttons": {
     "play": "PLAY",
     "play_short": "PLAY",
