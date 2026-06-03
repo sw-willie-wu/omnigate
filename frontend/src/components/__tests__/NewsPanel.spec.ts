@@ -61,5 +61,12 @@ describe('NewsPanel', () => {
     expect(w.text()).toContain('Ann1');
     expect(w.text()).not.toContain('Act1');
     expect(w.text()).not.toContain('Info1');
+    // 資訊 filter pill shows only info items (only filter pills are <button>s)
+    const infoBtn = w.findAll('button').find((b) => b.text() === 'Info');
+    expect(infoBtn).toBeTruthy();
+    await infoBtn!.trigger('click');
+    expect(w.text()).toContain('Info1');
+    expect(w.text()).not.toContain('Ann1');
+    expect(w.text()).not.toContain('Act1');
   });
 });

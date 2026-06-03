@@ -10,6 +10,7 @@
     "filter_all": "All",
     "filter_announce": "Notice",
     "filter_activity": "Event",
+    "filter_info": "Info",
     "cat_announce": "Notice",
     "cat_activity": "Event",
     "cat_info": "Info",
