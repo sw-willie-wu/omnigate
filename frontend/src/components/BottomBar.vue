@@ -4,7 +4,6 @@ import { useGamesStore } from '../stores/games';
 import { useUpdatesStore } from '../stores/updates';
 import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
-import { Launch } from '../../wailsjs/go/app/App';
 import { formatSize } from '../utils/format';
 import GameConfigPopover from './GameConfigPopover.vue';
 
@@ -116,7 +115,7 @@ const verifyLabel = computed(() => {
 });
 
 async function onLaunch() {
-  if (games.selected) try { await Launch(games.selected.id); } catch (e) { console.error(e); }
+  if (games.selected) try { await games.launchGame(games.selected.id); } catch (e) { console.error(e); }
 }
 async function onUpdate() {
   if (isStarting.value || !games.selected) return;

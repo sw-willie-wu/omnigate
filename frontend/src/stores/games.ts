@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ListGames, RefreshVersion, GetIcon, GetBackgrounds, SetGameOverride, ClearGameOverride, RefreshGame } from '../../wailsjs/go/app/App';
+import { ListGames, RefreshVersion, GetIcon, GetBackgrounds, SetGameOverride, ClearGameOverride, RefreshGame, Launch } from '../../wailsjs/go/app/App';
 
 export type GameRow = {
   id: string;
@@ -16,6 +16,7 @@ export type GameRow = {
   resolved_path?: string;
   path_source?: string;
   override_path?: string;
+  last_played?: string;
 };
 
 export const useGamesStore = defineStore('games', {
@@ -108,6 +109,15 @@ export const useGamesStore = defineStore('games', {
         this.refreshVersionFor(row.id);
         this.loadAssetsFor(row.id);
       }
+    },
+    // Launch a game and optimistically stamp last_played on the live row.
+    // Direct field mutation only — NEVER via _replaceRow (that re-fetches and
+    // would wipe icon_url/background_url/background_video). Backend persists the
+    // authoritative value to playstate.json; it reaches us on next cold start.
+    async launchGame(gameID: string) {
+      await Launch(gameID);
+      const row = this.games.find((g) => g.id === gameID);
+      if (row) row.last_played = new Date().toISOString();
     },
     select(id: string) { this.selectedID = id; },
   },
