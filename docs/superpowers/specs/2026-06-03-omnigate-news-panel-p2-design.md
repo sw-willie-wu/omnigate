@@ -87,11 +87,13 @@ type NewsProvider interface {
   - gids 由 gid map：`hoyoverse/genshin`→2、`hoyoverse/starrail`→6、`hoyoverse/zzz`→8（未知→跳過/空）。
   - lang map（`x-rpc-language`）：zh-TW→`zh-tw`、zh-CN→`zh-cn`、en→`en-us`（未知→`en-us`）。
   - 註：此 API 與既有 `api.go`（HoYoPlay `sg-hyp-api` 協定）是**不同 host/用途**，news 走獨立 client、不影響既有 background/version 邏輯。
-- **kurogames**（新 `news.go`；官網 CMS feed，**非** launcher `information.json`）：`GET https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/json/G152/<lang>/ArticleMenu.json`（**LIVE 釘死**；CN locale 改走 host `https://media-cdn-mingchao.kurogame.com/...`）。
-  - 回應是 article 物件**陣列**，每項 `articleId`、`articleTitle`、`articleType`、`createTime`、`startTime`、`sortingMark`、`suggestCover`、`top`（置頂）、`articleContent`（內含 HTML，**不使用**）。
-  - 映射：`articleType` → `58→announce`(Notice) / `59→activity`(Event) / `57→info`(News)（分類碼由同目錄 `MainMenu.json` 確認；未知碼→info）；`articleTitle`→Title；`startTime`（`YYYY-MM-DD HH:MM:SS`，取日期段）→Date；`suggestCover`→Thumbnail（可能空）；URL=`https://wutheringwaves.kurogames.com/<lang>/main/news/detail/<articleId>`。依 `top` desc + `sortingMark` 排序（比照官網 `articleSort`）。
+- **kurogames**（新 `news.go`；官網 CMS feed，**非** launcher `information.json`）：**2-stage**（LIVE 釘死）。base=`https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/json/G152`（CN locale 改走 host `https://media-cdn-mingchao.kurogame.com/...`）。
+  - **Stage 1（清單）**：`GET <base>/<lang>/ArticleMenu.json` → article 物件陣列：`articleId`/`articleTitle`/`startTime`/`top`/`sortingMark`。依 `top` desc + `sortingMark` asc 排序，取前 N（`wuwaNewsMaxItems=10`）。
+    > ⚠️ **list feed 不帶縮圖也不帶分類名**：`suggestCover` 實測 0/600 全空；`articleType`(int) 是 **locale-specific**（en 58/57/59、zh-tw 90/89/91），不可硬編。
+  - **Stage 2（detail，per-article 並發）**：對每篇 `GET <base>/<lang>/article/<id>.json` → `articleTypeName`（分類名）+ `articleContent`（HTML，取**首個 `<img src>`** 當縮圖）。並發、各篇失敗只降級該項（category→info、無縮圖），不影響其他。
+  - 映射：分類由 **`articleTypeName`**（localized：公告/Notice→announce、活動/活动/Event→activity、其餘 新聞/新闻/News/资讯→info）；`articleTitle`→Title；`startTime` 取日期段→Date；首圖→Thumbnail；URL=`https://wutheringwaves.kurogames.com/<lang>/main/news/detail/<articleId>`。
   - lang map（LIVE 驗證）：zh-TW→`zh-tw`、zh-CN→`zh-cn`（ZH host）、en→`en`（未知→`en`）。
-  - **不渲染 `articleContent`**（內含 HTML，避免 XSS；列表只需標題/分類/日期/縮圖）。
+  - **只取 `articleContent` 的首個 `<img>` URL（regex），不渲染其 HTML**（避免 XSS；縮圖 URL 在前端走 `<img referrerpolicy="no-referrer">`）。
 - **hypergryph**（新 `news.go`，**公開 JSON API、非 HTML 爬取**）：GET `https://web-news.gryphline.com/api/bulletin?lang=<locale>&code=arknights_endfield_official&page=1&pageSize=12`（**LIVE 驗證：免登入 200**）。
   - 回應 `{code:0,msg:"",data:{list:[{cid,tab,sticky,title,author,displayTime,cover,extraCover,brief}],total}}`。
   - 映射：`tab` → `notices→announce` / `events→activity` / `news→info`（未知 tab→info）；`title`→Title；`cover`→Thumbnail；`displayTime`（**epoch 秒**）→ 格式化為 `YYYY-MM-DD` 字串放 Date（與他家「原樣字串」不同，因這家給的是 epoch；格式化在 provider 端統一成日期字串）；URL = `https://endfield.gryphline.com/<locale>/news/<cid>`（詳情頁）。

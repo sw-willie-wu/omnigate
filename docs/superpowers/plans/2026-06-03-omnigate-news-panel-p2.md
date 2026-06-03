@@ -504,6 +504,8 @@ git commit -m "feat(hoyoverse): GetNews via public HoYoLab getNewsList API"
 
 ### Task 4: kurogames `news.go`（官網 CMS ArticleMenu.json）
 
+> **修訂（2026-06-03，smoke 後）**：實測 list feed 的 `suggestCover` 全空、`articleType` int 為 locale-specific。改為 **2-stage**：ArticleMenu 取清單/排序 → 對前 10 篇**並發**抓 `article/<id>.json`，由 `articleTypeName`（localized 名）定分類、由 `articleContent` 首個 `<img>` 取縮圖。下方原單階段程式碼**作廢**，以 spec §C 與實作（commit）為準。
+
 **Files:**
 - Create: `internal/providers/kurogames/news.go`
 - Test: `internal/providers/kurogames/news_test.go`
