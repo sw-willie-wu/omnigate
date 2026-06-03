@@ -79,6 +79,5 @@ const inflightLabel = computed(() => {
       </div>
       <div v-else class="game-status-mini" :class="status().cls">{{ status().label }}</div>
     </div>
-    <span class="game-marker" :class="status().cls"></span>
   </div>
 </template>
