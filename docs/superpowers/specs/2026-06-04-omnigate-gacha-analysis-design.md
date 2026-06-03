@@ -1,7 +1,7 @@
 # omnigate — P3 抽卡分析（Gacha Analysis）設計
 
 > 日期：2026-06-04 · 狀態：設計（待 plan）
-> 範圍：P3 第一塊、最自包含的子系統 = **抽卡分析儀表板**。免帳密（走遊戲本機 log 解出的 history URL）。**五款全支援**（原神/星穹/絕區零/鳴潮/終末地）。帳號晶片、開拓力（需真帳號登入）屬 P3 後續，不在此。
+> 範圍：P3 第一塊、最自包含的子系統 = **抽卡分析儀表板**。免帳密（走遊戲本機 log/webCaches 解出的 history URL）。**架構支援五款，但驗證程度分級**（星穹/終末地已驗證、原神/絕區零待 spike、鳴潮為研究風險）；以**分階段交付**收斂風險（見「交付分階段」）。帳號晶片、開拓力（需真帳號登入）屬 P3 後續，不在此。
 
 ## Context（為什麼做這個）
 
@@ -11,34 +11,39 @@ P1 主畫面重構（merge `7e9eb87`）在 NavStrip 放了 `總覽 / 抽卡分�
 
 依 P1/P2 鐵則：**需要資料一律走新增 Go binding（Wails），不前端直接 fetch**；前端新頁面元件 + Pinia store + i18n 三檔 parity；per-game 優雅降級（同 NewsPanel/last-played）。
 
-預期成果：點 NavStrip 的「抽卡分析」→ 主視覺內容區換成抽卡儀表板（外殼/NavStrip 不跑位），顯示該遊戲當前帳號的抽卡統計（總抽數/估算花費/最高星數/平均出貨/本機幸運值/保底進度/出貨分佈/最近最高星時間軸）；「重新整理紀錄」走遊戲 log 解 URL → 打 record API → 增量去重寫入 SQLite；含載入中／空（未匯入）／錯誤（URL 失效引導重開）／未支援 四狀態。
+預期成果：點 NavStrip 的「抽卡分析」→ 主視覺內容區換成抽卡儀表板（外殼/NavStrip 不跑位），顯示該遊戲當前帳號的抽卡統計（總抽數/估算花費/最高星數/平均出貨/本機幸運值/保底進度/出貨分佈/最近最高星時間軸）；「重新整理紀錄」走遊戲本機 log/webCaches 解 history URL → 打 record API → 增量去重寫入 SQLite；含載入中／空（未匯入）／錯誤（URL 失效引導重開）／未支援 四狀態。
 
 ## 研究結論（資料源可行性，2026-06-04 research spike）
 
 > HoYoverse no-probe 規則放寬範圍：使用者 2026-06-04 明確放寬 **gacha-log API**（用使用者自己的 authkey/token，gacha-log 是玩家自身資料、社群 exporter 廣用），比照 NewsPanel news API 例外。**`genAuthKey` 等鑄憑證/受保護帳號協定仍 no-probe、不放寬**（見「URL 取得策略」）。
 > 參考來源同時涵蓋使用者本機既有研究 repo `C:\Users\willie\Repos\gacha-tracker`（已實作 Endfield + Star Rail 抓取）。
 
-**五款共用同一套抓取模式**（research spike 證實）：
+**抓取模式（共同骨架，但 URL 取得**不**統一）**：
 
 ```
-讀遊戲本機 log → regex 最近一筆 history URL（帶 token/authkey）
-   → 打該遊戲 record API（cursor 分頁）→ 正規化成 GachaPull → 寫入 store（去重）
+取得 history URL（帶 token/authkey）→ 打該遊戲 record API（cursor 分頁）
+   → 正規化成 GachaPull → 寫入 store（去重）
 ```
 
-URL 定位沿用既有 `LastPlayedProbe` 已知的 LocalLow / install-dir 路徑知識。各家差異只落在四項資料：**log 路徑、history URL regex、record API（host/路徑/參數/cursor）、星級制 + 保底模型**。
+⚠️ **「URL 取得」不是五款統一的**——分兩種來源，且 **HoYoverse 內部也不一致**：(a) **文字 log regex**（Star Rail / Endfield 已驗證寫整段 history URL 到 log）；(b) **webCaches 二進位掃描**（Genshin 歷來**不**把完整 authkey URL 寫進 Player.log，社群 exporter 改掃 `<Game>_Data/webCaches/.../Cache/Cache_Data/data_2` 撈含 authkey 的 URL）。因此 `FetchGacha` 必須**允許 per-game URL-source 策略**（text-log vs binary-cache）。各家差異落在五項：**URL 來源類型、log/cache 路徑、history URL regex、record API（host/路徑/參數/cursor）、星級制 + 保底模型**。
 
-| 遊戲 | log 來源 | history URL | record API / cursor | 最高★ | 開源/本機參考 |
+**證據分級（誠實標示——避免把未驗證當已驗證）**：
+
+| 遊戲 | 驗證程度 | URL 來源 | record API / cursor | 最高★ | 參考 |
 |---|---|---|---|---|---|
-| 原神/星穹/絕區零（HoYoverse）| LocalLow `Player.log` / `output_log.txt`（同 LastPlayedProbe 路徑）| mihoyo/hoyoverse gacha history URL（帶 `authkey` 或 `token`）| `getGachaLog`，`end_id` cursor、`gacha_type` 分池、`size=20` | 5 | gacha-tracker（starrail 腳本）、biuuu/genshin-wish-export、sunfkny/genshin-gacha-export、UIGF 標準 |
-| 鳴潮（Kuro）| install-dir `Client/Saved/Logs`（debug log）| Kuro convene history URL | Kuro 官方 record API（POST，分頁）| 5 | Ikram001/wuwa-pull-tracker-local、Luzefiru gist、Anubhav1603/URL-Extractor |
-| 終末地（Hypergryph）| LocalLow `Gryphline\Endfield\sdklogs\HGWebview.log` | `https://ef-webview.gryphline.com/page/gacha_…`（帶 `token`/`server_id`/`lang`）| `https://ef-webview.gryphline.com/api/record/char`，`seq_id` cursor、`pool_type` 分池 | 6 | **gacha-tracker（使用者本機實作）**、bhaoo/endfield-gacha、daydreamer-json/ak-endfield-gacha-link-gen |
+| 星穹鐵道（HoYoverse）| ✅ **已驗證**（使用者 repo 腳本）| 文字 log regex：`Player.log` 內 `…mihoyo.com…/gacha/v[0-9]/history?token=…` | `getGachaLog`，`end_id` cursor、`gacha_type` 分池 | 5 | gacha-tracker `starrail-export.ps1`、biuuu/genshin-wish-export、UIGF |
+| 終末地（Hypergryph）| ✅ **已驗證**（使用者 repo 完整實作）| 文字 log regex：`…\Gryphline\Endfield\sdklogs\HGWebview.log` 內 `https://ef-webview.gryphline.com/page/gacha_…` | `/api/record/char`，`seq_id` cursor、`pool_type` 分池 | 6 | **gacha-tracker（本機實作）**、bhaoo/endfield-gacha、daydreamer-json |
+| 原神（HoYoverse）| 🟡 **類比 + 待 spike**（不同 URL 來源）| **webCaches `data_2` 二進位掃描**（非 Player.log）撈 `getGachaLog?authkey=…` | `getGachaLog`，`end_id` cursor | 5 | biuuu/genshin-wish-export、sunfkny/genshin-gacha-export |
+| 絕區零（HoYoverse）| 🟡 **類比 + 待 spike**（URL 來源待確認 log vs webCaches）| spike 釘（gids=8 已知，URL 來源未驗證）| `getGachaLog` 系 | 5 | 同上 |
+| 鳴潮（Kuro）| 🔴 **研究風險，未驗證**（使用者 repo **無** WuWa 腳本）| install-dir `Client/Saved/Logs` debug log 內 convene URL（regex 未釘）| Kuro record API（host/路徑/POST 形狀**全未知**）| 5 | Ikram001/wuwa-pull-tracker-local、Luzefiru gist、Anubhav1603/URL-Extractor（**僅證明社群做得到、本專案未自行釘死**）|
 
-- **各家 host/路徑/參數/cursor/region/lang map 由 plan 階段 research spike 逐款釘死**（HoYoverse 三款的 host/biz/region 不同；鳴潮 record API 為 POST；終末地參數已由使用者 repo 釘死，見下）。
+- **WuWa 是最弱的一腳、不可當已確認**：使用者 repo 無 WuWa 程式，record API host/路徑/POST body 皆未知。plan 階段 spike **必須帶 kill-switch**：若 WuWa 機制無法在合理時間內釘死，該款**降級為「未支援」**，不阻塞其餘四款交付。
+- **各款 host/路徑/參數/cursor/region/lang map 由 plan 階段 research spike 逐款釘死**（HoYoverse 三款 host/biz/region 不同且 **URL 來源可能不同**；鳴潮整套未知；終末地參數已由使用者 repo 釘死，見下）。
 - **終末地細節（gacha-tracker 已釘死）**：URL regex `https://ef-webview\.gryphline\.com/page/gacha_[^ ]*`；API `/api/record/char` params `token`/`pool_type`/`lang`/`server_id`/`seq_id`；pool_type ∈ {`E_CharacterGachaPoolType_Standard`(基礎尋訪), `_Special`(特許尋訪), `_Beginner`(啟程尋訪)}（spike 確認是否另有武器池）；回應 `data.{list:[{poolId,poolName,charId,charName,rarity,gachaTs,seqId,isFree}],hasMore}`；`hasMore`+`seqId` cursor 分頁。
 
 ## 使用者已拍板的範圍決策（2026-06-04 brainstorm）
 
-- **v1 五款全納入架構**，拿不到機制的 per-game 優雅降級（顯示未連結/空狀態）。研究後**五款皆可行**（含終末地，使用者已自行破解）。
+- **v1 五款全納入架構**，拿不到機制的 per-game 優雅降級（顯示未連結/未支援狀態）。**驗證程度分級**（見研究結論）：星穹/終末地已驗證；原神/絕區零類比待 spike（原神 URL 來源是 webCaches 非 log）；**鳴潮為研究風險、可能降級未支援**。架構支援五款不等於五款都保證 ship。
 - **gacha API 可輕量探測**（同 NewsPanel news 例外，用使用者自己帳號的 authkey/token 釘 host/路徑/region）。**`genAuthKey` 受保護協定不放寬**。
 - **持久化 = SQLite（`modernc.org/sqlite`，pure Go，配合 CGO_ENABLED=0），只給抽卡紀錄用**，藏在 swappable store 介面後（`internal/store`）。last-played（`playstate.json`）與 Sophon chunk-dedup 維持原 JSON 不動、不在此遷移（見 memory `future-sqlite-for-cross-game-state-and-gacha`）。
 - **幸運值本機推算**（平均出貨抽數 vs 理論期望值），**不宣稱全服百分位**（需外部基準分佈、不可行，比照 P2 砍倒數 pill）。小/大保底命中%、最非紀錄等皆本機算。
@@ -80,8 +85,12 @@ type PityModel interface {
 	// HardPity 該 banner 的硬保底上限（顯示「N/上限」進度條用）。
 	HardPity() int
 	// PityAfter 給「依時間+id 昇序排好、且屬同一 banner」的紀錄，回傳序列尾端
-	// 當前已累積、尚未中最高星的抽數（即下一抽的保底進度）。
+	// 當前已累積、尚未中最高星的抽數（即下一抽的保底進度）。Endfield 的 carryover/
+	// isFree 規則在此內部算掉、不外露。
 	PityAfter(sortedSameBanner []GachaPull, headlineRank int) int
+	// Has5050 此 banner 是否有小保底/大保底（50/50）機制（HoYoverse 限定池 true；
+	// Endfield/常駐池 false）。決定 GachaSummary.WinRate5050 是否計算。
+	Has5050() bool
 }
 
 // BannerConfig 描述一個卡池在 UI/統計裡的呈現。
@@ -101,22 +110,28 @@ type GachaConfig struct {
 }
 
 // GachaProvider is an optional Provider capability: fetch a game's gacha history
-// (no password; reads the local game log for the short-lived history URL/token).
-// 未實作此介面的遊戲 → 抽卡分析頁顯示「未支援」。
+// (no password; reads the short-lived history URL/token from the game's local
+// state). 未實作此介面的遊戲 → 抽卡分析頁顯示「未支援」。
+//
+// ⚠️ URL 來源 per-game 不同（見研究結論）：文字 log regex（SR/Endfield）vs
+// webCaches 二進位掃描（Genshin）。FetchGacha 的實作各自決定來源；介面不假設來源。
 type GachaProvider interface {
-	// FetchGacha 解 log 取 history URL（或用 cachedURL 在有效期內重打）→ 打 record API
-	// → 分頁拉 → 回正規化紀錄 + uid。
-	//   cachedURL：store 上次快取的 URL（""=無）；provider 優先用 log 最新的，log 無有效
-	//     URL 時退回 cachedURL。
-	//   URL 失效/找不到 log → 回 ErrGachaURLUnavailable（App 轉前端「重開抽卡紀錄」引導）。
+	// FetchGacha 取 history URL（log regex 或 webCaches 掃描，或用 cachedURL 在有效期內
+	// 重打）→ 打 record API → 分頁拉 → 回正規化紀錄 + uid。
+	//   installDir：App 解析後的安裝目錄（webCaches 來源需要；log 來源多在 LocalLow）。
+	//   cachedURL：store 上次快取的 URL（""=無）；provider 優先用本機最新的，無有效 URL
+	//     時退回 cachedURL。
+	//   URL 失效/找不到 → 回 ErrGachaURLUnavailable（App 轉前端「重開抽卡紀錄」引導）。
+	// 註：與 LastPlayedProbe（純路徑、無 IO）不同，FetchGacha 做真實檔案 IO + 網路。
 	FetchGacha(ctx context.Context, gid GameID, installDir, cachedURL string) (GachaFetchResult, error)
 	// GachaConfig 回該遊戲的星級/卡池/估價設定（純資料）。
 	GachaConfig(gid GameID) GachaConfig
 }
-
-// ErrGachaURLUnavailable 是可辨識的哨兵錯誤：log 找不到有效 history URL 且無可用快取。
-var ErrGachaURLUnavailable = errors.New("gacha history url unavailable")
 ```
+
+> **`ErrGachaURLUnavailable` 哨兵錯誤**置於既有 core error 哨兵所在檔（與 `ErrUnknownGame` 等同處，保持一致），其檔需 import `errors`；**不**直接塞進 `provider.go`（該檔目前只 import `context`/`fmt`/`strings`）。
+>
+> **路徑勿盲目沿用 LastPlayedProbe**：⚠️ 既有 `hoyoverse/lastplayed.go` 把 starrail 映到 `Cognosphere\Star Rail`，但已驗證的 `starrail-export.ps1` 讀的是 `miHoYo\Honkai: Star Rail\Player.log`——**兩者不同**（region/version layout 差異）。gacha log 路徑須 plan spike 逐款實機確認，**不可假設 `localLowProduct` 可原樣重用**。
 
 > mockup 的「歐非全服百分位」需外部基準分佈 → 不做（改本機推算，見統計引擎）；「匯出報表」v1 不做。
 
@@ -141,6 +156,9 @@ var ErrGachaURLUnavailable = errors.New("gacha history url unavailable")
   - `meta(key, value)`（schema 版本、`latest_uid:<game>`）。
 - **DB 檔位置**：跟 settings 同目錄（目前實際是 CWD，已知行為，見 memory `main-screen-p1` last-played 段；未來統一遷移時一併處理）。檔名如 `gacha.db`。
 - 連線單例由 App 持有；`modernc.org/sqlite` 為 pure Go，**不需 CGO**（與本機 `CGO_ENABLED=0` 相容）。go.mod 新增此唯一依賴。
+- **並發**（`RefreshGacha` 寫 vs `GetGachaSummary` 讀皆可獨立被 Wails 呼叫）：**先把分頁結果全部抓進記憶體，再開一個短交易 `UpsertPulls`**——**絕不在分頁 HTTP 期間持有寫交易**。`*sql.DB` 設 `SetMaxOpenConns(1)`（單檔避免 `SQLITE_BUSY`），或 store 層加 mutex。
+- **schema 版本/遷移**：開 DB 時讀 `meta.schema_version`；缺 → 建表並設 v1；保留一個 migration hook（v1 不需真遷移，但首次 schema 變更前要有掛點，避免 ship 後破壞）。
+- **token-at-rest 決策（N3）**：`url_cache.url` 含**有效約 24h 的 token/authkey**——等於把短期憑證寫進 CWD 的未加密 `gacha.db`。本專案為單機單使用者 launcher、DB 與 settings 同信任域 → **接受此風險**，但強制：(a) **絕不把含 token 的 URL 寫進 log**（provider/app log 一律遮蔽 query string）；(b) token 過期自然失效、無長期外洩面。未來若做雲端同步須重新評估。
 
 ### C. 統計引擎 — `internal/core/gacha`（backend-agnostic 純函式）
 
@@ -176,13 +194,16 @@ type GachaSummary struct {
 - **平均出貨/保底/分佈/時間軸**：把紀錄依 banner 分組、依 (time, id 數值序) 昇序排，逐抽累計，遇 `Rank == HeadlineRank` 記錄花費抽數並依該 banner 的 `PityModel` 重置（HoYoverse 歸 0；Endfield 依 isFree/carryover 規則，見 PityModel 實作）。
 - **本機幸運值**：`AvgPity` 對映「理論期望出貨抽數」（per-game 常數，如 HoYoverse 角色池 ≈ 62.5）→ 線性映射成 0-100 LuckScore + 結論標籤（微歐/微非）。**不需外部資料**。
 - **估算花費**：`SpendEst = 非免費抽數 × PullPrice`，前端**明標「估算」**。
+- **時間解析/排序（載入關鍵，N5）**：`GachaPull.Time` 是來源當地時間字串、無時區，排序靠 `(time, id 數值序)`。Go 無 JS `Date` 的寬鬆解析 → **plan 須逐款定義精確的 time parse layout**（HoYoverse server-local `YYYY-MM-DD HH:MM:SS`、Endfield `gachaTs`），及 **id 數值序 tiebreak**（同時間戳的十連必須穩定排序，否則保底計數錯亂）。比照 gacha-tracker `gachaStore.ts` 的 time + numeric-id tiebreak，但用 Go 明確 layout。
+- **PityModel carryover 內含（N6）**：Endfield 的 milestone-60 carryover + isFree 排除等狀態**全在該 banner 的 `PityModel.PityAfter` 內部算掉**、不外露到 `GachaSummary`（v1 mockup §2.3 只顯示 `N/上限`，`int` 足夠）。介面刻意只回單一 pity 進度，避免實作中途發現「介面裝不下 carryover」。
+- **`WinRate5050`（N7）**：小保底命中%是 HoYoverse 特性、Endfield 無 50/50（走限定保證/carryover）。此欄是否計算由 **`GachaConfig`/`PityModel` 的 flag 決定**（如 `PityModel` 增 `Has5050() bool`），**不在統計引擎裡硬編 provider 判斷**；無 50/50 機制 → `nil`。
 - 純函式、可單測；不碰 IO/network。
 
 ### D. App bindings — `internal/app`
 
 - `func (a *App) RefreshGacha(gameID string) (core.GachaSummary, error)`：
   1. `provider(gid)`；type-assert `core.GachaProvider`，未實作 → 回 `{Supported:false}`。
-  2. 解析 install dir（沿用既有 `a.resolved[gid]`）。
+  2. 解析 install dir：讀 `a.resolved[gid].Path`（`a.resolved` 值型別是 `resolvedEntry`、非字串；讀取須在 `settingsMu.RLock` 下，比照 `gameRowLocked` 紀律）。
   3. 讀 store URL 快取 → `provider.FetchGacha(ctx, gid, installDir, cachedURL)`（帶 timeout，分頁拉可能較久，給較寬 timeout 並尊重 ctx 取消；provider 內各頁間加 rate-limit sleep 比照 bhaoo/endfield-gacha 500–1000ms，避免觸發風控）。
   4. `ErrGachaURLUnavailable` → 回可辨識錯誤（前端顯示「請在遊戲內開啟抽卡紀錄」引導）。
   5. 成功 → `store.UpsertPulls` + `store.PutURLCache` + 記 latest uid → 讀全量 → 統計引擎 → 回 summary。
@@ -213,7 +234,9 @@ type GachaSummary struct {
 
 各 provider 新增 `gacha.go` + `gacha_test.go`，實作 `GachaProvider`：
 
-- **hoyoverse**（三款共用一套、host/biz/region 由 map 分）：解 LocalLow log（沿用 `lastplayed.go` 的 `localLowProduct` 路徑）取 gacha URL → `getGachaLog`，`gacha_type` 分池、`end_id` cursor、`size=20`，各頁間 sleep。映射 `id/gacha_type/item_type/rank_type/name/time/uid`。region/biz/host 三款各異（spike 釘）。
+- **hoyoverse**（三款共用 record API 抓取邏輯、host/biz/region 由 map 分；但 **URL 來源 per-game 不同**）：
+  - **URL 取得（spike 逐款釘）**：Star Rail = 文字 log regex（`Player.log`，路徑須實機確認、**勿假設等同 `localLowProduct`**，見上 ⚠️）；Genshin = **webCaches `data_2` 二進位掃描**（`<InstallDir>/<Game>_Data/webCaches/<ver>/Cache/Cache_Data/data_2`，撈含 `authkey` 的 `getGachaLog` URL）；ZZZ = spike 確認 log vs webCaches。抽出共用 `urlSource` 策略（text-log / webcache-scan），per-game 指定。
+  - **record API**：`getGachaLog`，`gacha_type` 分池、`end_id` cursor、`size=20`，各頁間 sleep。映射 `id/gacha_type/item_type/rank_type/name/time/uid`。region/biz/host 三款各異（spike 釘）。
 - **kurogames**（鳴潮）：解 install-dir `Client/Saved/Logs` debug log 取 convene URL → Kuro record API（POST 分頁）。映射 convene 欄位 → GachaPull。
 - **hypergryph**（終末地）：解 `…\Gryphline\Endfield\sdklogs\HGWebview.log` 取 `ef-webview…/page/gacha_…` URL → `/api/record/char`，`pool_type` 分池、`seq_id` cursor、`hasMore`。映射 `seqId→ID`、`poolId→BannerKey`、`charName→Name`、`rarity→Rank`、`gachaTs→Time`、`isFree→IsFree`（依 gacha-tracker 已釘死欄位）。`GachaConfig.HeadlineRank=6`。
 - 各家 `GachaConfig` 提供 banner 設定 + `PityModel` 實作（HoYoverse 硬保底+50/50；Endfield 依使用者 repo 實測模型 + bhaoo/endfield-gacha 對齊：軟/硬保底、isFree 排除、限定保證/carryover——**spike 釘死實際參數**，pluggable 設計吸收）。
@@ -236,6 +259,17 @@ type GachaSummary struct {
 - 憑證重放/自動鑄 authkey（碰受保護協定 + 帳號憑證，排除；保留「開一次+快取」）。
 - 帳號切換選單、帳號晶片、開拓力（P3 後續，需真帳號登入）。
 - last-played / Sophon chunk-dedup 遷 SQLite（不在此 feature；未來統一里程碑）。
+
+## 交付分階段（de-risk，N8）
+
+範圍大（5 款 × URL 取得策略不一 + 分頁 API + 正規化 + PityModel + 新 SQLite store + 統計引擎 + 前端板 + 三語 i18n）→ **不一次到位**，plan 按下列階段拆任務，每階段都是可 ship 的里程碑（任一後段卡住不影響前段）：
+
+1. **基礎 + 已驗證一款**：`internal/store`（SQLite）+ 統計引擎 + `core` 型別/介面 + App bindings + 前端 `GachaBoard`/store/i18n + **Star Rail**（已驗證、文字 log 來源最單純）。此階段交付即「抽卡分析可動」。
+2. **終末地**（已驗證、使用者 repo 完整參考；驗 6★/isFree/carryover PityModel + seq_id 分頁）。
+3. **原神 + 絕區零**（新增 webCaches `data_2` 二進位掃描 urlSource；spike 釘死後接）。
+4. **鳴潮**（研究風險，spike 帶 **kill-switch**：API 釘不死 → 留「未支援」降級，不阻塞 1–3）。
+
+> 統計引擎/store/前端板在階段 1 就 backend-agnostic 完成，後續每款只加 provider `gacha.go` + `GachaConfig` + `PityModel`，零改動引擎/前端。
 
 ## 起點與分支衛生
 
