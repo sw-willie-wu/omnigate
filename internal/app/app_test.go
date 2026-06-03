@@ -541,3 +541,65 @@ func TestLastPlayedLocked_NilPlayState(t *testing.T) {
 		t.Errorf("want file mtime %v, got %v", fileMt, got)
 	}
 }
+
+// fakeNewsProvider embeds fakeProvider and returns canned news.
+type fakeNewsProvider struct {
+	fakeProvider
+	items   []core.NewsItem
+	gotLang string
+}
+
+func (f *fakeNewsProvider) GetNews(_ context.Context, _ core.GameID, lang string) ([]core.NewsItem, error) {
+	f.gotLang = lang
+	return f.items, nil
+}
+
+func TestGetNews_RoutesToProvider(t *testing.T) {
+	gid := core.GameID("fake/g")
+	fp := &fakeNewsProvider{
+		fakeProvider: fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}},
+		items:        []core.NewsItem{{Title: "Hello", Category: core.NewsAnnounce, URL: "https://x/1"}},
+	}
+	a := &App{settings: Settings{Version: 2}, logger: slog.Default()}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "zh-TW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Title != "Hello" {
+		t.Fatalf("got %v", out)
+	}
+	if fp.gotLang != "zh-TW" {
+		t.Errorf("lang passthrough = %q, want zh-TW", fp.gotLang)
+	}
+}
+
+func TestGetNews_ProviderWithoutNews_ReturnsEmpty(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := &App{settings: Settings{Version: 2}, logger: slog.Default()}
+	a.providers = []core.Provider{&fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}}}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "en")
+	if err != nil {
+		t.Fatalf("want nil err, got %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("want empty, got %v", out)
+	}
+}
+
+func TestOpenExternalURL_RejectsNonHTTP(t *testing.T) {
+	a := &App{logger: slog.Default()}
+	if err := a.OpenExternalURL("file:///etc/passwd"); err == nil {
+		t.Errorf("file:// accepted; want rejected")
+	}
+	if err := a.OpenExternalURL("javascript:alert(1)"); err == nil {
+		t.Errorf("javascript: accepted; want rejected")
+	}
+	if err := a.OpenExternalURL("https://example.com"); err != nil {
+		t.Errorf("https rejected: %v", err)
+	}
+}

@@ -5,6 +5,19 @@
     "hypergryph": "鹰角",
     "perfectworld": "完美世界"
   },
+  "news": {
+    "title": "最新情报",
+    "filter_all": "全部",
+    "filter_announce": "公告",
+    "filter_activity": "活动",
+    "filter_info": "资讯",
+    "cat_announce": "公告",
+    "cat_activity": "活动",
+    "cat_info": "资讯",
+    "empty": "暂无情报",
+    "error": "情报加载失败",
+    "view_all": "查看全部情报"
+  },
   "buttons": {
     "play": "开始游戏",
     "play_short": "开始",

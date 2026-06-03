@@ -5,6 +5,19 @@
     "hypergryph": "Hypergryph",
     "perfectworld": "Perfect World"
   },
+  "news": {
+    "title": "Latest News",
+    "filter_all": "All",
+    "filter_announce": "Notice",
+    "filter_activity": "Event",
+    "filter_info": "Info",
+    "cat_announce": "Notice",
+    "cat_activity": "Event",
+    "cat_info": "Info",
+    "empty": "No news available",
+    "error": "Failed to load news",
+    "view_all": "View all news"
+  },
   "buttons": {
     "play": "PLAY",
     "play_short": "PLAY",

@@ -169,6 +169,32 @@ type LastPlayedProbe interface {
 	LastPlayedFiles(gid GameID, installDir string) []string
 }
 
+// NewsCategory groups a news item for the NewsPanel filter (全部/公告/活動).
+type NewsCategory string
+
+const (
+	NewsAnnounce NewsCategory = "announce" // 公告
+	NewsActivity NewsCategory = "activity" // 活動
+	NewsInfo     NewsCategory = "info"     // 資訊（前端只在「全部」顯示）
+)
+
+// NewsItem is one entry in a game's public news feed.
+type NewsItem struct {
+	Title     string       `json:"title"`
+	Category  NewsCategory `json:"category"`
+	Date      string       `json:"date"`                // display string (provider formats epoch → YYYY-MM-DD)
+	URL       string       `json:"url"`                 // click-through: external browser
+	Thumbnail string       `json:"thumbnail,omitempty"` // may be empty → frontend placeholder
+}
+
+// NewsProvider is an optional Provider capability: fetch a game's public news
+// feed (no auth). lang is the app UI language (en/zh-TW/zh-CN); the provider
+// maps it to its own source language code. A fetch/parse failure should return
+// an empty slice (best-effort) or an error; the App treats both as "no news".
+type NewsProvider interface {
+	GetNews(ctx context.Context, gid GameID, lang string) ([]NewsItem, error)
+}
+
 // Provider is the integration point for one launcher backend (one publisher).
 // Phase 1 = hoyoverse only.
 type Provider interface {

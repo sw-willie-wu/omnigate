@@ -5,6 +5,19 @@
     "hypergryph": "鷹角",
     "perfectworld": "完美世界"
   },
+  "news": {
+    "title": "最新情報",
+    "filter_all": "全部",
+    "filter_announce": "公告",
+    "filter_activity": "活動",
+    "filter_info": "資訊",
+    "cat_announce": "公告",
+    "cat_activity": "活動",
+    "cat_info": "資訊",
+    "empty": "暫無情報",
+    "error": "情報載入失敗",
+    "view_all": "查看全部情報"
+  },
   "buttons": {
     "play": "開始遊戲",
     "play_short": "開始",
