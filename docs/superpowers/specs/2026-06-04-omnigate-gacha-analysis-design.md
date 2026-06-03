@@ -37,6 +37,7 @@ P1 主畫面重構（merge `7e9eb87`）在 NavStrip 放了 `總覽 / 抽卡分�
 | 絕區零（HoYoverse）| 🟡 **類比 + 待 spike**（URL 來源待確認 log vs webCaches）| spike 釘（gids=8 已知，URL 來源未驗證）| `getGachaLog` 系 | 5 | 同上 |
 | 鳴潮（Kuro）| 🔴 **研究風險，未驗證**（使用者 repo **無** WuWa 腳本）| install-dir `Client/Saved/Logs` debug log 內 convene URL（regex 未釘）| Kuro record API（host/路徑/POST 形狀**全未知**）| 5 | Ikram001/wuwa-pull-tracker-local、Luzefiru gist、Anubhav1603/URL-Extractor（**僅證明社群做得到、本專案未自行釘死**）|
 
+- **「已驗證」的精確範圍**：Star Rail 只有 **URL 取得步驟**（Player.log regex）經使用者腳本驗證；其 `getGachaLog` **fetch/cursor/正規化**側使用者無程式、僅社群參考（biuuu/UIGF）→ plan spike 仍須把 SR 的 record-API 抓取當**未驗證**對待。Endfield 則 URL + record API + 正規化在使用者 repo 皆完整。
 - **WuWa 是最弱的一腳、不可當已確認**：使用者 repo 無 WuWa 程式，record API host/路徑/POST body 皆未知。plan 階段 spike **必須帶 kill-switch**：若 WuWa 機制無法在合理時間內釘死，該款**降級為「未支援」**，不阻塞其餘四款交付。
 - **各款 host/路徑/參數/cursor/region/lang map 由 plan 階段 research spike 逐款釘死**（HoYoverse 三款 host/biz/region 不同且 **URL 來源可能不同**；鳴潮整套未知；終末地參數已由使用者 repo 釘死，見下）。
 - **終末地細節（gacha-tracker 已釘死）**：URL regex `https://ef-webview\.gryphline\.com/page/gacha_[^ ]*`；API `/api/record/char` params `token`/`pool_type`/`lang`/`server_id`/`seq_id`；pool_type ∈ {`E_CharacterGachaPoolType_Standard`(基礎尋訪), `_Special`(特許尋訪), `_Beginner`(啟程尋訪)}（spike 確認是否另有武器池）；回應 `data.{list:[{poolId,poolName,charId,charName,rarity,gachaTs,seqId,isFree}],hasMore}`；`hasMore`+`seqId` cursor 分頁。
@@ -205,7 +206,7 @@ type GachaSummary struct {
   1. `provider(gid)`；type-assert `core.GachaProvider`，未實作 → 回 `{Supported:false}`。
   2. 解析 install dir：讀 `a.resolved[gid].Path`（`a.resolved` 值型別是 `resolvedEntry`、非字串；讀取須在 `settingsMu.RLock` 下，比照 `gameRowLocked` 紀律）。
   3. 讀 store URL 快取 → `provider.FetchGacha(ctx, gid, installDir, cachedURL)`（帶 timeout，分頁拉可能較久，給較寬 timeout 並尊重 ctx 取消；provider 內各頁間加 rate-limit sleep 比照 bhaoo/endfield-gacha 500–1000ms，避免觸發風控）。
-  4. `ErrGachaURLUnavailable` → 回可辨識錯誤（前端顯示「請在遊戲內開啟抽卡紀錄」引導）。
+  4. `ErrGachaURLUnavailable` → 回可辨識錯誤（前端顯示「請在遊戲內開啟抽卡紀錄」引導）。**須在 `core/errors.go` 的 `ErrorCode()` 加一個 case**（如 `→ "gacha_url"`），否則 fallthrough 成 `"internal"`、前端 `errKind:'url'` 分不出來。
   5. 成功 → `store.UpsertPulls` + `store.PutURLCache` + 記 latest uid → 讀全量 → 統計引擎 → 回 summary。
 - `func (a *App) GetGachaSummary(gameID string) (core.GachaSummary, error)`：**只讀 store**（不打網路）。取 latest uid → AllPulls → 統計引擎。無資料 → `{Supported:true, 空}`（前端空狀態，引導匯入第一份）。非 GachaProvider → `{Supported:false}`。
 - 沿用既有 `OpenExternalURL`（P2 已加）供「查看官方抽卡頁」等外開（若需要）。
@@ -216,7 +217,7 @@ type GachaSummary struct {
 - 新 `stores/gacha.ts`（Pinia）：per-`gid` 狀態 `{ summary, loading, error, errKind: 'url'|'other'|null, loaded }`（多帳號 v1 顯示當前 uid，故快取 key 用 gid 即可；summary 內含 uid）。
   - `load(gid)`：惰性——已 `loaded` 不重抓；呼 `GetGachaSummary(gid)`（只讀 store，秒回）。
   - `refresh(gid)`：呼 `RefreshGacha(gid)`（解 log → 打 API），成功覆蓋 summary；`ErrGachaURLUnavailable` → set `errKind='url'`。
-  - `useRefreshAll` 加一步（比照 NewsPanel `news.reset()`）：Topbar 重新整理時對當前 gid `refresh`（或清快取）——repo 既有 refresh 鏈見 `composables/useRefreshAll.ts`。
+  - `useRefreshAll` 加 `gacha.reset()`（**比照 NewsPanel `news.reset()` 的 lazy 模式**，非主動 per-gid refresh）：⚠️ 既有 `composables/useRefreshAll.ts` 是疊代**所有**已安裝遊戲、無「當前/選取 gid」概念 → 用 `reset()` 清快取、下次進該頁惰性重抓（低風險、貼合既有 pattern），**不**在 refreshAll 裡主動打網路。
 - 新 `components/GachaBoard.vue`：掛在 `homeTab==='gacha'` 時的內容區（外殼/NavStrip 不跑位）。版面依 Prompt.md §2 的 4 欄網格：
   - 頂部 4 張統計卡（總抽數/估算花費/最高星數/平均出貨）。
   - 歐非評比（甜甜圈 LuckScore + 結論 + 小/大保底%/最非）。
@@ -226,7 +227,7 @@ type GachaSummary struct {
   - 頂部動作：「重新整理紀錄」→ `refresh`；副標顯示 UID + 「最後更新 N 分鐘前」。
   - **四狀態（Prompt.md §4 強制容錯）**：未支援（顯示「此遊戲尚未支援抽卡分析」）／空（新帳號無資料，引導「在遊戲內開啟抽卡紀錄後按重新整理」）／URL 失效（同引導文案）／錯誤。**不顯示空白或假數據**。
   - 標籤一律由 summary/i18n 出，**不寫死「五星/光錐」**（終末地走 6★/角色）。
-- NavStrip：把 `抽卡分析` 從 disabled 改可點（`setHomeTab('gacha')`）。
+- NavStrip：把 `抽卡分析` 從 disabled 改可點（`setHomeTab('gacha')`）。⚠️ 既有 `frontend/src/__tests__/NavStrip.test.ts` 斷言該分頁 `.disabled`/inert → **plan 須含一條更新此測試的任務**。
 - i18n：新增 `gacha.*` keys（卡標題、歐非結論、保底、分佈、時間軸、四狀態、重新整理、引導文案、星級/卡池標籤），**zh-TW/zh-CN/en 三檔 parity**（`i18n_parity.test.ts` 守）。
 - **安全**：所有來自 record API 的字串（道具名/卡池名）走 Vue 純文字插值，**禁 `v-html`**。
 
