@@ -575,3 +575,10 @@
   .settings-btn-cancel { padding: 7px 16px; border-radius: 6px; border: 0; cursor: pointer; background: rgba(255,255,255,0.08); color: var(--text); font-size: 12px; }
   .settings-btn-save { padding: 7px 16px; border-radius: 6px; border: 0; cursor: pointer; background: var(--accent); color: var(--bg); font-weight: 600; font-size: 12px; }
   .settings-btn-save:disabled { opacity: 0.4; cursor: default; }
+
+  /* ━━━ NAV STRIP ━━━ */
+  .nav-strip { height: 52px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 20px; border-bottom: 1px solid var(--line-1); background: linear-gradient(180deg, rgba(17,19,25,0.55), transparent); }
+  .nav-tab { padding: 7px 15px; border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--text-2); font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .nav-tab.active { background: var(--gold-soft); border-color: rgba(230,197,115,0.4); color: var(--gold-hi); }
+  .nav-tab.disabled { color: var(--tx-dim); cursor: not-allowed; }
+  .nav-tab-trend { font-size: 10px; }

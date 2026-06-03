@@ -11,6 +11,7 @@ export const useViewStore = defineStore('view', {
   state: () => ({
     sidebarCollapsed: false,
     viewMode: HOME as ViewMode,
+    homeTab: 'overview' as 'overview' | 'gacha',
   }),
   getters: {
     // Settings is a peer view, mutually exclusive with grid/detail (it no
@@ -24,5 +25,6 @@ export const useViewStore = defineStore('view', {
     openSettings() { this.viewMode = 'settings'; },
     closeSettings() { if (this.viewMode === 'settings') this.viewMode = HOME; },
     toggleSettings() { this.viewMode = this.viewMode === 'settings' ? HOME : 'settings'; },
+    setHomeTab(t: 'overview' | 'gacha') { this.homeTab = t; },
   },
 });

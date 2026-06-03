@@ -156,5 +156,6 @@
     "src_override": "Manual",
     "src_invalid": "Set, but not found",
     "src_locate": "Locate…"
-  }
+  },
+  "nav": { "overview": "Overview", "gacha": "Gacha Analytics", "coming_soon": "Coming soon" }
 }

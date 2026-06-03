@@ -156,5 +156,6 @@
     "src_override": "手动",
     "src_invalid": "手动・未找到",
     "src_locate": "定位…"
-  }
+  },
+  "nav": { "overview": "总览", "gacha": "抽卡分析", "coming_soon": "即将推出" }
 }
