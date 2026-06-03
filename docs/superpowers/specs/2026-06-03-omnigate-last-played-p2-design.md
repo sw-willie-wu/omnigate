@@ -23,15 +23,19 @@ P2 的目標（使用者 2026-06-03 要求併入）：**讓「上次遊玩」也
 
 下表為本機（5 款皆安裝、game-paths 階段已 live-verified）實際翻查所得。這是**本機檔案系統檢視**、非 server 探測，符合 memory `feedback_collapse_reference.md` 規範。
 
-| 遊戲 | gameID（backend/biz） | runtime 檔（mtime 每次啟動更新） | 來源位置 | 引擎 |
-|---|---|---|---|---|
-| 原神 Genshin | hoyoverse / hk4e_global | `%USERPROFILE%\AppData\LocalLow\miHoYo\Genshin Impact\output_log.txt` | LocalLow | Unity |
-| 星穹鐵道 HSR | hoyoverse / hkrpg_global | `%USERPROFILE%\AppData\LocalLow\Cognosphere\Star Rail\output_log.txt` | LocalLow | Unity |
-| 絕區零 ZZZ | hoyoverse / nap_global | `%USERPROFILE%\AppData\LocalLow\miHoYo\ZenlessZoneZero\output_log.txt` | LocalLow | Unity |
-| 鳴潮 WuWa | kurogames | `<installDir>\Client\Saved\Logs\Client.log` | 安裝目錄 | Unreal 4 |
-| Endfield | hypergryph | `%USERPROFILE%\AppData\LocalLow\Gryphline\Endfield\Player.log`（有 `Player-prev.log` 佐證每啟動輪替） | LocalLow | Unity |
+> **key = 真正的 `core.GameID` 常數**（探測介面收到的就是這個），**不是 HoYoverse API 的 biz code**。biz 只是內部 API plumbing，與本探測無關，僅附註供辨識。
 
-**關鍵發現**：HoYoverse 三款的 LocalLow publisher 資料夾名**不一致**——Genshin/ZZZ 在 `miHoYo\`、HSR 在 `Cognosphere\`。不能硬編單一 publisher，須 per-gid 各列一條。檔名亦不一致：HoYoverse 用 `output_log.txt`、Endfield 用 `Player.log`、鳴潮 UE4 用 `Client\Saved\Logs\Client.log`。
+| 遊戲 | `core.GameID`（probe 收到的 key） | biz（僅附註） | runtime 檔（mtime 每次啟動更新） | 來源位置 | 引擎 |
+|---|---|---|---|---|---|
+| 原神 Genshin | `hoyoverse/genshin` | hk4e_global | `%USERPROFILE%\AppData\LocalLow\miHoYo\Genshin Impact\output_log.txt` | LocalLow | Unity |
+| 星穹鐵道 HSR | `hoyoverse/starrail` | hkrpg_global | `%USERPROFILE%\AppData\LocalLow\Cognosphere\Star Rail\output_log.txt` | LocalLow | Unity |
+| 絕區零 ZZZ | `hoyoverse/zzz` | nap_global | `%USERPROFILE%\AppData\LocalLow\miHoYo\ZenlessZoneZero\output_log.txt` | LocalLow | Unity |
+| 鳴潮 WuWa | `kurogames/wutheringwaves` | — | `<installDir>\Client\Saved\Logs\Client.log` | 安裝目錄 | Unreal 4 |
+| Endfield | `hypergryph/endfield` | — | `%USERPROFILE%\AppData\LocalLow\Gryphline\Endfield\Player.log`（有 `Player-prev.log` 佐證每啟動輪替） | LocalLow | Unity |
+
+> gameID 常數來源：`hoyoverse/{genshin,starrail,zzz}`（`internal/providers/hoyoverse/meta.go:43,50,55`）、`kurogames/wutheringwaves`（`internal/providers/kurogames/meta.go:20`）、`hypergryph/endfield`（`internal/providers/hypergryph/meta.go:23`）。
+
+**關鍵發現**：HoYoverse 三款的 LocalLow publisher 資料夾名**不一致**——Genshin/ZZZ 在 `miHoYo\`、HSR 在 `Cognosphere\`。不能硬編單一 publisher，須 per-gid 各列一條。檔名亦不一致：HoYoverse 用 `output_log.txt`、Endfield 用 `Player.log`、鳴潮 UE4 用 `Client\Saved\Logs\Client.log`。HoYoverse probe **以 `g.ID`（`hoyoverse/genshin` 等）為 switch key、不是 biz**（biz 會 map 不到、探測永遠落空）。
 
 > 上表資料夾名為 **global 版**。CN 版 publisher/product 名不同，但 omnigate 只支援 global，非目標。
 
@@ -60,7 +64,7 @@ type LastPlayedProbe interface {
 
 ### B. App 取 max — `internal/app/app.go`
 
-**新增可注入的 stat seam**（套件層 `var`，供測試替換）：
+**新增可注入的 stat seam**（套件層 `var`，供測試替換——沿用本套件既有的 var-seam 先例 `osTempDir`/`osRemoveAll`，見 `update_handler_windows.go:14-15` / `update_handler_other.go:7-8`；注意 `statDir` 是普通 `func`、非 seam）：
 
 ```go
 // statModTime returns a path's mtime, or (zero,false) if it cannot be stat'd.
@@ -98,8 +102,8 @@ func (a *App) lastPlayedLocked(p core.Provider, gid core.GameID, installDir stri
 
 **`gameRowLocked` 改造**：現簽名 `gameRowLocked(g core.GameDescriptor) GameRow` 無 provider 在手，但要呼叫 provider 的 probe，需 provider。改為 `gameRowLocked(p core.Provider, g core.GameDescriptor) GameRow`：
 
-- 呼叫點 1：`ListGames`（app.go:296-300）迴圈 `for _, p := range a.providers { for _, g := range p.Games() { ... gameRowLocked(p, g) } }` — `p` 已在 scope。
-- 呼叫點 2：`gameRow(gid, p)`（`SetGameOverride`/`ClearGameOverride`/`RefreshGame` 用）— 確認 `gameRow` 內部呼叫 `gameRowLocked` 時把 `p` 傳入。
+- 呼叫點 1：`ListGames`（app.go:296-300）迴圈 `for _, p := range a.providers { for _, g := range p.Games() { ... gameRowLocked(p, g) } }` — `p` 已在 scope、非 nil（map 值）。
+- 呼叫點 2：`gameRow(gid, p)`（app.go:391-396，`SetGameOverride`/`ClearGameOverride`/`RefreshGame` 用）— 內部 app.go:396 呼叫 `gameRowLocked(g)`，改為傳入 `p`。`p` 來自 `a.provider(gid)`，三個呼叫者皆於該 error 早退，故進到 `gameRow` 時 `p` 必非 nil；且 `p.(core.LastPlayedProbe)` type-assert 本就 nil-safe。grep `gameRowLocked` 僅此兩處呼叫點，無遺漏。
 
 `gameRowLocked` 內把現有的：
 ```go
@@ -123,15 +127,16 @@ if ts := a.lastPlayedLocked(p, g.ID, e.Path); !ts.IsZero() {
 
 各 provider 新增 `LastPlayedFiles` 方法（平台無關，路徑純字串組裝）。LocalLow base 用 `os.UserHomeDir()` + `AppData/LocalLow`（`os.UserHomeDir` 在 Windows 回 `%USERPROFILE%`）。`UserHomeDir` 失敗（理論上不會）→ 回 nil。
 
-- **hoyoverse**（`internal/providers/hoyoverse`）：per-gid 表，key = backend-qualified gameID，值 = LocalLow 下的 product 子路徑：
-  - Genshin → `miHoYo/Genshin Impact`
-  - HSR → `Cognosphere/Star Rail`
-  - ZZZ → `miHoYo/ZenlessZoneZero`
+- **hoyoverse**（`internal/providers/hoyoverse`）：以 **`g.ID`（`core.GameID`）為 switch key**（透過既有 `findByID`／`gameMeta.ID`，**不是 biz**），map 到 LocalLow 下的 product 子路徑：
+  - `hoyoverse/genshin` → `miHoYo/Genshin Impact`
+  - `hoyoverse/starrail` → `Cognosphere/Star Rail`
+  - `hoyoverse/zzz` → `miHoYo/ZenlessZoneZero`
   每款回 **兩個候選**：`<sub>/output_log.txt` 與 `<sub>/Player.log`（對未來 Unity 由 `output_log.txt` 改名 `Player.log` 留韌性）。未知 gid → 回 nil。
-- **hypergryph**（`internal/providers/hypergryph`）：`Gryphline/Endfield` 下 `Player.log` 與 `output_log.txt` 兩候選。
-- **kurogames**（`internal/providers/kurogames`）：`installDir == "" → nil`；否則回 `filepath.Join(installDir, "Client", "Saved", "Logs", "Client.log")` 單一候選。
+- **hypergryph**（`internal/providers/hypergryph`，gid `hypergryph/endfield`）：`Gryphline/Endfield` 下 `Player.log` 與 `output_log.txt` 兩候選。
+- **kurogames**（`internal/providers/kurogames`，gid `kurogames/wutheringwaves`）：`installDir == "" → nil`；否則回 `filepath.Join(installDir, "Client", "Saved", "Logs", "Client.log")` 單一候選。
+  > **installDir 層級（必釘死）**：App 傳入的 `installDir == a.resolved[gid].Path`，而 kurogames detect（`detect.go:54,65`）已將其解析為 `filepath.Join(launcherRoot, FolderName)` = `<launcherRoot>\Wuthering Waves Game`（**遊戲資料夾**，非 launcher root）。故 `Client\Saved\Logs\Client.log` 直接 join 在此資料夾下、不可再往上一層。
 
-> 依各 provider 既有 gameID 常數／biz 對應撰寫；確切常數於 plan 階段對照既有程式碼列舉。
+> 確切 gameID 常數已於上表與本節列出（對照 `meta.go`）；plan 階段沿用既有 `findByID` 等 helper。
 
 ### D. 行為與邊界
 
