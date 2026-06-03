@@ -11,6 +11,7 @@ import Sidebar from './components/Sidebar.vue';
 import DetailView from './components/DetailView.vue';
 import GridView from './components/GridView.vue';
 import BottomBar from './components/BottomBar.vue';
+import NavStrip from './components/NavStrip.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import Footbar from './components/Footbar.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
@@ -67,7 +68,10 @@ onMounted(async () => {
       <Topbar />
       <main class="main">
         <SettingsPanel v-if="view.viewMode === 'settings'" />
-        <DetailView v-else-if="view.viewMode === 'detail'" />
+        <template v-else-if="view.viewMode === 'detail'">
+          <NavStrip />
+          <DetailView />
+        </template>
         <GridView v-else />
         <BottomBar v-if="view.viewMode === 'detail'" />
       </main>

@@ -582,3 +582,7 @@
   .nav-tab.active { background: var(--gold-soft); border-color: rgba(230,197,115,0.4); color: var(--gold-hi); }
   .nav-tab.disabled { color: var(--tx-dim); cursor: not-allowed; }
   .nav-tab-trend { font-size: 10px; }
+
+  .view-detail { position: relative; flex: 1; min-height: 0; }
+  .hero-scrim-bottom { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(0deg, rgba(8,9,12,0.92) 0%, rgba(8,9,12,0.25) 40%, transparent 62%); }
+  .hero-scrim-left { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(8,9,12,0.5), transparent 28%); }
