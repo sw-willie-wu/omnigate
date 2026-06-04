@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"omnigate/internal/providers/hoyoverse"
 	"omnigate/internal/providers/hypergryph"
 	"omnigate/internal/providers/kurogames"
+	"omnigate/internal/store"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -29,10 +31,13 @@ type App struct {
 	settingsP      string
 	providers      []core.Provider
 	detect         map[core.BackendID]detectEntry
+	resolved       map[core.GameID]resolvedEntry
 	detectMu       sync.Mutex
 	settingsMu     sync.RWMutex // guards a.settings + a.providers (spec §2.5)
 	logger         *slog.Logger
 	updateRegistry *UpdateStateRegistry
+	playState      *playState
+	gachaStore     store.GachaStore
 }
 
 // New returns an App. settingsPath may be "" → default to alongside the binary.
@@ -52,25 +57,35 @@ func New(settingsPath string, logger *slog.Logger) *App {
 		settings:  s,
 		settingsP: settingsPath,
 		detect:    map[core.BackendID]detectEntry{},
+		resolved:  map[core.GameID]resolvedEntry{},
 		logger:    logger,
+	}
+	a.playState = loadPlayState(playStatePathFor(settingsPath))
+	if gs, gerr := store.OpenSQLite(gachaDBPathFor(settingsPath)); gerr == nil {
+		a.gachaStore = gs
+	} else {
+		logger.Error("gacha store open failed; gacha disabled", "err", gerr)
 	}
 	if err := a.constructProviders(); err != nil {
 		logger.Error("provider construction failed", "err", err)
 	}
 
 	// Construct update state registry; emitter writes to Wails event bus.
-	emit := func(name string, args ...any) {
-		if a.ctx != nil {
-			wruntime.EventsEmit(a.ctx, name, args...)
-		}
-	}
-	a.updateRegistry = NewUpdateStateRegistry(emit, realClock{})
+	a.updateRegistry = NewUpdateStateRegistry(a.emit, realClock{})
 
 	// Spec §2.3: walk <TempDir>/<gameID-flat>/<version>/ for sidecars left
 	// behind by an interrupted prior run.
 	a.scanForRecovery()
 
 	return a
+}
+
+// emit writes an event to the Wails event bus (no-op before the runtime is
+// ready / in tests where a.ctx is nil). Shared by the update registry and gacha.
+func (a *App) emit(name string, args ...any) {
+	if a.ctx != nil {
+		wruntime.EventsEmit(a.ctx, name, args...)
+	}
 }
 
 // constructProviders builds the provider list from current settings.
@@ -84,7 +99,6 @@ func (a *App) constructProviders() error {
 	a.providers = nil
 	hoyo := hoyoverse.New(
 		hoyoverse.Settings{
-			Path:    a.settings.Backends.Hoyoverse.Path,
 			Region:  a.settings.Backends.Hoyoverse.Region,
 			TempDir: a.settings.Backends.Hoyoverse.TempDir,
 		},
@@ -98,7 +112,6 @@ func (a *App) constructProviders() error {
 	}
 	kuro := kurogames.New(
 		kurogames.Settings{
-			Path:    a.settings.Backends.Kurogames.Path,
 			TempDir: a.settings.Backends.Kurogames.TempDir,
 		},
 		a.logger.With("backend", "kurogames"),
@@ -108,7 +121,6 @@ func (a *App) constructProviders() error {
 	}
 	gryph := hypergryph.New(
 		hypergryph.Settings{
-			Path:    a.settings.Backends.Hypergryph.Path,
 			TempDir: a.settings.Backends.Hypergryph.TempDir,
 		},
 		a.logger.With("backend", "hypergryph"),
@@ -116,7 +128,62 @@ func (a *App) constructProviders() error {
 	if err := a.registerProvider(gryph); err != nil {
 		return err
 	}
+
+	// Resolve + inject per-game install folders. a.ctx is nil at New time (Wails
+	// sets it in Startup); provider DefaultScan→DetectInstall selects on
+	// ctx.Done(), so substitute a non-nil ctx to avoid a nil-deref panic.
+	a.resolveAll(a.resolveCtx())
 	return nil
+}
+
+// resolveAll resolves every provider's games and injects the resolved folders.
+// MUST be called with settingsMu held for write (or pre-concurrency from New) —
+// it reads a.settings.Games WITHOUT locking to avoid RWMutex self-deadlock.
+func (a *App) resolveAll(ctx context.Context) {
+	if a.resolved == nil {
+		a.resolved = map[core.GameID]resolvedEntry{}
+	}
+	for _, p := range a.providers {
+		a.resolveProviderLocked(ctx, p)
+	}
+}
+
+// resolveProviderLocked resolves one provider's games, writes the results into
+// a.resolved, and injects the resolved folders via SetResolvedPaths.
+//
+// LOCKING: same contract as resolveAll — MUST be called with settingsMu held for
+// write (or pre-concurrency from New). It reads a.settings.Games and writes
+// a.resolved WITHOUT internal locking to avoid RWMutex self-deadlock.
+func (a *App) resolveProviderLocked(ctx context.Context, p core.Provider) {
+	if a.resolved == nil {
+		a.resolved = map[core.GameID]resolvedEntry{}
+	}
+	sc, ok := p.(backendScanner)
+	if !ok {
+		return
+	}
+	var gids []core.GameID
+	for _, g := range p.Games() {
+		gids = append(gids, g.ID)
+	}
+	entries := resolveBackendLocked(ctx, sc, gids, a.settings.Games)
+	inj := make(map[core.GameID]string, len(entries))
+	for gid, e := range entries {
+		a.resolved[gid] = e
+		inj[gid] = e.Path // inject literal path; provider DetectInstall stat-gates existence
+	}
+	if rp, ok := p.(core.ResolvedPathSetter); ok {
+		rp.SetResolvedPaths(inj)
+	}
+}
+
+// resolveCtx returns a.ctx, substituting context.Background() when Wails has not
+// yet called Startup (a.ctx nil) to avoid a nil-deref in provider scans.
+func (a *App) resolveCtx() context.Context {
+	if a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
 }
 
 // registerProvider adds a provider to the registry after validating that
@@ -193,8 +260,24 @@ func (a *App) invalidateDetect() {
 	a.detectMu.Unlock()
 }
 
+// invalidateDetectFor clears the detection cache entry for a single backend.
+// Used by the per-game override RPCs so serveIcon's cachedDetect re-runs for the
+// affected backend without dropping every other backend's cache.
+func (a *App) invalidateDetectFor(id core.BackendID) {
+	a.detectMu.Lock()
+	delete(a.detect, id)
+	a.detectMu.Unlock()
+}
+
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+}
+
+// Close releases App-held resources (gacha DB). Safe to call once.
+func (a *App) Close() {
+	if a.gachaStore != nil {
+		a.gachaStore.Close()
+	}
 }
 
 // ─── Wails-bound commands (return values must be JSON-serializable) ───
@@ -209,85 +292,229 @@ type GameRow struct {
 	Latest         string               `json:"latest_version,omitempty"`
 	HasPredownload bool                 `json:"has_predownload"`
 	IconURL        string               `json:"icon_url,omitempty"`
+	ResolvedPath   string               `json:"resolved_path,omitempty"`
+	PathSource     string               `json:"path_source"`
+	OverridePath   string               `json:"override_path,omitempty"`
+	LastPlayed     string               `json:"last_played,omitempty"`
 }
 
 // BackendStatus is one entry from ListBackends.
 type BackendStatus struct {
 	BackendID   string               `json:"backend_id"`
 	DisplayName core.LocalizedString `json:"display_name"`
-	Status      string               `json:"status"` // ok | path_unset | launcher_missing | empty | error
+	Status      string               `json:"status"` // ok | empty
 	Detail      string               `json:"detail,omitempty"`
 }
 
 func (a *App) ListGames() ([]GameRow, error) {
+	// a.resolved is the source of truth for install paths; read it (and the
+	// override map) under the same RLock that snapshots providers.
 	a.settingsMu.RLock()
-	provs := append([]core.Provider(nil), a.providers...)
-	a.settingsMu.RUnlock()
+	defer a.settingsMu.RUnlock()
 	out := []GameRow{}
-	for _, p := range provs {
-		installed, err := a.cachedDetect(a.ctx, p)
-		if err != nil {
-			a.logger.Warn("DetectInstall failed", "backend", p.ID(), "err", err)
-			continue
-		}
-		seen := map[core.GameID]core.InstalledGame{}
-		for _, ig := range installed {
-			seen[ig.GameID] = ig
-		}
+	for _, p := range a.providers {
 		for _, g := range p.Games() {
-			row := GameRow{
-				ID:          string(g.ID),
-				Backend:     string(g.Backend),
-				DisplayName: g.DisplayName,
-			}
-			if ig, ok := seen[g.ID]; ok {
-				row.Installed = true
-				row.InstallPath = ig.InstallPath
-			}
-			out = append(out, row)
+			out = append(out, a.gameRowLocked(p, g))
 		}
 	}
 	return out, nil
 }
 
+// statModTime returns a path's mtime, or (zero,false) if it cannot be stat'd.
+// Package var so tests can stub it (mirrors the osTempDir/osRemoveAll seams).
+var statModTime = func(p string) (time.Time, bool) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return fi.ModTime(), true
+}
+
+// lastPlayedLocked returns the effective last-played time for gid: the later of
+// the recorded playstate timestamp and the mtime of any LastPlayedProbe file
+// (which reflects play outside omnigate). Caller holds settingsMu (R or W) —
+// same lock discipline as gameRowLocked. playState may be nil (test helpers).
+func (a *App) lastPlayedLocked(p core.Provider, gid core.GameID, installDir string) time.Time {
+	var ts time.Time
+	if a.playState != nil {
+		ts = a.playState.Get(string(gid))
+	}
+	if probe, ok := p.(core.LastPlayedProbe); ok {
+		for _, f := range probe.LastPlayedFiles(gid, installDir) {
+			if mt, ok := statModTime(f); ok && mt.After(ts) {
+				ts = mt
+			}
+		}
+	}
+	return ts
+}
+
+// gameRowLocked builds a single GameRow from a.resolved + a.settings.Games.
+//
+// LOCKING: the caller MUST hold settingsMu for read (or write); this reads both
+// maps WITHOUT locking.
+func (a *App) gameRowLocked(p core.Provider, g core.GameDescriptor) GameRow {
+	e := a.resolved[g.ID]
+	row := GameRow{
+		ID:           string(g.ID),
+		Backend:      string(g.Backend),
+		DisplayName:  g.DisplayName,
+		PathSource:   string(e.Source),
+		ResolvedPath: e.Path,
+		InstallPath:  e.Path,
+		Installed:    e.Source != core.SourceUnresolved && statDir(e.Path),
+		OverridePath: a.settings.Games[string(g.ID)].Path,
+	}
+	if ts := a.lastPlayedLocked(p, g.ID, e.Path); !ts.IsZero() {
+		row.LastPlayed = ts.Format(time.RFC3339)
+	}
+	return row
+}
+
+// SetGameOverride sets an explicit install-folder override for one game,
+// persists settings, re-resolves the owning provider, and returns the updated
+// row. Spec §6.1 / plan CR-4.
+func (a *App) SetGameOverride(gameID, path string) (GameRow, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return GameRow{}, err
+	}
+	a.settingsMu.Lock()
+	if a.settings.Games == nil {
+		a.settings.Games = map[string]GameSettings{}
+	}
+	a.settings.Games[gameID] = GameSettings{Path: path}
+	if err := SaveSettings(a.settingsP, a.settings); err != nil {
+		a.settingsMu.Unlock()
+		return GameRow{}, err
+	}
+	a.resolveProviderLocked(a.resolveCtx(), p) // re-resolve+inject under the write lock
+	a.settingsMu.Unlock()
+	a.invalidateDetectFor(p.ID()) // so serveIcon's cachedDetect re-runs
+	return a.gameRow(gid, p)
+}
+
+// ClearGameOverride removes any install-folder override for one game, persists
+// settings, re-resolves the owning provider (reverting to launcher/default
+// detection), and returns the updated row. Spec §6.1 / plan CR-4.
+func (a *App) ClearGameOverride(gameID string) (GameRow, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return GameRow{}, err
+	}
+	a.settingsMu.Lock()
+	delete(a.settings.Games, gameID)
+	if err := SaveSettings(a.settingsP, a.settings); err != nil {
+		a.settingsMu.Unlock()
+		return GameRow{}, err
+	}
+	a.resolveProviderLocked(a.resolveCtx(), p)
+	a.settingsMu.Unlock()
+	a.invalidateDetectFor(p.ID())
+	return a.gameRow(gid, p)
+}
+
+// RefreshGame re-resolves the owning provider for one game WITHOUT changing
+// settings, then returns the updated row. Used to pick up filesystem changes
+// (e.g. a game installed/removed out-of-band). Spec §6.1 / plan CR-4.
+func (a *App) RefreshGame(gameID string) (GameRow, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return GameRow{}, err
+	}
+	a.settingsMu.Lock()
+	a.resolveProviderLocked(a.resolveCtx(), p)
+	a.settingsMu.Unlock()
+	a.invalidateDetectFor(p.ID())
+	return a.gameRow(gid, p)
+}
+
+// gameRow returns the single updated GameRow for gid from provider p. It takes
+// settingsMu for read; callers MUST have released any write lock first.
+func (a *App) gameRow(gid core.GameID, p core.Provider) (GameRow, error) {
+	a.settingsMu.RLock()
+	defer a.settingsMu.RUnlock()
+	for _, g := range p.Games() {
+		if g.ID == gid {
+			return a.gameRowLocked(p, g), nil
+		}
+	}
+	return GameRow{}, fmt.Errorf("unknown game %s", gid)
+}
+
+// GetNews returns the public news feed for gameID in the given UI language
+// (en/zh-TW/zh-CN), or an empty slice if the game's provider does not implement
+// NewsProvider or the fetch fails. lang is passed explicitly by the frontend
+// (the current i18n locale) so the result is deterministic and does not race
+// the async App.SetLanguage persistence. Best-effort: a fetch error is logged
+// and surfaced (the frontend shows empty/error state), never fatal.
+func (a *App) GetNews(gameID string, lang string) ([]core.NewsItem, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return nil, err
+	}
+	np, ok := p.(core.NewsProvider)
+	if !ok {
+		return []core.NewsItem{}, nil
+	}
+
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	items, err := np.GetNews(ctx, gid, lang)
+	if err != nil {
+		a.logger.Warn("GetNews failed", "gid", gameID, "err", err)
+		return nil, err
+	}
+	if items == nil {
+		items = []core.NewsItem{}
+	}
+	return items, nil
+}
+
+// OpenExternalURL opens rawURL in the user's default browser. Only http/https
+// are allowed (reject file://, javascript:, etc. to avoid arbitrary-scheme
+// launch). No-op if the Wails ctx is not yet set.
+func (a *App) OpenExternalURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("refusing to open non-http(s) url scheme %q", u.Scheme)
+	}
+	if a.ctx == nil {
+		return nil
+	}
+	wruntime.BrowserOpenURL(a.ctx, rawURL)
+	return nil
+}
+
 func (a *App) ListBackends() []BackendStatus {
 	a.settingsMu.RLock()
-	provs := append([]core.Provider(nil), a.providers...)
-	a.settingsMu.RUnlock()
-	out := make([]BackendStatus, 0, len(provs))
-	for _, p := range provs {
+	defer a.settingsMu.RUnlock()
+	out := make([]BackendStatus, 0, len(a.providers))
+	for _, p := range a.providers {
 		bs := BackendStatus{
 			BackendID:   string(p.ID()),
 			DisplayName: p.DisplayName(),
+			Status:      "empty",
 		}
-		// Path-based status derivation
-		var path string
-		if pp, ok := p.(core.PathProvider); ok {
-			path = pp.PrimaryPath()
-		}
-		switch {
-		case path == "":
-			bs.Status = "path_unset"
-		default:
-			if _, err := os.Stat(path); err != nil {
-				if os.IsNotExist(err) {
-					bs.Status = "launcher_missing"
-					bs.Detail = path
-				} else {
-					bs.Status = "error"
-					bs.Detail = err.Error()
-				}
-			} else {
-				games, err := a.cachedDetect(a.ctx, p)
-				switch {
-				case err != nil:
-					bs.Status = "error"
-					bs.Detail = err.Error()
-				case len(games) == 0:
-					bs.Status = "empty"
-				default:
-					bs.Status = "ok"
-				}
+		// Status is derived from a.resolved: "ok" if any of the backend's games
+		// resolves to a stat-valid directory, else "empty".
+		for _, g := range p.Games() {
+			e := a.resolved[g.ID]
+			if e.Source != core.SourceUnresolved && statDir(e.Path) {
+				bs.Status = "ok"
+				break
 			}
 		}
 		out = append(out, bs)
@@ -362,7 +589,11 @@ func (a *App) Launch(gameID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return p.Launch(a.ctx, gid, core.LaunchOptions{})
+	pid, err := p.Launch(a.ctx, gid, core.LaunchOptions{})
+	if err == nil && a.playState != nil {
+		a.playState.Record(string(gid))
+	}
+	return pid, err
 }
 
 func (a *App) GetSettings() Settings {
@@ -382,6 +613,26 @@ func (a *App) UpdateSettings(s Settings) error {
 	a.settingsMu.Unlock()
 	a.invalidateDetect()
 	return err
+}
+
+// SetLanguage persists the UI language preference. Unlike UpdateSettings it
+// touches only App.Language and skips the provider rebuild + detection-cache
+// invalidation, so the Topbar language toggle stays cheap (no game re-probe).
+func (a *App) SetLanguage(lang string) error {
+	switch lang {
+	case "zh-TW", "zh-CN", "en":
+	default:
+		return fmt.Errorf("unsupported language %q", lang)
+	}
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
+	s := a.settings
+	s.App.Language = lang
+	if err := SaveSettings(a.settingsP, s); err != nil {
+		return err
+	}
+	a.settings = s
+	return nil
 }
 
 // Refresh clears the detection cache. Wails-bound; the frontend's manual

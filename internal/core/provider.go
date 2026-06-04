@@ -131,6 +131,70 @@ type LaunchOptions struct {
 	ExtraArgs []string
 }
 
+// InstallSource is how a game's resolved install folder was determined.
+type InstallSource string
+
+const (
+	SourceOverride   InstallSource = "override"   // user-set Settings.Games[id].Path
+	SourceLauncher   InstallSource = "launcher"   // read from the launcher's own records
+	SourceDefault    InstallSource = "default"    // found under the backend DefaultRoot
+	SourceUnresolved InstallSource = "unresolved" // not found anywhere
+)
+
+// InstallLocator is an optional Provider capability: read the launcher's own
+// record of where each installed game lives (registry / AppData), independent
+// of any configured root. Best-effort — partial/empty results and errors are
+// acceptable; the App stat-validates every returned path before trusting it.
+type InstallLocator interface {
+	LocateInstalls(ctx context.Context) (map[GameID]string, error)
+}
+
+// ResolvedPathSetter is an optional Provider capability: accept the App-resolved
+// per-game install folders so the provider's launch/version/update operations
+// use them instead of re-deriving from a single root.
+type ResolvedPathSetter interface {
+	SetResolvedPaths(paths map[GameID]string)
+}
+
+// LastPlayedProbe is an optional Provider capability. Given a game and its
+// resolved install dir, it returns filesystem paths whose mtime indicates the
+// game was launched — including launches outside omnigate (the game engine's
+// player log, rewritten on each launch). The App stats each path and takes the
+// most recent mtime, then maxes it against the recorded playstate timestamp.
+//
+// Implementations MUST be pure path construction: no filesystem IO, no errors.
+// Non-existent paths are filtered by the App's stat step. An empty/nil return
+// means "no extra signal" (the App falls back to the playstate timestamp).
+type LastPlayedProbe interface {
+	LastPlayedFiles(gid GameID, installDir string) []string
+}
+
+// NewsCategory groups a news item for the NewsPanel filter (全部/公告/活動).
+type NewsCategory string
+
+const (
+	NewsAnnounce NewsCategory = "announce" // 公告
+	NewsActivity NewsCategory = "activity" // 活動
+	NewsInfo     NewsCategory = "info"     // 資訊（前端只在「全部」顯示）
+)
+
+// NewsItem is one entry in a game's public news feed.
+type NewsItem struct {
+	Title     string       `json:"title"`
+	Category  NewsCategory `json:"category"`
+	Date      string       `json:"date"`                // display string (provider formats epoch → YYYY-MM-DD)
+	URL       string       `json:"url"`                 // click-through: external browser
+	Thumbnail string       `json:"thumbnail,omitempty"` // may be empty → frontend placeholder
+}
+
+// NewsProvider is an optional Provider capability: fetch a game's public news
+// feed (no auth). lang is the app UI language (en/zh-TW/zh-CN); the provider
+// maps it to its own source language code. A fetch/parse failure should return
+// an empty slice (best-effort) or an error; the App treats both as "no news".
+type NewsProvider interface {
+	GetNews(ctx context.Context, gid GameID, lang string) ([]NewsItem, error)
+}
+
 // Provider is the integration point for one launcher backend (one publisher).
 // Phase 1 = hoyoverse only.
 type Provider interface {

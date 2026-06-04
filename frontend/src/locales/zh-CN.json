@@ -5,6 +5,72 @@
     "hypergryph": "鹰角",
     "perfectworld": "完美世界"
   },
+  "news": {
+    "title": "最新情报",
+    "filter_all": "全部",
+    "filter_announce": "公告",
+    "filter_activity": "活动",
+    "filter_info": "资讯",
+    "cat_announce": "公告",
+    "cat_activity": "活动",
+    "cat_info": "资讯",
+    "empty": "暂无情报",
+    "error": "情报加载失败",
+    "view_all": "查看全部情报"
+  },
+  "gacha": {
+    "loading": "加载中…",
+    "unsupported": "此游戏尚未支持抽卡分析。",
+    "empty": "尚无记录。请先在游戏内打开一次抽卡记录，再刷新。",
+    "url_hint": "记录链接已失效。请在游戏内重新打开抽卡记录后再刷新。",
+    "refresh": "刷新记录",
+    "total_pulls": "总抽数",
+    "spend_est": "消耗",
+    "headline_cnt": "最高星数",
+    "avg_pity": "平均出货",
+    "luck": "幸运值",
+    "worst": "最非",
+    "pull_count": "{n} 抽出货",
+    "approx": "约",
+    "unit_pull": "抽",
+    "unit_count": "个",
+    "below_expected": "略低于期望值 {n}",
+    "at_expected": "符合期望值 {n}",
+    "above_expected": "略高于期望值 {n}",
+    "stat_avg": "平均",
+    "stat_top": "最高星",
+    "luck_title": "欧非程度评比",
+    "pity_title": "保底进度",
+    "pity_remain": "距离保底还有 {n} 抽",
+    "dist_title": "出货分布",
+    "dist_axis_low": "1-9",
+    "dist_axis_mid": "抽数区间",
+    "dist_axis_high": "80+",
+    "recent_title": "最近高星纪录",
+    "error_other": "读取失败，请重试。",
+    "luck_band": {
+      "superb": "极欧 · 天选之人",
+      "good": "微欧 · 运气不错",
+      "avg": "中规中矩",
+      "bad": "微非 · 别灰心",
+      "awful": "极非 · 下次一定"
+    },
+    "item_type": {
+      "char": "角色",
+      "weapon": "武器",
+      "lightcone": "光锥",
+      "wengine": "音擎",
+      "bangboo": "邦布"
+    },
+    "progress": "{banner} · 第 {page} 页（{pool}/{total}）",
+    "currency": {
+      "primogem": "原石",
+      "stellar_jade": "星琼",
+      "polychrome": "菲林",
+      "astrite": "星声",
+      "endfield_pull": "寻访"
+    }
+  },
   "buttons": {
     "play": "开始游戏",
     "play_short": "开始",
@@ -32,7 +98,12 @@
     "days_ago": "{n} 天前",
     "ready_pill": "就绪",
     "update_pill": "可更新",
-    "predl_pill": "可预下载"
+    "predl_pill": "可预下载",
+    "last_played": "上次游玩",
+    "never_played": "尚未游玩",
+    "played_today": "今天 {time}",
+    "played_yesterday": "昨天 {time}",
+    "played_days_ago": "{n} 天前"
   },
   "footer": {
     "summary": "{games} 款游戏"
@@ -139,5 +210,22 @@
       "kurogames": "库洛游戏",
       "hypergryph": "鹰角网络"
     }
+  },
+  "gamecfg": {
+    "path_label": "安装文件夹",
+    "browse": "浏览…",
+    "reset": "重置",
+    "save": "保存",
+    "save_disabled_inflight": "更新进行中无法更改路径",
+    "src_launcher": "自动检测",
+    "src_default": "默认位置",
+    "src_override": "手动",
+    "src_invalid": "手动・未找到",
+    "src_locate": "定位…"
+  },
+  "nav": {
+    "overview": "总览",
+    "gacha": "抽卡分析",
+    "coming_soon": "即将推出"
   }
 }

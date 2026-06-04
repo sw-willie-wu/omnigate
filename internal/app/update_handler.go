@@ -593,16 +593,10 @@ func (a *App) setLastError(gid core.GameID, err *core.UpdateError) {
 }
 
 func (a *App) gameInstallDir(gid core.GameID, p core.Provider) string {
-	installs, err := p.DetectInstall(context.Background())
-	if err != nil {
-		return ""
-	}
-	for _, ig := range installs {
-		if ig.GameID == gid {
-			return ig.InstallPath
-		}
-	}
-	return ""
+	_ = p // path now comes from a.resolved, not provider re-detection
+	a.settingsMu.RLock()
+	defer a.settingsMu.RUnlock()
+	return a.resolved[gid].Path
 }
 
 func (a *App) preflightChecks(tempDir, gameDir string, totalBytes int64) error {

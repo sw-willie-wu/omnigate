@@ -8,6 +8,27 @@ import (
 	"omnigate/internal/core"
 )
 
+// DefaultRoot is the layer-3 fallback install root for this backend (the former
+// settings default). Per-game resolution scans here when no override or
+// launcher-config entry applies. Exported so settings migration can reference it.
+const DefaultRoot = `C:\Program Files\GRYPHLINK`
+
+// HasGamesSegment is true when this backend's install root contains a "games/"
+// segment before each game folder (hoyoverse layout). kuro/hyper join directly.
+// hypergryph's FolderName already embeds its own "games/" segment, so the
+// migration joins the root directly.
+const HasGamesSegment = false
+
+// FolderNames maps each known game ID to its on-disk install folder name,
+// used by settings migration to derive per-game paths from an old root.
+func FolderNames() map[core.GameID]string {
+	out := make(map[core.GameID]string, len(games))
+	for _, g := range games {
+		out[g.ID] = g.FolderName
+	}
+	return out
+}
+
 // DetectInstall scans the GRYPHLINK launcher root and returns each known
 // game whose folder + canonical .exe is present.
 func DetectInstall(ctx context.Context, gryphPath string) ([]core.InstalledGame, error) {

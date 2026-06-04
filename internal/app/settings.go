@@ -5,14 +5,21 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse"
+	"omnigate/internal/providers/hypergryph"
+	"omnigate/internal/providers/kurogames"
 )
 
 type Settings struct {
-	Version  int             `toml:"version"`
-	App      AppSettings     `toml:"app"`
-	Backends BackendSettings `toml:"backends"`
+	Version  int                     `toml:"version"`
+	App      AppSettings             `toml:"app"`
+	Backends BackendSettings         `toml:"backends"`
+	Games    map[string]GameSettings `toml:"games"`
 }
 
 type AppSettings struct {
@@ -42,6 +49,10 @@ type HypergryphSettings struct {
 	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/hypergryph
 }
 
+type GameSettings struct {
+	Path string `toml:"path,omitempty"`
+}
+
 // hoyoverseRawTOML is used for the M1 → M2 migration: M1 wrote
 // `hoyoplay_path` under [backends.hoyoverse]. On Load, if Path is empty and
 // HoYoplayPath is non-empty, project HoYoplayPath into Path and warn.
@@ -59,11 +70,12 @@ type rawTOML struct {
 		Kurogames  KurogamesSettings  `toml:"kurogames"`
 		Hypergryph HypergryphSettings `toml:"hypergryph"`
 	} `toml:"backends"`
+	Games map[string]GameSettings `toml:"games"`
 }
 
 func defaultSettings() Settings {
 	return Settings{
-		Version: 1,
+		Version: 2,
 		App: AppSettings{
 			Language:            "zh-TW",
 			BannerAnimationPref: "video-when-available",
@@ -74,6 +86,7 @@ func defaultSettings() Settings {
 			Kurogames:  KurogamesSettings{Path: `C:\Program Files\Wuthering Waves`},
 			Hypergryph: HypergryphSettings{Path: `C:\Program Files\GRYPHLINK`},
 		},
+		Games: map[string]GameSettings{},
 	}
 }
 
@@ -136,16 +149,68 @@ func LoadSettings(path string) (Settings, error) {
 		out.Backends.Hypergryph.TempDir = raw.Backends.Hypergryph.TempDir
 	}
 
-	// On any successful load (including post-migration), bump version to 1.
-	out.Version = 1
+	// games (per-game overrides)
+	out.Games = raw.Games
+	if out.Games == nil {
+		out.Games = map[string]GameSettings{}
+	}
+
+	// v1→v2 migration: derive per-game overrides from old per-backend roots so
+	// no currently-installed game is lost when install locations move from
+	// per-backend roots to per-game override folders. Runs for any old file
+	// (raw.Version < 2). A default-root user keeps NO override (game stays
+	// auto-detected and re-detectable after a move); a custom-root user gets a
+	// seeded override. Never stats — preserves a custom root on an offline drive.
+	if raw.Version < 2 {
+		migrateV1ToV2(&out)
+	}
+
+	// On any successful load (including post-migration), bump version to 2.
+	out.Version = 2
 
 	return out, nil
 }
 
-// SaveSettings writes the canonical schema. Always includes version = 1; never
+// migrateBackend describes one backend's inputs to the v1→v2 migration.
+type migrateBackend struct {
+	root        string                 // already-v0-projected install root
+	defaultRoot string                 // provider DefaultRoot
+	hasSeg      bool                   // provider HasGamesSegment
+	folders     map[core.GameID]string // provider FolderNames()
+}
+
+// migrateV1ToV2 seeds out.Games with per-game overrides derived from each
+// backend's old root. See LoadSettings for the migration policy.
+func migrateV1ToV2(out *Settings) {
+	backends := []migrateBackend{
+		{out.Backends.Hoyoverse.Path, hoyoverse.DefaultRoot, hoyoverse.HasGamesSegment, hoyoverse.FolderNames()},
+		{out.Backends.Kurogames.Path, kurogames.DefaultRoot, kurogames.HasGamesSegment, kurogames.FolderNames()},
+		{out.Backends.Hypergryph.Path, hypergryph.DefaultRoot, hypergryph.HasGamesSegment, hypergryph.FolderNames()},
+	}
+	for _, b := range backends {
+		if b.root == "" || b.root == b.defaultRoot {
+			continue
+		}
+		for gid, folder := range b.folders {
+			key := string(gid)
+			if _, exists := out.Games[key]; exists {
+				continue // don't clobber an explicit games entry
+			}
+			var candidate string
+			if b.hasSeg {
+				candidate = filepath.Join(b.root, "games", folder)
+			} else {
+				candidate = filepath.Join(b.root, folder)
+			}
+			out.Games[key] = GameSettings{Path: candidate}
+		}
+	}
+}
+
+// SaveSettings writes the canonical schema. Always includes version = 2; never
 // emits hoyoplay_path.
 func SaveSettings(path string, s Settings) error {
-	s.Version = 1 // canonicalize
+	s.Version = 2 // canonicalize
 	b, err := toml.Marshal(s)
 	if err != nil {
 		return err

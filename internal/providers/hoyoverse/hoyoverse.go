@@ -15,7 +15,6 @@ import (
 )
 
 type Settings struct {
-	Path    string // launcher install root, e.g. C:\Program Files\HoYoPlay
 	Region  string // "global" or "cn" — only "global" supported in M2
 	TempDir string // override for temp/sidecar root (tests + settings.toml)
 }
@@ -33,7 +32,12 @@ type Provider struct {
 	// hpatchzRun is a test seam for hpatchz invocation (T20-E). nil → hpatchz.Run.
 	hpatchzRun func(ctx context.Context, oldFile, diffFile, newFile string) error
 	// gameDirFn is a test seam to bypass DetectInstall. nil → use DetectInstall.
-	gameDirFn func(core.GameID) (string, error)
+	gameDirFn     func(core.GameID) (string, error)
+	resolvedPaths map[core.GameID]string
+	// gachaEndpoint is a test seam for the getGachaLog endpoint URL. nil → real endpoints.
+	gachaEndpoint func(core.GameID) string
+	// gachaPageDelay is the inter-page sleep for rate limiting. 0 → no sleep (tests).
+	gachaPageDelay time.Duration
 }
 
 // New returns a new HoYoverse Provider. logger may be nil; falls back to
@@ -50,6 +54,7 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 	p.manifestCache = newManifestCache()
 	p.branchAPIBase = APIBase
 	p.sophonAPIBase = sophonChunkAPIBase
+	p.gachaPageDelay = 400 * time.Millisecond
 	return p
 }
 
@@ -74,16 +79,38 @@ func (p *Provider) Games() []core.GameDescriptor {
 
 func (p *Provider) SettingsSchema() []core.SettingField {
 	return []core.SettingField{
-		{Key: "path", Kind: core.SettingPath,
-			Label: core.LocalizedString{"zh-TW": "HoYoPlay 安裝資料夾", "en": "HoYoPlay install folder"}},
 		{Key: "region", Kind: core.SettingSelectKind,
 			Label:   core.LocalizedString{"zh-TW": "區域", "en": "Region"},
 			Options: []string{"global"}},
 	}
 }
 
-func (p *Provider) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
-	return DetectInstall(ctx, p.settings.Path)
+func (p *Provider) DetectInstall(_ context.Context) ([]core.InstalledGame, error) {
+	out := []core.InstalledGame{}
+	for gid, dir := range p.resolvedPaths {
+		if dir == "" {
+			continue
+		}
+		if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
+			out = append(out, core.InstalledGame{GameID: gid, InstallPath: dir})
+		}
+	}
+	return out, nil
+}
+
+// DefaultScan returns each known game found under DefaultRoot (layer 3 of
+// per-game install-path resolution). Keyed by game ID; empty (non-nil) when
+// nothing is installed.
+func (p *Provider) DefaultScan(ctx context.Context) (map[core.GameID]string, error) {
+	games, err := DetectInstall(ctx, DefaultRoot)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[core.GameID]string, len(games))
+	for _, g := range games {
+		out[g.GameID] = g.InstallPath
+	}
+	return out, nil
 }
 
 func (p *Provider) GetIcon(ctx context.Context, gid core.GameID) (string, error) {
@@ -152,9 +179,6 @@ func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.Launch
 	}
 	return 0, fmt.Errorf("%w: %s", core.ErrGameNotInstalled, gid)
 }
-
-// PrimaryPath implements core.PathProvider.
-func (p *Provider) PrimaryPath() string { return p.settings.Path }
 
 // IsGameRunning implements core.ProcessChecker.
 func (p *Provider) IsGameRunning(gid core.GameID) (bool, error) {
@@ -479,6 +503,13 @@ func (p *Provider) SetBranchAPIBaseURL(u string) { p.branchAPIBase = u }
 // can point the provider at a temp gameDir without going through DetectInstall.
 func (p *Provider) SetGameDirFn(fn func(core.GameID) (string, error)) {
 	p.gameDirFn = fn
+}
+
+// SetResolvedPaths injects the App-resolved per-game install folders. The
+// provider's DetectInstall + per-game operations then use these instead of
+// scanning a single root.
+func (p *Provider) SetResolvedPaths(paths map[core.GameID]string) {
+	p.resolvedPaths = paths
 }
 
 // SetHpatchzRun overrides the hpatchz invocation. Used by integration tests
@@ -845,7 +876,6 @@ func (defaultFreeSpaceProbe) FreeBytes(path string) (uint64, error) {
 // compile-time check
 var (
 	_ core.Provider       = (*Provider)(nil)
-	_ core.PathProvider   = (*Provider)(nil)
 	_ core.Updater        = (*Provider)(nil)
 	_ core.ProcessChecker = (*Provider)(nil)
 )

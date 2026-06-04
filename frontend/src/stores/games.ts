@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ListGames, RefreshVersion, GetIcon, GetBackgrounds } from '../../wailsjs/go/app/App';
+import { ListGames, RefreshVersion, GetIcon, GetBackgrounds, SetGameOverride, ClearGameOverride, RefreshGame, Launch } from '../../wailsjs/go/app/App';
 
 export type GameRow = {
   id: string;
@@ -13,6 +13,10 @@ export type GameRow = {
   icon_url?: string;
   background_url?: string;
   background_video?: string;
+  resolved_path?: string;
+  path_source?: string;
+  override_path?: string;
+  last_played?: string;
 };
 
 export const useGamesStore = defineStore('games', {
@@ -84,6 +88,36 @@ export const useGamesStore = defineStore('games', {
       } catch (e) {
         console.warn('loadAssetsFor failed', gameID, e);
       }
+    },
+    async setOverride(gameID: string, path: string) {
+      const row = await SetGameOverride(gameID, path);
+      this._replaceRow(row);
+    },
+    async clearOverride(gameID: string) {
+      const row = await ClearGameOverride(gameID);
+      this._replaceRow(row);
+    },
+    async refreshGame(gameID: string) {
+      const row = await RefreshGame(gameID);
+      this._replaceRow(row);
+    },
+    _replaceRow(row: GameRow) {
+      const idx = this.games.findIndex((g) => g.id === row.id);
+      if (idx < 0) return;
+      this.games.splice(idx, 1, row);
+      if (row.installed) {
+        this.refreshVersionFor(row.id);
+        this.loadAssetsFor(row.id);
+      }
+    },
+    // Launch a game and optimistically stamp last_played on the live row.
+    // Direct field mutation only — NEVER via _replaceRow (that re-fetches and
+    // would wipe icon_url/background_url/background_video). Backend persists the
+    // authoritative value to playstate.json; it reaches us on next cold start.
+    async launchGame(gameID: string) {
+      await Launch(gameID);
+      const row = this.games.find((g) => g.id === gameID);
+      if (row) row.last_played = new Date().toISOString();
     },
     select(id: string) { this.selectedID = id; },
   },

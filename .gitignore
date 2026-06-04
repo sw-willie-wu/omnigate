@@ -43,3 +43,7 @@ Thumbs.db
 .env
 .env.local
 settings.toml
+
+# runtime state written to CWD when running the dev exe from repo root
+/playstate.json
+/gacha.db

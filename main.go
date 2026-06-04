@@ -50,8 +50,9 @@ func main() {
 			Assets:  assets,
 			Handler: assetMux,
 		},
-		OnStartup: a.Startup,
-		Bind:      []interface{}{a},
+		OnStartup:  a.Startup,
+		OnShutdown: func(context.Context) { a.Close() },
+		Bind:       []interface{}{a},
 	})
 	if err != nil {
 		slog.Error("wails run", "err", err)

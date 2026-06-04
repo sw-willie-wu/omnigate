@@ -10,6 +10,7 @@ var (
 	ErrBackendNotConfigured = errors.New("backend not configured")
 	ErrLauncherMissing      = errors.New("launcher folder not found")
 	ErrAssetNotAvailable    = errors.New("asset not available")
+	ErrGachaURLUnavailable  = errors.New("gacha history url unavailable")
 )
 
 // ErrorCode returns a stable JSON-friendly code for the given error. The
@@ -29,6 +30,8 @@ func ErrorCode(err error) string {
 		return "launcher_missing"
 	case errors.Is(err, ErrAssetNotAvailable):
 		return "asset_unavailable"
+	case errors.Is(err, ErrGachaURLUnavailable):
+		return "gacha_url"
 	default:
 		return "internal"
 	}

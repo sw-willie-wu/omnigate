@@ -5,6 +5,72 @@
     "hypergryph": "Hypergryph",
     "perfectworld": "Perfect World"
   },
+  "news": {
+    "title": "Latest News",
+    "filter_all": "All",
+    "filter_announce": "Notice",
+    "filter_activity": "Event",
+    "filter_info": "Info",
+    "cat_announce": "Notice",
+    "cat_activity": "Event",
+    "cat_info": "Info",
+    "empty": "No news available",
+    "error": "Failed to load news",
+    "view_all": "View all news"
+  },
+  "gacha": {
+    "loading": "Loading…",
+    "unsupported": "Gacha analysis isn't supported for this game yet.",
+    "empty": "No records yet. Open the gacha history in-game once, then refresh.",
+    "url_hint": "Records link expired. Open the gacha history in-game again, then refresh.",
+    "refresh": "Refresh records",
+    "total_pulls": "Total pulls",
+    "spend_est": "Consumed",
+    "headline_cnt": "Top-rarity",
+    "avg_pity": "Avg per top",
+    "luck": "Luck",
+    "worst": "Worst",
+    "pull_count": "{n} pulls",
+    "approx": "~",
+    "unit_pull": "",
+    "unit_count": "",
+    "below_expected": "below avg {n}",
+    "at_expected": "at avg {n}",
+    "above_expected": "above avg {n}",
+    "stat_avg": "Avg",
+    "stat_top": "Top",
+    "luck_title": "Luck rating",
+    "pity_title": "Pity progress",
+    "pity_remain": "{n} pulls to pity",
+    "dist_title": "Pull distribution",
+    "dist_axis_low": "1-9",
+    "dist_axis_mid": "pulls",
+    "dist_axis_high": "80+",
+    "recent_title": "Recent top pulls",
+    "error_other": "Failed to load. Try again.",
+    "luck_band": {
+      "superb": "Blessed",
+      "good": "Lucky",
+      "avg": "Average",
+      "bad": "Unlucky",
+      "awful": "Cursed"
+    },
+    "item_type": {
+      "char": "Character",
+      "weapon": "Weapon",
+      "lightcone": "Light Cone",
+      "wengine": "W-Engine",
+      "bangboo": "Bangboo"
+    },
+    "progress": "{banner} · page {page} ({pool}/{total})",
+    "currency": {
+      "primogem": "Primogems",
+      "stellar_jade": "Stellar Jade",
+      "polychrome": "Polychrome",
+      "astrite": "Astrite",
+      "endfield_pull": "Pulls"
+    }
+  },
   "buttons": {
     "play": "PLAY",
     "play_short": "PLAY",
@@ -32,7 +98,12 @@
     "days_ago": "{n} DAYS AGO",
     "ready_pill": "READY",
     "update_pill": "UPDATE AVAILABLE",
-    "predl_pill": "PREDOWNLOAD"
+    "predl_pill": "PREDOWNLOAD",
+    "last_played": "Last played",
+    "never_played": "Never played",
+    "played_today": "Today {time}",
+    "played_yesterday": "Yesterday {time}",
+    "played_days_ago": "{n} days ago"
   },
   "footer": {
     "summary": "{games} GAMES"
@@ -139,5 +210,22 @@
       "kurogames": "Kuro Games",
       "hypergryph": "Hypergryph"
     }
+  },
+  "gamecfg": {
+    "path_label": "Install folder",
+    "browse": "Browse…",
+    "reset": "Reset",
+    "save": "Save",
+    "save_disabled_inflight": "Can't change path during an update",
+    "src_launcher": "Auto-detected",
+    "src_default": "Default location",
+    "src_override": "Manual",
+    "src_invalid": "Set, but not found",
+    "src_locate": "Locate…"
+  },
+  "nav": {
+    "overview": "Overview",
+    "gacha": "Gacha Analytics",
+    "coming_soon": "Coming soon"
   }
 }

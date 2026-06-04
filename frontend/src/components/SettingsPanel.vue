@@ -73,24 +73,11 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="settings-fade">
-      <div v-if="view.settingsOpen && draft" class="settings-overlay" @click.self="onCancel">
-        <div class="settings-card">
-      <div class="settings-header">
-        <span>{{ t('settings.title') }}</span>
-        <button class="settings-close" @click="onCancel" aria-label="Close">×</button>
-      </div>
-
+  <div v-if="view.settingsOpen && draft" class="settings-view">
       <div class="settings-body">
         <!-- HoYoverse -->
-        <div class="settings-section">
-          <div class="settings-section-title">{{ t('settings.backend.hoyoverse') }}</div>
-          <label class="settings-label">{{ t('settings.path_label') }}</label>
-          <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Hoyoverse.Path" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hoyoverse.Path = p), draft.Backends.Hoyoverse.Path)">{{ t('settings.browse') }}</button>
-          </div>
+        <div class="settings-group">
+          <div class="grid-section-label"><span>{{ t('settings.backend.hoyoverse') }}</span></div>
           <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
           <div class="settings-row">
             <input type="text" v-model="draft.Backends.Hoyoverse.TempDir" :placeholder="t('settings.tempdir_hint')" />
@@ -100,13 +87,8 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- Kuro -->
-        <div class="settings-section">
-          <div class="settings-section-title">{{ t('settings.backend.kurogames') }}</div>
-          <label class="settings-label">{{ t('settings.path_label') }}</label>
-          <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Kurogames.Path" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Kurogames.Path = p), draft.Backends.Kurogames.Path)">{{ t('settings.browse') }}</button>
-          </div>
+        <div class="settings-group">
+          <div class="grid-section-label"><span>{{ t('settings.backend.kurogames') }}</span></div>
           <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
           <div class="settings-row">
             <input type="text" v-model="draft.Backends.Kurogames.TempDir" :placeholder="t('settings.tempdir_hint')" />
@@ -116,12 +98,13 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- Hypergryph -->
-        <div class="settings-section">
-          <div class="settings-section-title">{{ t('settings.backend.hypergryph') }}</div>
-          <label class="settings-label">{{ t('settings.path_label') }}</label>
+        <div class="settings-group">
+          <div class="grid-section-label"><span>{{ t('settings.backend.hypergryph') }}</span></div>
+          <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
           <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Hypergryph.Path" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hypergryph.Path = p), draft.Backends.Hypergryph.Path)">{{ t('settings.browse') }}</button>
+            <input type="text" v-model="draft.Backends.Hypergryph.TempDir" :placeholder="t('settings.tempdir_hint')" />
+            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hypergryph.TempDir = p), draft.Backends.Hypergryph.TempDir)">{{ t('settings.browse') }}</button>
+            <button class="settings-clear" @click="draft.Backends.Hypergryph.TempDir = ''">{{ t('settings.clear') }}</button>
           </div>
         </div>
 
@@ -138,8 +121,5 @@ function onKeydown(e: KeyboardEvent) {
           @click="onSave"
         >{{ t('settings.save') }}</button>
       </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  </div>
 </template>

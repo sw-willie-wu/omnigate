@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"omnigate/internal/providers/hoyoverse"
 )
 
 func TestSettings_LoadDefaultsWhenMissing(t *testing.T) {
@@ -15,8 +17,8 @@ func TestSettings_LoadDefaultsWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Version != 1 {
-		t.Errorf("default Version = %d, want 1", s.Version)
+	if s.Version != 2 {
+		t.Errorf("default Version = %d, want 2", s.Version)
 	}
 	if s.App.Language != "zh-TW" {
 		t.Errorf("default lang = %s, want zh-TW", s.App.Language)
@@ -44,8 +46,8 @@ func TestSettings_RoundTripWritesVersion1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "version = 1") {
-		t.Errorf("written file missing 'version = 1':\n%s", raw)
+	if !strings.Contains(string(raw), "version = 2") {
+		t.Errorf("written file missing 'version = 2':\n%s", raw)
 	}
 	if !strings.Contains(string(raw), `path = "C:\\Program Files\\HoYoPlay"`) &&
 		!strings.Contains(string(raw), `path = 'C:\Program Files\HoYoPlay'`) {
@@ -87,8 +89,8 @@ region = "global"
 	if strings.Contains(string(raw), "hoyoplay_path") {
 		t.Errorf("save still contains hoyoplay_path; migration incomplete:\n%s", raw)
 	}
-	if !strings.Contains(string(raw), "version = 1") {
-		t.Errorf("save missing version = 1:\n%s", raw)
+	if !strings.Contains(string(raw), "version = 2") {
+		t.Errorf("save missing version = 2:\n%s", raw)
 	}
 }
 
@@ -103,8 +105,8 @@ func TestSettings_MalformedTOMLReturnsDefaults(t *testing.T) {
 		t.Errorf("expected error from LoadSettings on malformed TOML")
 	}
 	// Even on error, the returned struct should be safe (defaults).
-	if s.Version != 1 {
-		t.Errorf("returned Version on malformed = %d, want 1", s.Version)
+	if s.Version != 2 {
+		t.Errorf("returned Version on malformed = %d, want 2", s.Version)
 	}
 }
 
@@ -120,13 +122,13 @@ func TestSettings_FreshInstallSavesVersion1(t *testing.T) {
 	if err := SaveSettings(p, s); err != nil {
 		t.Fatal(err)
 	}
-	// Re-load — should NOT trigger migration (Path already populated, Version=1)
+	// Re-load — should NOT trigger migration (Path already populated, Version=2)
 	s2, err := LoadSettings(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s2.Version != 1 {
-		t.Errorf("re-loaded Version = %d, want 1", s2.Version)
+	if s2.Version != 2 {
+		t.Errorf("re-loaded Version = %d, want 2", s2.Version)
 	}
 	if s2.Backends.Hoyoverse.Path != `C:\Program Files\HoYoPlay` {
 		t.Errorf("re-loaded hoyoverse Path = %q", s2.Backends.Hoyoverse.Path)
@@ -236,5 +238,79 @@ func TestSettings_HypergryphTempDirRoundTrip(t *testing.T) {
 	}
 	if loaded.Backends.Hypergryph.TempDir != `D:\omnigate-temp` {
 		t.Errorf("TempDir = %q, want D:\\omnigate-temp", loaded.Backends.Hypergryph.TempDir)
+	}
+}
+
+func TestSettingsV2_GamesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.toml")
+	s := defaultSettings()
+	s.Games = map[string]GameSettings{"hoyoverse/genshin": {Path: `D:\G`}}
+	if err := SaveSettings(p, s); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != 2 {
+		t.Errorf("version = %d, want 2", got.Version)
+	}
+	if got.Games["hoyoverse/genshin"].Path != `D:\G` {
+		t.Errorf("override not round-tripped: %+v", got.Games)
+	}
+}
+
+func TestMigrateV1_CustomRoot_WritesOverrides(t *testing.T) {
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "games", "Genshin Impact game"), 0o755) // optional; migration must NOT require it
+	raw := "version = 1\n[backends.hoyoverse]\npath = '" + root + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != 2 {
+		t.Fatalf("version=%d", got.Version)
+	}
+	want := filepath.Join(root, "games", "Genshin Impact game")
+	if got.Games["hoyoverse/genshin"].Path != want {
+		t.Errorf("override=%q want %q", got.Games["hoyoverse/genshin"].Path, want)
+	}
+}
+
+func TestMigrateV1_DefaultRoot_NoOverride(t *testing.T) {
+	raw := "version = 1\n[backends.hoyoverse]\npath = '" + hoyoverse.DefaultRoot + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, _ := LoadSettings(p)
+	if _, ok := got.Games["hoyoverse/genshin"]; ok {
+		t.Errorf("unexpected override for default-root user: %+v", got.Games)
+	}
+}
+
+func TestMigrateV1_OfflineCustomRoot_SeedsWithoutStat(t *testing.T) {
+	root := `Z:\NeverMountedDrive\HoYoPlay` // does not exist
+	raw := "version = 1\n[backends.hoyoverse]\npath = '" + root + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, _ := LoadSettings(p)
+	want := filepath.Join(root, "games", "Genshin Impact game")
+	if got.Games["hoyoverse/genshin"].Path != want {
+		t.Errorf("offline override=%q want %q", got.Games["hoyoverse/genshin"].Path, want)
+	}
+}
+
+func TestMigrateV0Chain_HoyoplayPathToOverride(t *testing.T) {
+	// v0 file (hoyoplay_path, no version) → project to path → derive override.
+	root := `D:\CustomHoYo`
+	raw := "[backends.hoyoverse]\nhoyoplay_path = '" + root + "'\n"
+	p := filepath.Join(t.TempDir(), "settings.toml")
+	_ = os.WriteFile(p, []byte(raw), 0o644)
+	got, _ := LoadSettings(p)
+	want := filepath.Join(root, "games", "Genshin Impact game")
+	if got.Games["hoyoverse/genshin"].Path != want {
+		t.Errorf("v0 chain override=%q want %q", got.Games["hoyoverse/genshin"].Path, want)
 	}
 }

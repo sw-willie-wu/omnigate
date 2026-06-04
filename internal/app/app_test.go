@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"omnigate/internal/core"
 )
@@ -16,9 +18,15 @@ type fakeProvider struct {
 	games []core.GameDescriptor
 	// Optional install set; nil means DetectInstall returns ([], nil)
 	installs []core.InstalledGame
-	// optional path for PathProvider
-	path string
+	// DefaultScan result + captured SetResolvedPaths injection (Task 8)
+	def      map[core.GameID]string
+	injected map[core.GameID]string
 }
+
+func (f *fakeProvider) DefaultScan(context.Context) (map[core.GameID]string, error) {
+	return f.def, nil
+}
+func (f *fakeProvider) SetResolvedPaths(paths map[core.GameID]string) { f.injected = paths }
 
 func (f *fakeProvider) ID() core.BackendID                                  { return f.id }
 func (f *fakeProvider) DisplayName() core.LocalizedString                   { return core.LocalizedString{"en": string(f.id)} }
@@ -37,8 +45,6 @@ func (f *fakeProvider) CheckVersion(ctx context.Context, gid core.GameID) (core.
 func (f *fakeProvider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
 	return 0, nil
 }
-func (f *fakeProvider) PrimaryPath() string { return f.path }
-
 func TestProviderLookup(t *testing.T) {
 	a := newAppForTest(t,
 		&fakeProvider{id: "hoyoverse", games: []core.GameDescriptor{{ID: "hoyoverse/genshin", Backend: "hoyoverse"}}},
@@ -96,6 +102,39 @@ func TestRegisterProvider_RejectsMultiSlashGID(t *testing.T) {
 	}
 }
 
+func TestSetLanguage_PersistsAndValidates(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.toml")
+	a := &App{
+		settingsP: p,
+		settings:  defaultSettings(),
+	}
+
+	// A supported language updates both in-memory state and the TOML file
+	// without going through the heavy UpdateSettings (no provider rebuild).
+	if err := a.SetLanguage("en"); err != nil {
+		t.Fatalf("SetLanguage(en) error: %v", err)
+	}
+	if got := a.GetSettings().App.Language; got != "en" {
+		t.Errorf("in-memory language = %q, want en", got)
+	}
+	loaded, err := LoadSettings(p)
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+	if loaded.App.Language != "en" {
+		t.Errorf("persisted language = %q, want en", loaded.App.Language)
+	}
+
+	// An unsupported language is rejected and leaves state untouched.
+	if err := a.SetLanguage("fr-FR"); err == nil {
+		t.Errorf("SetLanguage(fr-FR) accepted invalid language; want error")
+	}
+	if got := a.GetSettings().App.Language; got != "en" {
+		t.Errorf("language mutated after invalid set = %q, want en", got)
+	}
+}
+
 func TestCachedDetect_CachesAcrossCalls(t *testing.T) {
 	p := &fakeProvider{
 		id:       "hoyoverse",
@@ -137,16 +176,13 @@ func TestRefreshClearsCache(t *testing.T) {
 func TestListBackends_DerivesStatuses(t *testing.T) {
 	hoyo := &fakeProvider{
 		id:       "hoyoverse",
-		path:     "C:/Program Files/HoYoPlay",
 		installs: []core.InstalledGame{{GameID: "hoyoverse/genshin"}},
 	}
 	emptyKuro := &fakeProvider{
-		id:   "kurogames",
-		path: "C:/Program Files/Wuthering Waves", // path set, no installs
+		id: "kurogames", // no installs
 	}
 	unconfigured := &fakeProvider{
-		id:   "hypergryph",
-		path: "", // path empty
+		id: "hypergryph",
 	}
 	a := newAppForTest(t, hoyo, emptyKuro, unconfigured)
 	statuses := a.ListBackends()
@@ -157,14 +193,107 @@ func TestListBackends_DerivesStatuses(t *testing.T) {
 	for _, s := range statuses {
 		byID[s.BackendID] = s
 	}
-	// Note: emptyKuro's path doesn't actually exist on the test FS; that means
-	// status will be "launcher_missing" not "empty". Adjust as needed once
-	// status semantics are concrete.
-	if byID["hoyoverse"].Status != "ok" && byID["hoyoverse"].Status != "launcher_missing" {
-		t.Errorf("hoyoverse status = %q (allowed: ok|launcher_missing depending on FS)", byID["hoyoverse"].Status)
+	// Status is now derived from a.resolved (ok | empty). None of these providers
+	// have a resolvable path (no def map, no override) → all "empty".
+	if byID["hoyoverse"].Status != "empty" {
+		t.Errorf("hoyoverse status = %q, want empty", byID["hoyoverse"].Status)
 	}
-	if byID["hypergryph"].Status != "path_unset" {
-		t.Errorf("hypergryph status = %q, want path_unset", byID["hypergryph"].Status)
+	if byID["hypergryph"].Status != "empty" {
+		t.Errorf("hypergryph status = %q, want empty", byID["hypergryph"].Status)
+	}
+}
+
+// buildAppWithResolved builds an App with a single fakeProvider whose game gid
+// resolves (via DefaultScan) to dir, runs resolveAll, and returns the App.
+// The backend prefix is derived from gid (e.g. "fake/g" → "fake").
+func buildAppWithResolved(t *testing.T, gid core.GameID, dir string) *App {
+	t.Helper()
+	backend, _, err := core.ParseGameID(gid)
+	if err != nil {
+		t.Fatalf("bad gid %q: %v", gid, err)
+	}
+	fp := &fakeProvider{
+		id:    backend,
+		games: []core.GameDescriptor{{ID: gid, Backend: backend}},
+		def:   map[core.GameID]string{gid: dir},
+	}
+	a := &App{
+		settings: Settings{Version: 2, Games: map[string]GameSettings{}},
+		detect:   map[core.BackendID]detectEntry{},
+		resolved: map[core.GameID]resolvedEntry{},
+		logger:   slog.Default(),
+	}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+	a.resolveAll(a.ctx) // single goroutine in test: no lock needed
+	return a
+}
+
+func TestListGames_CarriesResolvedSource(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	rows, _ := a.ListGames()
+	var row *GameRow
+	for i := range rows {
+		if rows[i].ID == string(gid) {
+			row = &rows[i]
+		}
+	}
+	if row == nil || !row.Installed || row.ResolvedPath != dir || row.PathSource != string(core.SourceDefault) {
+		t.Fatalf("row=%+v", row)
+	}
+}
+
+func TestListGames_InvalidOverride_NotInstalled(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	// set an override to a non-existent dir, re-resolve
+	a.settings.Games[string(gid)] = GameSettings{Path: `Z:\does\not\exist`}
+	a.resolveAll(a.ctx)
+	rows, _ := a.ListGames()
+	var row *GameRow
+	for i := range rows {
+		if rows[i].ID == string(gid) {
+			row = &rows[i]
+		}
+	}
+	if row == nil || row.PathSource != string(core.SourceOverride) || row.Installed {
+		t.Fatalf("invalid override row=%+v (want source=override, installed=false)", row)
+	}
+	if row.OverridePath != `Z:\does\not\exist` {
+		t.Fatalf("override path not surfaced: %+v", row)
+	}
+}
+
+func TestResolveAll_InjectsUnderWriteLock(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	fp := &fakeProvider{
+		id:    "fake",
+		games: []core.GameDescriptor{{ID: gid, Backend: "fake"}},
+		def:   map[core.GameID]string{gid: dir},
+	}
+	a := &App{
+		settings: Settings{Version: 2, Games: map[string]GameSettings{}},
+		detect:   map[core.BackendID]detectEntry{},
+		resolved: map[core.GameID]resolvedEntry{},
+		logger:   slog.Default(),
+	}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	// Mirror the real call path: resolveAll runs while the settings write lock
+	// is held (as constructProviders does). Must NOT deadlock.
+	a.settingsMu.Lock()
+	a.resolveAll(a.ctx)
+	a.settingsMu.Unlock()
+
+	if fp.injected[gid] != dir {
+		t.Fatalf("not injected: %+v", fp.injected)
+	}
+	if a.resolved[gid].Source != core.SourceDefault || a.resolved[gid].Path != dir {
+		t.Fatalf("resolved wrong: %+v", a.resolved[gid])
 	}
 }
 
@@ -200,5 +329,277 @@ func TestTempDirFor_DefaultBranch(t *testing.T) {
 	want := filepath.Join(osTempDir(), "omnigate", "nonexistent-backend")
 	if got != want {
 		t.Errorf("tempDirFor default = %q, want %q", got, want)
+	}
+}
+
+func TestSetGameOverride_PersistsResolvesReturnsRow(t *testing.T) {
+	overrideDir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	row, err := a.SetGameOverride(string(gid), overrideDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceOverride) || row.ResolvedPath != overrideDir || row.OverridePath != overrideDir || !row.Installed {
+		t.Fatalf("row=%+v", row)
+	}
+	a.settingsMu.RLock()
+	got := a.settings.Games[string(gid)].Path
+	a.settingsMu.RUnlock()
+	if got != overrideDir {
+		t.Errorf("not persisted: %q", got)
+	}
+}
+
+func TestClearGameOverride_RevertsToDetection(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir) // default-scan resolves to dir
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	_, _ = a.SetGameOverride(string(gid), t.TempDir())
+	row, err := a.ClearGameOverride(string(gid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceDefault) || row.ResolvedPath != dir || row.OverridePath != "" {
+		t.Fatalf("after clear row=%+v (want default %q, no override)", row, dir)
+	}
+}
+
+func TestRefreshGame_ReResolvesNoSettingsChange(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	row, err := a.RefreshGame(string(gid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.PathSource != string(core.SourceDefault) || row.ResolvedPath != dir || !row.Installed {
+		t.Fatalf("row=%+v", row)
+	}
+	// No override should have been written.
+	a.settingsMu.RLock()
+	_, present := a.settings.Games[string(gid)]
+	a.settingsMu.RUnlock()
+	if present {
+		t.Errorf("RefreshGame mutated settings.Games")
+	}
+}
+
+func TestSetGameOverride_UnknownGameErrors(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	if _, err := a.SetGameOverride("other/missing", t.TempDir()); err == nil {
+		t.Fatalf("SetGameOverride(unknown) succeeded; want error")
+	}
+}
+
+func TestLaunch_RecordsLastPlayed(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	a.playState = loadPlayState(filepath.Join(t.TempDir(), "playstate.json"))
+
+	if _, err := a.Launch(string(gid)); err != nil {
+		t.Fatalf("Launch failed: %v", err)
+	}
+	if a.playState.Get(string(gid)).IsZero() {
+		t.Fatalf("Launch did not record last-played")
+	}
+	rows, _ := a.ListGames()
+	var lp string
+	for i := range rows {
+		if rows[i].ID == string(gid) {
+			lp = rows[i].LastPlayed
+		}
+	}
+	if lp == "" {
+		t.Fatalf("ListGames row missing last_played")
+	}
+}
+
+// fakeProbeProvider embeds fakeProvider and adds a LastPlayedProbe returning a
+// fixed file list, so we can drive lastPlayedLocked's stat/max logic.
+type fakeProbeProvider struct {
+	fakeProvider
+	files []string
+}
+
+func (f *fakeProbeProvider) LastPlayedFiles(_ core.GameID, _ string) []string {
+	return f.files
+}
+
+func writeFileWithMtime(t *testing.T, path string, mt time.Time) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLastPlayedLocked_FileNewerThanPlaystate(t *testing.T) {
+	dir := t.TempDir()
+	logf := filepath.Join(dir, "output_log.txt")
+	fileMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, logf, fileMt)
+
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	// playstate older than the file:
+	a.playState.last["g/x"] = fileMt.Add(-24 * time.Hour)
+
+	p := &fakeProbeProvider{files: []string{logf}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(fileMt) {
+		t.Errorf("want file mtime %v, got %v", fileMt, got)
+	}
+}
+
+func TestLastPlayedLocked_PlaystateNewerThanFile(t *testing.T) {
+	dir := t.TempDir()
+	logf := filepath.Join(dir, "output_log.txt")
+	fileMt := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, logf, fileMt)
+
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	a.playState.last["g/x"] = psMt
+
+	p := &fakeProbeProvider{files: []string{logf}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(psMt) {
+		t.Errorf("want playstate %v, got %v", psMt, got)
+	}
+}
+
+func TestLastPlayedLocked_NoProbeInterface(t *testing.T) {
+	dir := t.TempDir()
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	a.playState.last["g/x"] = psMt
+
+	// plain fakeProvider does NOT implement LastPlayedProbe → playstate only.
+	got := a.lastPlayedLocked(&fakeProvider{}, "g/x", "")
+	if !got.Equal(psMt) {
+		t.Errorf("want playstate %v, got %v", psMt, got)
+	}
+}
+
+func TestLastPlayedLocked_MissingFileFallsBack(t *testing.T) {
+	dir := t.TempDir()
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	a.playState.last["g/x"] = psMt
+
+	missing := filepath.Join(dir, "does-not-exist.txt")
+	p := &fakeProbeProvider{files: []string{missing}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(psMt) {
+		t.Errorf("want playstate %v (missing file ignored), got %v", psMt, got)
+	}
+}
+
+func TestLastPlayedLocked_MultipleFilesNewestWins(t *testing.T) {
+	dir := t.TempDir()
+	older := filepath.Join(dir, "output_log.txt")
+	newer := filepath.Join(dir, "Player.log")
+	olderMt := time.Now().Add(-10 * time.Hour).Truncate(time.Second)
+	newerMt := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, older, olderMt)
+	writeFileWithMtime(t, newer, newerMt)
+
+	a := &App{}
+	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	a.playState.last["g/x"] = newerMt.Add(-24 * time.Hour) // older than both files
+
+	// Candidate order puts the OLDER file first; the loop must still pick newer.
+	p := &fakeProbeProvider{files: []string{older, newer}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(newerMt) {
+		t.Errorf("want newest file mtime %v, got %v", newerMt, got)
+	}
+}
+
+func TestLastPlayedLocked_NilPlayState(t *testing.T) {
+	dir := t.TempDir()
+	logf := filepath.Join(dir, "output_log.txt")
+	fileMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	writeFileWithMtime(t, logf, fileMt)
+
+	a := &App{} // playState nil — must not panic
+	p := &fakeProbeProvider{files: []string{logf}}
+	got := a.lastPlayedLocked(p, "g/x", "")
+	if !got.Equal(fileMt) {
+		t.Errorf("want file mtime %v, got %v", fileMt, got)
+	}
+}
+
+// fakeNewsProvider embeds fakeProvider and returns canned news.
+type fakeNewsProvider struct {
+	fakeProvider
+	items   []core.NewsItem
+	gotLang string
+}
+
+func (f *fakeNewsProvider) GetNews(_ context.Context, _ core.GameID, lang string) ([]core.NewsItem, error) {
+	f.gotLang = lang
+	return f.items, nil
+}
+
+func TestGetNews_RoutesToProvider(t *testing.T) {
+	gid := core.GameID("fake/g")
+	fp := &fakeNewsProvider{
+		fakeProvider: fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}},
+		items:        []core.NewsItem{{Title: "Hello", Category: core.NewsAnnounce, URL: "https://x/1"}},
+	}
+	a := &App{settings: Settings{Version: 2}, logger: slog.Default()}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "zh-TW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Title != "Hello" {
+		t.Fatalf("got %v", out)
+	}
+	if fp.gotLang != "zh-TW" {
+		t.Errorf("lang passthrough = %q, want zh-TW", fp.gotLang)
+	}
+}
+
+func TestGetNews_ProviderWithoutNews_ReturnsEmpty(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := &App{settings: Settings{Version: 2}, logger: slog.Default()}
+	a.providers = []core.Provider{&fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}}}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "en")
+	if err != nil {
+		t.Fatalf("want nil err, got %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("want empty, got %v", out)
+	}
+}
+
+func TestOpenExternalURL_RejectsNonHTTP(t *testing.T) {
+	a := &App{logger: slog.Default()}
+	if err := a.OpenExternalURL("file:///etc/passwd"); err == nil {
+		t.Errorf("file:// accepted; want rejected")
+	}
+	if err := a.OpenExternalURL("javascript:alert(1)"); err == nil {
+		t.Errorf("javascript: accepted; want rejected")
+	}
+	if err := a.OpenExternalURL("https://example.com"); err != nil {
+		t.Errorf("https rejected: %v", err)
 	}
 }
