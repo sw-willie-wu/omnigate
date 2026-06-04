@@ -103,7 +103,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "beginner_choice", Label: wuwaLoc("新手自選", "新手自选", "Beginner Choice"), Pity: wuwaPity{}},
 			{Key: "other", Label: wuwaLoc("感恩定向", "感恩定向", "Other"), Pity: wuwaPity{}},
 		},
-		PullPrice: 160, Currency: "NT$", ExpectedPity: 62.5,
+		PullPrice: 160, Currency: "astrite", ExpectedPity: 62.5,
 	}
 }
 
@@ -171,6 +171,9 @@ func (p *Provider) fetchWuwa(ctx context.Context, f url.Values) (core.GachaFetch
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
+		core.ReportGachaProgress(ctx, core.GachaProgress{
+			BannerKey: poolBanner(pool), Page: 1, PoolIndex: pool, PoolTotal: 7,
+		})
 		reqBody, _ := json.Marshal(map[string]any{
 			"cardPoolId":   f.Get("resources_id"),
 			"cardPoolType": pool,

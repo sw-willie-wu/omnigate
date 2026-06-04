@@ -30,6 +30,11 @@ function typeLabel(raw: string): string {
   const k = `gacha.item_type.${raw}`;
   return te(k) ? t(k) : raw;
 }
+// Currency is a stable code (primogem/stellar_jade/...); localize via i18n map.
+function currencyName(code: string): string {
+  const k = `gacha.currency.${code}`;
+  return te(k) ? t(k) : code;
+}
 
 const u = { pull: () => t('gacha.unit_pull'), count: () => t('gacha.unit_count') };
 const nf = (n: number) => n.toLocaleString();
@@ -72,6 +77,16 @@ function remain(cur: number, cap: number): number {
   return Math.max(0, cap - cur);
 }
 const recent = computed(() => (sum.value?.recentHeadline ?? []).slice(0, 5));
+// Hide pools the account never pulled on (no records).
+const visiblePity = computed(() => (sum.value?.pity ?? []).filter((b) => (sum.value?.perBanner?.[b.key] ?? 0) > 0));
+// Loading line: live "{banner} · page N (i/total)" when a progress tick has
+// arrived (refresh), else generic loading (initial store read).
+const progressText = computed(() => {
+  const p = st.value.progress;
+  return p
+    ? t('gacha.progress', { banner: localize(p.banner), page: p.page, pool: p.poolIndex, total: p.poolTotal })
+    : t('gacha.loading');
+});
 
 onMounted(() => gacha.load(props.gid));
 watch(() => props.gid, (g) => gacha.load(g));
@@ -79,8 +94,12 @@ watch(() => props.gid, (g) => gacha.load(g));
 
 <template>
   <div class="gacha-board">
-    <!-- loading skeleton -->
+    <!-- loading: spinner + live progress text, over a skeleton -->
     <div v-if="st.loading" class="gacha-skeleton" aria-busy="true">
+      <div class="gacha-progress">
+        <span class="gacha-spinner" aria-hidden="true"></span>
+        <span class="gacha-progress-text">{{ progressText }}</span>
+      </div>
       <div class="sk-cards">
         <div v-for="i in 4" :key="i" class="sk sk-card"></div>
       </div>
@@ -119,7 +138,7 @@ watch(() => props.gid, (g) => gacha.load(g));
         <div class="card">
           <div class="num mono">{{ compact(sum.spendEst) }}</div>
           <div class="cap">{{ t('gacha.spend_est') }}</div>
-          <div class="sub mono">{{ t('gacha.approx') }} {{ sum.currency }}{{ nf(sum.spendEst) }}</div>
+          <div class="sub mono">{{ nf(sum.spendEst) }} {{ currencyName(sum.currency) }}</div>
         </div>
         <div class="card">
           <div class="num mono">{{ sum.headlineCnt }}<span class="unit">{{ u.count() }}</span></div>
@@ -153,7 +172,7 @@ watch(() => props.gid, (g) => gacha.load(g));
 
         <div class="panel gacha-pity">
           <div class="panel-title">{{ t('gacha.pity_title') }}</div>
-          <div v-for="b in sum.pity" :key="b.key" class="pity-row" :class="{ near: b.nearPity }">
+          <div v-for="b in visiblePity" :key="b.key" class="pity-row" :class="{ near: b.nearPity }">
             <div class="pity-head">
               <span class="pity-label">{{ localize(b.label) }}</span>
               <span class="pity-val mono">{{ b.current }} / {{ b.cap }}</span>
@@ -270,6 +289,14 @@ watch(() => props.gid, (g) => gacha.load(g));
 /* states */
 .gacha-empty, .gacha-unsupported, .gacha-error { padding: 40px; text-align: center; color: var(--text-2); }
 .gacha-empty .gacha-refresh, .gacha-error .gacha-refresh { margin-top: 14px; }
+
+/* loading: spinner + progress text */
+.gacha-progress { display: flex; align-items: center; gap: 10px; padding: 2px 0 6px; color: var(--text-2); font-size: .85rem; }
+.gacha-spinner { width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 2px solid var(--border-strong); border-top-color: var(--gold-hi);
+  animation: gacha-spin .8s linear infinite; }
+.gacha-progress-text { font-variant-numeric: tabular-nums; }
+@keyframes gacha-spin { to { transform: rotate(360deg); } }
 
 /* loading skeleton */
 .gacha-skeleton { display: flex; flex-direction: column; gap: 12px; }

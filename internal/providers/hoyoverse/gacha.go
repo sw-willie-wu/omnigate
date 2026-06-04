@@ -177,9 +177,12 @@ func loc(zhTW, zhCN, en string) core.LocalizedString {
 
 func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	rank := map[int]core.LocalizedString{5: loc("五星", "五星", "5★"), 4: loc("四星", "四星", "4★")}
-	cfg := core.GachaConfig{HeadlineRank: 5, RankLabels: rank, PullPrice: 100, Currency: "NT$", ExpectedPity: 62.5}
+	// PullPrice 160 = premium currency consumed per pull (all HoYoverse games);
+	// Currency is a per-game stone code resolved to a localized name in the UI.
+	cfg := core.GachaConfig{HeadlineRank: 5, RankLabels: rank, PullPrice: 160, ExpectedPity: 62.5}
 	switch gid {
 	case "hoyoverse/genshin":
+		cfg.Currency = "primogem"
 		cfg.Banners = []core.BannerConfig{
 			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}},
 			{Key: "weapon", Label: loc("武器", "武器", "Weapon"), Pity: hoyoPity{80, true}},
@@ -188,6 +191,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "chronicled", Label: loc("集錄", "集录", "Chronicled"), Pity: hoyoPity{90, false}},
 		}
 	case "hoyoverse/starrail":
+		cfg.Currency = "stellar_jade"
 		cfg.Banners = []core.BannerConfig{
 			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}},
 			{Key: "lightcone", Label: loc("光錐", "光锥", "Light Cone"), Pity: hoyoPity{80, true}},
@@ -195,6 +199,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "beginner", Label: loc("新手", "新手", "Beginner"), Pity: hoyoPity{90, false}},
 		}
 	case "hoyoverse/zzz":
+		cfg.Currency = "polychrome"
 		cfg.Banners = []core.BannerConfig{
 			{Key: "character", Label: loc("限定代理人", "限定代理人", "Character"), Pity: hoyoPity{90, true}},
 			{Key: "wengine", Label: loc("音擎", "音擎", "W-Engine"), Pity: hoyoPity{80, true}},
@@ -359,12 +364,16 @@ func (p *Provider) fetchHoyoGacha(ctx context.Context, gid core.GameID, auth url
 	// cache the auth query as a URL string for the store (token-bearing; never logged)
 	out.URL = endpoint + "?" + auth.Encode()
 
-	for _, gt := range gachaTypesToQuery[gid] {
+	gts := gachaTypesToQuery[gid]
+	for i, gt := range gts {
 		endID := "0"
 		for page := 1; page <= 100; page++ {
 			if err := ctx.Err(); err != nil {
 				return out, err
 			}
+			core.ReportGachaProgress(ctx, core.GachaProgress{
+				BannerKey: bannerForGachaType(gid, gt), Page: page, PoolIndex: i + 1, PoolTotal: len(gts),
+			})
 			// Forward the full chosen query verbatim; override only the
 			// per-request pagination keys (some games, e.g. ZZZ, need the
 			// extra params the cached URL carries — see fix #1 spec).

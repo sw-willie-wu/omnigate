@@ -3,6 +3,7 @@ import { onMounted, computed, ref } from 'vue';
 import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
 import { useUpdatesStore } from './stores/updates';
+import { useGachaStore } from './stores/gacha';
 import { GetSettings } from '../wailsjs/go/app/App';
 import { setLang } from './i18n';
 import BgLayer from './components/BgLayer.vue';
@@ -22,6 +23,7 @@ import { registerToast } from './composables/useToast';
 const games = useGamesStore();
 const view = useViewStore();
 const updates = useUpdatesStore();
+const gacha = useGachaStore();
 
 const dialogRef = ref(null);
 const toastRef = ref(null);
@@ -46,6 +48,7 @@ onMounted(async () => {
   await games.loadAssets();
   await updates.loadAll();
   updates.bind();
+  gacha.bind();
   registerDialog(dialogRef.value);
   registerToast(toastRef.value);
   // Probe for updates so BottomBar [更新 ↓] can appear without user clicking

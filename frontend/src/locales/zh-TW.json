@@ -25,7 +25,7 @@
     "url_hint": "紀錄連結已失效。請在遊戲內重新開啟抽卡紀錄後再重新整理。",
     "refresh": "重新整理紀錄",
     "total_pulls": "總抽數",
-    "spend_est": "已花費（估算）",
+    "spend_est": "消耗",
     "headline_cnt": "最高星數",
     "avg_pity": "平均出貨",
     "luck": "幸運值",
@@ -61,6 +61,14 @@
       "lightcone": "光錐",
       "wengine": "音擎",
       "bangboo": "邦布"
+    },
+    "progress": "{banner} · 第 {page} 頁（{pool}/{total}）",
+    "currency": {
+      "primogem": "原石",
+      "stellar_jade": "星瓊",
+      "polychrome": "菲林",
+      "astrite": "星聲",
+      "endfield_pull": "尋訪"
     }
   },
   "buttons": {

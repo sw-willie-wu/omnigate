@@ -28,6 +28,25 @@ func testConfig() GachaConfig {
 	}
 }
 
+func TestComputeSummarySpendStones(t *testing.T) {
+	// 10 pulls, 1 free → 9 paid × 160 = 1440 currency consumed; Currency is the code.
+	cfg := testConfig()
+	cfg.PullPrice = 160
+	cfg.Currency = "primogem"
+	pulls := make([]GachaPull, 10)
+	for i := range pulls {
+		pulls[i] = GachaPull{ID: string(rune('a' + i)), BannerKey: "special", Rank: 5}
+	}
+	pulls[0].IsFree = true
+	s := ComputeSummary("u1", pulls, cfg)
+	if s.SpendEst != 1440 {
+		t.Fatalf("spendEst=%d want 1440 (9 paid × 160)", s.SpendEst)
+	}
+	if s.Currency != "primogem" {
+		t.Fatalf("currency=%q want code primogem", s.Currency)
+	}
+}
+
 func TestComputeSummaryBasics(t *testing.T) {
 	pulls := []GachaPull{
 		{ID: "1", BannerKey: "special", Rank: 5},

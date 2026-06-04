@@ -10,15 +10,17 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
   GetGachaSummary: (...a: unknown[]) => getSummary(...a),
   RefreshGacha: (...a: unknown[]) => refreshGacha(...a),
 }));
+vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 
 import GachaBoard from '../GachaBoard.vue';
+import { useGachaStore } from '../../stores/gacha';
 
 function mountBoard() {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
   return mount(GachaBoard, { props: { gid: 'hypergryph/endfield' }, global: { plugins: [i18n] } });
 }
 const base = {
-  supported: true, uid: 'u1', totalPulls: 12, perBanner: { special: 8, standard: 4 }, spendEst: 1200, currency: 'NT$',
+  supported: true, uid: 'u1', totalPulls: 12, perBanner: { special: 8, standard: 4 }, spendEst: 1200, currency: 'primogem',
   headlineCnt: 2, headlineByType: { char: 2 }, avgPity: 6, expectedPity: 62.5, luckScore: 80, winRate5050: null, worstPull: 9,
   pity: [{ key: 'special', label: { en: 'Limited' }, current: 10, cap: 80, nearPity: false }],
   distribution: [1, 0, 0, 0, 0, 0, 0, 0, 1], recentHeadline: [{ name: 'Alpha', itemType: 'char', bannerKey: 'special', time: '2026-06-01', count: 4 }],
@@ -97,6 +99,49 @@ describe('GachaBoard', () => {
     getSummary.mockRejectedValue(new Error('boom'));
     const w = mountBoard(); await flushPromises();
     expect(w.find('.gacha-error').exists()).toBe(true);
+  });
+
+  it('shows consumed stones with the localized currency name (no NTD/估算)', async () => {
+    getSummary.mockResolvedValue({ ...base, currency: 'primogem', spendEst: 1200 });
+    const w = mountBoard(); await flushPromises();
+    expect(w.text()).toContain('Primogems');
+    expect(w.text()).toContain('1,200');
+    expect(w.text()).not.toContain('NT$');
+  });
+
+  it('hides pity rows for pools with no records', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      perBanner: { special: 8 }, // 'beginner' absent → 0 records → hidden
+      pity: [
+        { key: 'special', label: { en: 'Limited' }, current: 10, cap: 80, nearPity: false },
+        { key: 'beginner', label: { en: 'Beginner' }, current: 0, cap: 90, nearPity: false },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    expect(w.findAll('.pity-row').length).toBe(1);
+    expect(w.find('.gacha-pity').text()).toContain('Limited');
+    expect(w.find('.gacha-pity').text()).not.toContain('Beginner');
+  });
+
+  it('shows spinner + live progress text during refresh', async () => {
+    // Pre-seed a loading+progress state; onMounted load() early-returns (loading).
+    const store = useGachaStore();
+    store.byGid['hypergryph/endfield'] = {
+      summary: null, loading: true, errKind: null, loaded: false,
+      progress: { banner: { en: 'Limited' }, page: 5, poolIndex: 2, poolTotal: 4 },
+    };
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('.gacha-spinner').exists()).toBe(true);
+    expect(w.find('.gacha-progress-text').text()).toContain('Limited');
+    expect(w.find('.gacha-progress-text').text()).toContain('5');
+  });
+
+  it('shows generic loading (spinner) when no progress tick yet', async () => {
+    getSummary.mockReturnValue(new Promise(() => {})); // pending
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('.gacha-spinner').exists()).toBe(true);
+    expect(w.find('.gacha-skeleton').exists()).toBe(true);
   });
 
   it('shows url-reopen guidance when refresh errKind=url', async () => {

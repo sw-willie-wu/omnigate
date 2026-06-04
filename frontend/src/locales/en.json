@@ -25,7 +25,7 @@
     "url_hint": "Records link expired. Open the gacha history in-game again, then refresh.",
     "refresh": "Refresh records",
     "total_pulls": "Total pulls",
-    "spend_est": "Spent (est.)",
+    "spend_est": "Consumed",
     "headline_cnt": "Top-rarity",
     "avg_pity": "Avg per top",
     "luck": "Luck",
@@ -61,6 +61,14 @@
       "lightcone": "Light Cone",
       "wengine": "W-Engine",
       "bangboo": "Bangboo"
+    },
+    "progress": "{banner} · page {page} ({pool}/{total})",
+    "currency": {
+      "primogem": "Primogems",
+      "stellar_jade": "Stellar Jade",
+      "polychrome": "Polychrome",
+      "astrite": "Astrite",
+      "endfield_pull": "Pulls"
     }
   },
   "buttons": {

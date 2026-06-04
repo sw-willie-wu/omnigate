@@ -200,6 +200,28 @@ func TestFetchGachaPaginatesNormalizes(t *testing.T) {
 	}
 }
 
+func TestFetchGachaReportsProgress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"retcode":0,"message":"OK","data":{"list":[]}}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.gachaEndpoint = func(core.GameID) string { return srv.URL }
+	p.gachaPageDelay = 0
+	var got []core.GachaProgress
+	ctx := core.WithGachaProgress(context.Background(), func(pr core.GachaProgress) { got = append(got, pr) })
+	q := url.Values{"authkey": {"K"}, "game_biz": {"hkrpg_global"}}
+	if _, err := p.fetchHoyoGacha(ctx, "hoyoverse/starrail", q); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("no progress reported")
+	}
+	if got[0].BannerKey == "" || got[0].Page < 1 || got[0].PoolTotal < 1 {
+		t.Fatalf("bad progress %+v", got[0])
+	}
+}
+
 func TestFetchGachaAuthkeyTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"retcode":-101,"message":"authkey timeout","data":null}`))
