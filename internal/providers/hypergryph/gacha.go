@@ -79,6 +79,10 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "special", Label: core.LocalizedString{"zh-TW": "特許尋訪", "zh-CN": "特许寻访", "en": "Limited"}, Pity: endfieldLimitedPity{}},
 			{Key: "standard", Label: core.LocalizedString{"zh-TW": "基礎尋訪", "zh-CN": "基础寻访", "en": "Standard"}, Pity: endfieldStandardPity{}},
 			{Key: "beginner", Label: core.LocalizedString{"zh-TW": "啟程尋訪", "zh-CN": "启程寻访", "en": "Beginner"}, Pity: endfieldStandardPity{}},
+			// Joint pool (collab) exists in the live pool_type enum. Its exact pity
+			// rule is unverified → standard-pity placeholder so its pulls still count
+			// and display; refine if a live record set shows different behaviour.
+			{Key: "joint", Label: core.LocalizedString{"zh-TW": "聯動尋訪", "zh-CN": "联动寻访", "en": "Joint"}, Pity: endfieldStandardPity{}},
 		},
 		PullPrice: endfieldPullPrice, Currency: "NT$", ExpectedPity: endfieldExpectedPity,
 	}
@@ -94,6 +98,7 @@ var endfieldPools = []struct{ poolType, bannerKey string }{
 	{"E_CharacterGachaPoolType_Special", "special"},
 	{"E_CharacterGachaPoolType_Standard", "standard"},
 	{"E_CharacterGachaPoolType_Beginner", "beginner"},
+	{"E_CharacterGachaPoolType_Joint", "joint"},
 }
 
 func defaultEndfieldLogPath() string {
@@ -159,15 +164,26 @@ func (p *Provider) readGachaURL() string {
 	return extractEndfieldGachaURL(b)
 }
 
-// fetchEndfield parses token/server_id/lang from gachaURL and paginates each pool.
+// fetchEndfield parses the token/server/lang from the gachaURL and paginates
+// each pool against /api/record/char.
+//
+// The live (2026) page URL carries these as `u8_token` and `server` — verified
+// against the real endpoint: the record API itself wants them as `token` and
+// `server_id` (a token-only probe returned 400 listing token/pool_type/server_id/
+// lang as required; supplying them yielded HTTP 200, only the expired token was
+// rejected with code 40100). We accept the older `token`/`server_id` query names
+// too as a fallback. The /api/record/char endpoint, pool_type enum, and seq_id
+// cursor are unchanged; the record RESPONSE shape is still pending live-token
+// smoke verification (matches the documented {code,msg,data:{list,hasMore}}).
 func (p *Provider) fetchEndfield(ctx context.Context, gachaURL string) (core.GachaFetchResult, error) {
 	u, err := url.Parse(gachaURL)
 	if err != nil {
 		return core.GachaFetchResult{}, core.ErrGachaURLUnavailable
 	}
-	token := u.Query().Get("token")
-	serverID := u.Query().Get("server_id")
-	lang := u.Query().Get("lang")
+	q := u.Query()
+	token := firstNonEmpty(q.Get("u8_token"), q.Get("token"))
+	serverID := firstNonEmpty(q.Get("server"), q.Get("server_id"))
+	lang := q.Get("lang")
 	if token == "" {
 		return core.GachaFetchResult{}, core.ErrGachaURLUnavailable
 	}
@@ -241,6 +257,15 @@ func (p *Provider) fetchEndfield(ctx context.Context, gachaURL string) (core.Gac
 		out.UID = serverID + ":" + token[:minInt(len(token), 8)]
 	}
 	return out, nil
+}
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // minInt avoids shadowing the Go 1.21 builtin min / any package-level helper.

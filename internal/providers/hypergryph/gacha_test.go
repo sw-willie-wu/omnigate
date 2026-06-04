@@ -46,7 +46,7 @@ func TestEndfieldConfig(t *testing.T) {
 	if cfg.HeadlineRank != 6 {
 		t.Fatalf("headlineRank=%d want 6", cfg.HeadlineRank)
 	}
-	if cfg.BannerOf("special") == nil || cfg.BannerOf("standard") == nil || cfg.BannerOf("beginner") == nil {
+	if cfg.BannerOf("special") == nil || cfg.BannerOf("standard") == nil || cfg.BannerOf("beginner") == nil || cfg.BannerOf("joint") == nil {
 		t.Fatalf("missing banners: %+v", cfg.Banners)
 	}
 }
@@ -88,7 +88,8 @@ func TestFetchEndfieldPaginatesAndNormalizes(t *testing.T) {
 	p.recordAPIBase = srv.URL
 	p.pageDelay = 0
 
-	url := srv.URL + "/page/gacha_index?token=T&server_id=2&lang=zh-tw"
+	// Live (2026) page URL carries the token as u8_token and the server as server.
+	url := srv.URL + "/page/gacha_char?u8_token=T&server=2&lang=zh-tw"
 	res, err := p.fetchEndfield(context.Background(), url)
 	if err != nil {
 		t.Fatalf("fetchEndfield: %v", err)
@@ -105,9 +106,10 @@ func TestFetchEndfieldPaginatesAndNormalizes(t *testing.T) {
 	if top == nil || top.Rank != 6 || top.Name != "Alpha" || top.BannerKey != "special" || top.IsFree {
 		t.Fatalf("normalize wrong: %+v", top)
 	}
-	// 4 record-API calls: special page1 + special page2, then standard + beginner (1 empty page each).
-	if calls != 4 {
-		t.Fatalf("calls=%d want 4 (pagination + 3 pools)", calls)
+	// 5 record-API calls: special page1 + special page2, then standard + beginner
+	// + joint (1 empty page each).
+	if calls != 5 {
+		t.Fatalf("calls=%d want 5 (pagination + 4 pools)", calls)
 	}
 }
 
