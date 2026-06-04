@@ -329,15 +329,8 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 
 **Files:** append to `internal/providers/hoyoverse/gacha.go`, `internal/providers/hoyoverse/gacha_test.go`.
 
-- [ ] **Step 1: failing test** — append to `gacha_test.go`:
+- [ ] **Step 1: failing test** — append to `gacha_test.go`. NOTE: consolidate ALL test imports into one block at the top of the file. The full import set across Tasks 1–3 is: `context`, `errors`, `net/http`, `net/http/httptest`, `net/url`, `os`, `path/filepath`, `testing`, `time` (only if used), and `omnigate/internal/core`. **`net/url` is required** (the tests build `url.Values`).
 ```go
-import (
-	"context"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-)
-
 func TestFetchGachaPaginatesNormalizes(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -391,15 +384,10 @@ func TestFetchGachaAuthkeyTimeout(t *testing.T) {
 	p.gachaPageDelay = 0
 	q := url.Values{"authkey": {"K"}, "game_biz": {"hkrpg_global"}}
 	_, err := p.fetchHoyoGacha(context.Background(), "hoyoverse/starrail", q)
-	if err == nil || !strings.Contains(err.Error(), "url") {
-		// fetchHoyoGacha must return core.ErrGachaURLUnavailable on retcode<0
-	}
-	if err == nil {
-		t.Fatalf("want ErrGachaURLUnavailable on retcode -101")
+	if !errors.Is(err, core.ErrGachaURLUnavailable) {
+		t.Fatalf("err=%v want ErrGachaURLUnavailable on retcode -101", err)
 	}
 }
-
-var _ = strings.Contains
 ```
 
 - [ ] **Step 2: run** → FAIL.
