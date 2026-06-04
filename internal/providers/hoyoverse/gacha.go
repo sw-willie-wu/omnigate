@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"omnigate/internal/core"
@@ -19,12 +20,18 @@ import (
 
 // ── Task 1: webCache auth-query extraction ────────────────────────────────────
 
+// hoyoAuthURLRe matches a cached gacha-log URL carrying an authkey. The
+// getGachaLog anchor (applied after the match) is what makes a URL a candidate:
+// other authkey-bearing URLs (gacha-page init, unrelated APIs) authenticate but
+// return an empty/wrong-scope list, so they must be excluded.
 var hoyoAuthURLRe = regexp.MustCompile(`https://[^\s"\x00]*authkey=[^\s"\x00]*`)
 
-// extractHoyoAuthQuery scans the game's webCaches data_* files for the freshest
-// gacha page URL carrying authkey+game_biz, and returns its query values.
-// installDir is the App-resolved game dir; dataDir is "<Game>_Data".
-func extractHoyoAuthQuery(installDir, dataDir string) (url.Values, error) {
+// extractHoyoAuthQuery scans the newest webCaches data_1/2/3 for getGachaLog URLs
+// carrying an authkey, and returns the deduped candidate queries ordered freshest
+// (largest timestamp) first; URLs without a timestamp sort last. The full query of
+// each candidate is preserved (callers forward every param). installDir is the
+// App-resolved game dir; dataDir is "<Game>_Data".
+func extractHoyoAuthQuery(installDir, dataDir string) ([]url.Values, error) {
 	root := filepath.Join(installDir, dataDir, "webCaches")
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -42,32 +49,69 @@ func extractHoyoAuthQuery(installDir, dataDir string) (url.Values, error) {
 	sort.Strings(vers)
 	newest := vers[len(vers)-1]
 
-	var best url.Values
-	var bestTS int64 = -1
+	type candidate struct {
+		q    url.Values
+		ts   int64
+		seen int // encounter order, for stable tie-breaking
+	}
+	var cands []candidate
+	dedup := map[string]bool{}
+	order := 0
 	for _, n := range []string{"data_1", "data_2", "data_3"} {
 		b, err := os.ReadFile(filepath.Join(root, newest, "Cache", "Cache_Data", n))
 		if err != nil {
 			continue
 		}
 		for _, m := range hoyoAuthURLRe.FindAll(b, -1) {
-			u, e := url.Parse(string(m))
+			s := string(m)
+			if !strings.Contains(s, "getGachaLog") { // getGachaLog anchor
+				continue
+			}
+			u, e := url.Parse(s)
 			if e != nil {
 				continue
 			}
 			q := u.Query()
-			if q.Get("authkey") == "" || q.Get("game_biz") == "" {
+			if q.Get("authkey") == "" {
 				continue
 			}
-			ts, _ := strconv.ParseInt(q.Get("timestamp"), 10, 64)
-			if ts > bestTS {
-				bestTS, best = ts, q
+			key := q.Encode()
+			if dedup[key] {
+				continue
 			}
+			dedup[key] = true
+			ts, _ := strconv.ParseInt(q.Get("timestamp"), 10, 64)
+			cands = append(cands, candidate{q: q, ts: ts, seen: order})
+			order++
 		}
 	}
-	if best == nil {
+	if len(cands) == 0 {
 		return nil, core.ErrGachaURLUnavailable
 	}
-	return best, nil
+	// freshest timestamp first; missing/zero ts last; stable on ties.
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].ts != cands[j].ts {
+			return cands[i].ts > cands[j].ts
+		}
+		return cands[i].seen < cands[j].seen
+	})
+	out := make([]url.Values, len(cands))
+	for i, c := range cands {
+		out[i] = c.q
+	}
+	return out, nil
+}
+
+// cloneValues deep-copies a url.Values so per-request Set() never mutates the
+// shared candidate/auth map (url.Values is map[string][]string).
+func cloneValues(v url.Values) url.Values {
+	out := make(url.Values, len(v))
+	for k, vs := range v {
+		cp := make([]string, len(vs))
+		copy(cp, vs)
+		out[k] = cp
+	}
+	return out
 }
 
 // dataDirFor derives "<Game>_Data" from the game's exe name (e.g.
@@ -199,9 +243,11 @@ func (p *Provider) FetchGacha(ctx context.Context, gid core.GameID, installDir, 
 	if m == nil {
 		return core.GachaFetchResult{}, core.ErrUnknownGame
 	}
-	q, err := extractHoyoAuthQuery(installDir, dataDirFor(m))
+	cands, err := extractHoyoAuthQuery(installDir, dataDirFor(m))
 	if err != nil {
-		// fall back to a cached auth-query string if present
+		// No fresh candidates → fall back to a stored auth-query URL if present.
+		// The cachedURL is a getGachaLog query (endpoint+"?"+query); accept it as a
+		// single candidate as long as it carries authkey (anchor-exempt: R4).
 		if cachedURL == "" {
 			return core.GachaFetchResult{}, core.ErrGachaURLUnavailable
 		}
@@ -209,9 +255,86 @@ func (p *Provider) FetchGacha(ctx context.Context, gid core.GameID, installDir, 
 		if perr != nil || cu.Query().Get("authkey") == "" {
 			return core.GachaFetchResult{}, core.ErrGachaURLUnavailable
 		}
-		q = cu.Query()
+		cands = []url.Values{cu.Query()}
 	}
-	return p.fetchHoyoGacha(ctx, gid, q)
+	auth, err := p.selectAuthCandidate(ctx, gid, cands)
+	if err != nil {
+		return core.GachaFetchResult{}, err
+	}
+	return p.fetchHoyoGacha(ctx, gid, auth)
+}
+
+// selectAuthCandidate probes each candidate once (first banner gacha_type, page 1)
+// against getGachaLog and returns the chosen full query, using a two-tier rule:
+//   - tier 1: the first candidate (in order) with retcode==0 and a non-empty list;
+//   - tier 2: else the first candidate with retcode==0 and non-nil data;
+//   - else ErrGachaURLUnavailable.
+//
+// A probe that errors, returns non-200, fails to parse, has retcode!=0, or nil
+// data is SKIPPED (never fatal) so a single bad/expired candidate can't abort
+// selection while a working one remains.
+func (p *Provider) selectAuthCandidate(ctx context.Context, gid core.GameID, cands []url.Values) (url.Values, error) {
+	endpoint := p.endpointFor(gid)
+	if endpoint == "" {
+		return nil, core.ErrUnknownGame
+	}
+	hc := p.httpClient
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+	gts := gachaTypesToQuery[gid]
+	if len(gts) == 0 {
+		return nil, core.ErrUnknownGame
+	}
+	probeType := gts[0]
+
+	var tier2 url.Values
+	for i, c := range cands {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// Space out probes for rate limiting — applies to every probe after the
+		// first (incl. failing/expired candidates, the real rate-limit risk).
+		if i > 0 && p.gachaPageDelay > 0 {
+			time.Sleep(p.gachaPageDelay)
+		}
+		q := cloneValues(c)
+		q.Set("gacha_type", probeType)
+		q.Set("size", "20")
+		q.Set("page", "1")
+		q.Set("end_id", "0")
+		req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"?"+q.Encode(), nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", UserAgent)
+		resp, err := hc.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			continue
+		}
+		var r hoyoGachaLogResp
+		if err := json.Unmarshal(body, &r); err != nil {
+			continue
+		}
+		if r.Retcode != 0 || r.Data == nil {
+			continue
+		}
+		if len(r.Data.List) > 0 {
+			return c, nil // tier 1: first non-empty wins
+		}
+		if tier2 == nil {
+			tier2 = c // remember first retcode0+empty
+		}
+	}
+	if tier2 != nil {
+		return tier2, nil
+	}
+	return nil, core.ErrGachaURLUnavailable
 }
 
 func (p *Provider) endpointFor(gid core.GameID) string {
@@ -242,12 +365,10 @@ func (p *Provider) fetchHoyoGacha(ctx context.Context, gid core.GameID, auth url
 			if err := ctx.Err(); err != nil {
 				return out, err
 			}
-			q := url.Values{}
-			for _, k := range []string{"authkey", "authkey_ver", "sign_type", "game_biz", "lang", "region"} {
-				if v := auth.Get(k); v != "" {
-					q.Set(k, v)
-				}
-			}
+			// Forward the full chosen query verbatim; override only the
+			// per-request pagination keys (some games, e.g. ZZZ, need the
+			// extra params the cached URL carries — see fix #1 spec).
+			q := cloneValues(auth)
 			q.Set("gacha_type", gt)
 			q.Set("size", "20")
 			q.Set("page", strconv.Itoa(page))
