@@ -272,7 +272,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 
 **Files:** append to `gacha.go`, `gacha_test.go`.
 
-- [ ] **Step 1: failing test** — append to `gacha_test.go` (add imports `bytes`/`context`/`encoding/json`/`net/http`/`net/http/httptest`/`errors`):
+- [ ] **Step 1: failing test** — append to `gacha_test.go`. Consolidate ALL test imports into one block; the full set the tests use is exactly: `context`, `encoding/json`, `errors`, `net/http`, `net/http/httptest`, `net/url`, `os`, `path/filepath`, `testing`, `omnigate/internal/core`. **Do NOT import `bytes` in the test** (it's only used in production `gacha.go`) — unused import = compile error.
 ```go
 func TestWuwaFetch_NormalizesAndSynthIDs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
