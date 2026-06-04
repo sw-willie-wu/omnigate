@@ -18,6 +18,26 @@ func gachaDBPathFor(settingsPath string) string {
 	return filepath.Join(dir, "gacha.db")
 }
 
+// gachaProgressPayload builds the Wails event payload for one progress tick:
+// resolves the banner KEY to its localized label from the game's config (so the
+// frontend localizes with its own helper), plus page/pool counters. Pure +
+// unit-testable. Carries no token/URL.
+func gachaProgressPayload(cfg core.GachaConfig, p core.GachaProgress) map[string]any {
+	var label core.LocalizedString
+	for _, b := range cfg.Banners {
+		if b.Key == p.BannerKey {
+			label = b.Label
+			break
+		}
+	}
+	if label == nil {
+		label = core.LocalizedString{"en": p.BannerKey}
+	}
+	return map[string]any{
+		"banner": label, "page": p.Page, "poolIndex": p.PoolIndex, "poolTotal": p.PoolTotal,
+	}
+}
+
 // RefreshGacha extracts the local history URL, fetches the record API, upserts
 // into the store (dedup), and returns the recomputed summary. Network-touching.
 func (a *App) RefreshGacha(gameID string) (core.GachaSummary, error) {
@@ -51,6 +71,12 @@ func (a *App) RefreshGacha(gameID string) (core.GachaSummary, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
+
+	// Stream pagination progress to the UI (banner/page/pool — never the URL).
+	cfg := gp.GachaConfig(gid)
+	ctx = core.WithGachaProgress(ctx, func(p core.GachaProgress) {
+		a.emit("gacha:progress", gameID, gachaProgressPayload(cfg, p))
+	})
 
 	res, err := gp.FetchGacha(ctx, gid, installDir, cachedURL)
 	if err != nil {

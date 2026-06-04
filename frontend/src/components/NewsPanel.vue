@@ -91,7 +91,12 @@ onMounted(reload);
   border: 1px solid var(--line-2); background: transparent; color: var(--text-2); cursor: pointer;
 }
 .news-filters button.active { color: var(--accent); border-color: var(--gold-deep); background: var(--gold-soft); }
-.news-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.news-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent; }
+/* match the app's thin chrome scrollbars (.main/.sidebar/.gacha-board) */
+.news-list::-webkit-scrollbar { width: 6px; }
+.news-list::-webkit-scrollbar-track { background: transparent; }
+.news-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+.news-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
 .news-item { display: flex; gap: 10px; cursor: pointer; padding: 4px; border-radius: 8px; }
 .news-item:hover { background: var(--bg-3, rgba(255,255,255,.05)); }
 .news-thumb { width: 58px; height: 42px; flex: none; border-radius: 6px; overflow: hidden; background: var(--line-1);

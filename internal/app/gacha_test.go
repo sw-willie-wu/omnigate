@@ -10,6 +10,23 @@ import (
 	"omnigate/internal/store"
 )
 
+func TestGachaProgressPayload(t *testing.T) {
+	cfg := core.GachaConfig{Banners: []core.BannerConfig{
+		{Key: "character", Label: core.LocalizedString{"en": "Character", "zh-TW": "限定角色"}},
+	}}
+	p := gachaProgressPayload(cfg, core.GachaProgress{BannerKey: "character", Page: 2, PoolIndex: 1, PoolTotal: 4})
+	label, _ := p["banner"].(core.LocalizedString)
+	if label["en"] != "Character" || p["page"].(int) != 2 || p["poolTotal"].(int) != 4 {
+		t.Fatalf("payload=%+v", p)
+	}
+	// unknown banner key → fallback label = the raw key.
+	p2 := gachaProgressPayload(cfg, core.GachaProgress{BannerKey: "mystery", Page: 1})
+	label2, _ := p2["banner"].(core.LocalizedString)
+	if label2["en"] != "mystery" {
+		t.Fatalf("fallback label=%+v", label2)
+	}
+}
+
 // fakeGachaProvider embeds fakeProvider BY VALUE (like fakeNewsProvider in
 // app_test.go) so ID()/Games() are satisfied without a nil-pointer panic.
 type fakeGachaProvider struct {

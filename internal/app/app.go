@@ -71,18 +71,21 @@ func New(settingsPath string, logger *slog.Logger) *App {
 	}
 
 	// Construct update state registry; emitter writes to Wails event bus.
-	emit := func(name string, args ...any) {
-		if a.ctx != nil {
-			wruntime.EventsEmit(a.ctx, name, args...)
-		}
-	}
-	a.updateRegistry = NewUpdateStateRegistry(emit, realClock{})
+	a.updateRegistry = NewUpdateStateRegistry(a.emit, realClock{})
 
 	// Spec §2.3: walk <TempDir>/<gameID-flat>/<version>/ for sidecars left
 	// behind by an interrupted prior run.
 	a.scanForRecovery()
 
 	return a
+}
+
+// emit writes an event to the Wails event bus (no-op before the runtime is
+// ready / in tests where a.ctx is nil). Shared by the update registry and gacha.
+func (a *App) emit(name string, args ...any) {
+	if a.ctx != nil {
+		wruntime.EventsEmit(a.ctx, name, args...)
+	}
 }
 
 // constructProviders builds the provider list from current settings.

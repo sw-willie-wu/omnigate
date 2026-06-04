@@ -34,6 +34,7 @@ type GachaSummary struct {
 	HeadlineCnt    int             `json:"headlineCnt"`
 	HeadlineByType map[string]int  `json:"headlineByType"`
 	AvgPity        float64         `json:"avgPity"`
+	ExpectedPity   float64         `json:"expectedPity"`
 	LuckScore      int             `json:"luckScore"`
 	WinRate5050    *float64        `json:"winRate5050"`
 	WorstPull      int             `json:"worstPull"`
@@ -89,6 +90,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	if len(allHits) > 0 {
 		s.AvgPity = float64(sumCount) / float64(len(allHits))
 	}
+	s.ExpectedPity = cfg.ExpectedPity
 	s.LuckScore = luckScore(s.AvgPity, cfg.ExpectedPity, len(allHits))
 
 	sort.Slice(allHits, func(i, j int) bool { return numLess(allHits[j].Pull.ID, allHits[i].Pull.ID) })

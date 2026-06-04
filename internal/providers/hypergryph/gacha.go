@@ -18,7 +18,7 @@ import (
 const endfieldHardPity = 80       // official: 6★ hard pity (char)
 const endfieldExpectedPity = 62.0 // theoretical avg pulls/6★ for the luck score
 const endfieldMilestone = 60      // free-pull carryover milestone (ref repo)
-const endfieldPullPrice = 100     // estimated price per pull (placeholder unit, NT$)
+const endfieldPullPrice = 160     // placeholder: real Endfield per-pull cost TBD (currency code "endfield_pull")
 const endfieldMaxPages = 200      // per-pool pagination safety cap (200×~20 ≫ any account)
 
 // endfieldStandardPity: every pull counts; reset to 0 on a headline.
@@ -84,7 +84,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			// and display; refine if a live record set shows different behaviour.
 			{Key: "joint", Label: core.LocalizedString{"zh-TW": "聯動尋訪", "zh-CN": "联动寻访", "en": "Joint"}, Pity: endfieldStandardPity{}},
 		},
-		PullPrice: endfieldPullPrice, Currency: "NT$", ExpectedPity: endfieldExpectedPity,
+		PullPrice: endfieldPullPrice, Currency: "endfield_pull", ExpectedPity: endfieldExpectedPity,
 	}
 }
 
@@ -198,12 +198,15 @@ func (p *Provider) fetchEndfield(ctx context.Context, gachaURL string) (core.Gac
 		hc = http.DefaultClient
 	}
 	out := core.GachaFetchResult{URL: gachaURL, Pulls: []core.GachaPull{}}
-	for _, pool := range endfieldPools {
+	for i, pool := range endfieldPools {
 		seqID := ""
 		for page := 0; page < endfieldMaxPages; page++ {
 			if err := ctx.Err(); err != nil {
 				return out, err
 			}
+			core.ReportGachaProgress(ctx, core.GachaProgress{
+				BannerKey: pool.bannerKey, Page: page + 1, PoolIndex: i + 1, PoolTotal: len(endfieldPools),
+			})
 			q := url.Values{}
 			q.Set("token", token)
 			q.Set("pool_type", pool.poolType)
