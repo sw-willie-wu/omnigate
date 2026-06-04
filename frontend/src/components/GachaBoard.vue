@@ -211,12 +211,17 @@ watch(() => props.gid, (g) => gacha.load(g));
 </template>
 
 <style scoped>
-.gacha-board { padding: 14px 22px; overflow-y: auto; max-height: 100%; display: flex; flex-direction: column; gap: 14px; }
+.gacha-board { padding: 14px 22px; overflow-y: auto; max-height: 100%; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent; }
+/* match the app's thin chrome scrollbars (.main/.sidebar in theme.css) */
+.gacha-board::-webkit-scrollbar { width: 6px; }
+.gacha-board::-webkit-scrollbar-track { background: transparent; }
+.gacha-board::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+.gacha-board::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
 .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
 
 /* actions */
 .gacha-actions { display: flex; justify-content: space-between; align-items: center; }
-.gacha-sub { color: var(--text-2); font-size: .8rem; letter-spacing: .05em; }
+.gacha-sub { color: rgba(255,255,255,0.85); font-size: .8rem; letter-spacing: .05em; }
 .gacha-refresh {
   background: var(--gold-soft); color: var(--gold-hi); border: 1px solid rgba(230,197,115,.4);
   border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
@@ -232,14 +237,14 @@ watch(() => props.gid, (g) => gacha.load(g));
 .card { padding: 14px; }
 .card .num { font-weight: 800; font-size: 1.6rem; line-height: 1.1; }
 .card .num.ok { color: var(--ok); }
-.card .num .unit { font-size: .85rem; font-weight: 600; color: var(--text-2); margin-left: 3px; }
-.card .cap { color: var(--text-2); font-size: .78rem; margin-top: 5px; }
-.card .sub { color: var(--text-3); font-size: .72rem; margin-top: 6px; }
+.card .num .unit { font-size: .85rem; font-weight: 600; color: rgba(255,255,255,0.85); margin-left: 3px; }
+.card .cap { color: rgba(255,255,255,0.85); font-size: .78rem; margin-top: 5px; }
+.card .sub { color: rgba(255,255,255,0.72); font-size: .72rem; margin-top: 6px; }
 
 /* middle row */
 .gacha-mid { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 12px; }
 .panel { padding: 14px 16px; }
-.panel-title { font-size: .8rem; font-weight: 700; letter-spacing: .1em; color: var(--text-2); margin-bottom: 12px; }
+.panel-title { font-size: .8rem; font-weight: 700; letter-spacing: .1em; color: rgba(255,255,255,0.85); margin-bottom: 12px; }
 
 /* donut */
 .gacha-luck { display: flex; flex-direction: column; align-items: center; }
@@ -249,24 +254,24 @@ watch(() => props.gid, (g) => gacha.load(g));
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .donut-score { font-size: 2.2rem; font-weight: 800; color: var(--gold-hi); line-height: 1; }
-.donut-cap { font-size: .7rem; color: var(--text-2); margin-top: 2px; }
+.donut-cap { font-size: .7rem; color: rgba(255,255,255,0.85); margin-top: 2px; }
 .luck-band { color: var(--gold-hi); font-weight: 700; margin-top: 12px; font-size: .9rem; text-align: center; }
 .luck-trio { display: flex; gap: 14px; margin-top: 12px; }
 .trio-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .trio-item .tv { font-weight: 700; font-size: 1rem; }
-.trio-item .tl { font-size: .68rem; color: var(--text-3); }
+.trio-item .tl { font-size: .68rem; color: rgba(255,255,255,0.72); }
 
 /* pity bars */
 .pity-row { margin-bottom: 14px; }
 .pity-row:last-child { margin-bottom: 0; }
 .pity-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
 .pity-label { font-size: .85rem; font-weight: 600; }
-.pity-val { font-size: .85rem; color: var(--text-2); }
+.pity-val { font-size: .85rem; color: rgba(255,255,255,0.85); }
 .pity-track { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
 .pity-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s; }
 .pity-row.near .pity-fill { background: var(--gold-hi); box-shadow: 0 0 10px var(--gold-glow); }
 .pity-row.near .pity-val { color: var(--gold-hi); }
-.pity-remain { font-size: .7rem; color: var(--text-3); margin-top: 4px; }
+.pity-remain { font-size: .7rem; color: rgba(255,255,255,0.72); margin-top: 4px; }
 
 /* distribution */
 .gacha-dist { display: flex; flex-direction: column; }
@@ -274,12 +279,12 @@ watch(() => props.gid, (g) => gacha.load(g));
 .dist-col { flex: 1; height: 100%; display: flex; align-items: flex-end; }
 .dist-bar { width: 100%; min-height: 2px; border-radius: 3px 3px 0 0; background: var(--text-3); opacity: .5; transition: height .3s; }
 .dist-bar.hot { background: var(--gold-hi); opacity: 1; }
-.dist-axis { display: flex; justify-content: space-between; font-size: .65rem; color: var(--text-3); margin-top: 6px; }
+.dist-axis { display: flex; justify-content: space-between; font-size: .65rem; color: rgba(255,255,255,0.72); margin-top: 6px; }
 
 /* recent */
 .recent-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
 .recent-item { background: rgba(0,0,0,.25); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-.r-top { display: flex; align-items: center; gap: 6px; font-size: .7rem; color: var(--text-3); }
+.r-top { display: flex; align-items: center; gap: 6px; font-size: .7rem; color: rgba(255,255,255,0.72); }
 .r-star { color: var(--gold-hi); }
 .r-banner { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .r-name { font-weight: 700; font-size: .9rem; margin: 6px 0 4px; }
@@ -287,11 +292,11 @@ watch(() => props.gid, (g) => gacha.load(g));
 .recent-item.cool .r-count { color: var(--info); }
 
 /* states */
-.gacha-empty, .gacha-unsupported, .gacha-error { padding: 40px; text-align: center; color: var(--text-2); }
+.gacha-empty, .gacha-unsupported, .gacha-error { padding: 40px; text-align: center; color: rgba(255,255,255,0.85); }
 .gacha-empty .gacha-refresh, .gacha-error .gacha-refresh { margin-top: 14px; }
 
 /* loading: spinner + progress text */
-.gacha-progress { display: flex; align-items: center; gap: 10px; padding: 2px 0 6px; color: var(--text-2); font-size: .85rem; }
+.gacha-progress { display: flex; align-items: center; gap: 10px; padding: 2px 0 6px; color: rgba(255,255,255,0.85); font-size: .85rem; }
 .gacha-spinner { width: 16px; height: 16px; flex: none; border-radius: 50%;
   border: 2px solid var(--border-strong); border-top-color: var(--gold-hi);
   animation: gacha-spin .8s linear infinite; }
