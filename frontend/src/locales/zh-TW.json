@@ -30,7 +30,38 @@
     "avg_pity": "平均出貨",
     "luck": "幸運值",
     "worst": "最非",
-    "pull_count": "{n} 抽出貨"
+    "pull_count": "{n} 抽出貨",
+    "approx": "約",
+    "unit_pull": "抽",
+    "unit_count": "個",
+    "below_expected": "略低於期望值 {n}",
+    "at_expected": "符合期望值 {n}",
+    "above_expected": "略高於期望值 {n}",
+    "stat_avg": "平均",
+    "stat_top": "最高星",
+    "luck_title": "歐非程度評比",
+    "pity_title": "保底進度",
+    "pity_remain": "距離保底還有 {n} 抽",
+    "dist_title": "出貨分佈",
+    "dist_axis_low": "1-9",
+    "dist_axis_mid": "抽數區間",
+    "dist_axis_high": "80+",
+    "recent_title": "最近高星紀錄",
+    "error_other": "讀取失敗，請重試。",
+    "luck_band": {
+      "superb": "極歐 · 天選之人",
+      "good": "微歐 · 運氣不錯",
+      "avg": "中規中矩",
+      "bad": "微非 · 別灰心",
+      "awful": "極非 · 下次一定"
+    },
+    "item_type": {
+      "char": "角色",
+      "weapon": "武器",
+      "lightcone": "光錐",
+      "wengine": "音擎",
+      "bangboo": "邦布"
+    }
   },
   "buttons": {
     "play": "開始遊戲",
@@ -184,5 +215,9 @@
     "src_invalid": "手動・找不到",
     "src_locate": "定位…"
   },
-  "nav": { "overview": "總覽", "gacha": "抽卡分析", "coming_soon": "即將推出" }
+  "nav": {
+    "overview": "總覽",
+    "gacha": "抽卡分析",
+    "coming_soon": "即將推出"
+  }
 }

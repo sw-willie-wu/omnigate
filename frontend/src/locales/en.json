@@ -30,7 +30,38 @@
     "avg_pity": "Avg per top",
     "luck": "Luck",
     "worst": "Worst",
-    "pull_count": "{n} pulls"
+    "pull_count": "{n} pulls",
+    "approx": "~",
+    "unit_pull": "",
+    "unit_count": "",
+    "below_expected": "below avg {n}",
+    "at_expected": "at avg {n}",
+    "above_expected": "above avg {n}",
+    "stat_avg": "Avg",
+    "stat_top": "Top",
+    "luck_title": "Luck rating",
+    "pity_title": "Pity progress",
+    "pity_remain": "{n} pulls to pity",
+    "dist_title": "Pull distribution",
+    "dist_axis_low": "1-9",
+    "dist_axis_mid": "pulls",
+    "dist_axis_high": "80+",
+    "recent_title": "Recent top pulls",
+    "error_other": "Failed to load. Try again.",
+    "luck_band": {
+      "superb": "Blessed",
+      "good": "Lucky",
+      "avg": "Average",
+      "bad": "Unlucky",
+      "awful": "Cursed"
+    },
+    "item_type": {
+      "char": "Character",
+      "weapon": "Weapon",
+      "lightcone": "Light Cone",
+      "wengine": "W-Engine",
+      "bangboo": "Bangboo"
+    }
   },
   "buttons": {
     "play": "PLAY",
@@ -184,5 +215,9 @@
     "src_invalid": "Set, but not found",
     "src_locate": "Locate…"
   },
-  "nav": { "overview": "Overview", "gacha": "Gacha Analytics", "coming_soon": "Coming soon" }
+  "nav": {
+    "overview": "Overview",
+    "gacha": "Gacha Analytics",
+    "coming_soon": "Coming soon"
+  }
 }

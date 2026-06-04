@@ -50,6 +50,9 @@ func TestComputeSummaryBasics(t *testing.T) {
 	if s.AvgPity != 3 {
 		t.Fatalf("avgPity=%v want 3", s.AvgPity)
 	}
+	if s.ExpectedPity != 60 {
+		t.Fatalf("expectedPity=%v want 60 (from cfg)", s.ExpectedPity)
+	}
 	if s.WorstPull != 4 {
 		t.Fatalf("worst=%d want 4", s.WorstPull)
 	}

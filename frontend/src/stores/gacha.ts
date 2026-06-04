@@ -6,7 +6,7 @@ export interface HeadlineEntry { name: string; itemType: string; bannerKey: stri
 export interface GachaSummary {
   supported: boolean; uid: string; totalPulls: number; perBanner: Record<string, number>;
   spendEst: number; currency: string; headlineCnt: number; headlineByType: Record<string, number>;
-  avgPity: number; luckScore: number; winRate5050: number | null; worstPull: number;
+  avgPity: number; expectedPity: number; luckScore: number; winRate5050: number | null; worstPull: number;
   pity: BannerPity[]; distribution: number[]; recentHeadline: HeadlineEntry[];
 }
 type ErrKind = 'url' | 'other' | null;

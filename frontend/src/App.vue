@@ -73,7 +73,7 @@ onMounted(async () => {
           <DetailView />
         </template>
         <GridView v-else />
-        <BottomBar v-if="view.viewMode === 'detail'" />
+        <BottomBar v-if="view.viewMode === 'detail' && view.homeTab === 'overview'" />
       </main>
       <Footbar />
     </div>

@@ -30,7 +30,38 @@
     "avg_pity": "平均出货",
     "luck": "幸运值",
     "worst": "最非",
-    "pull_count": "{n} 抽出货"
+    "pull_count": "{n} 抽出货",
+    "approx": "约",
+    "unit_pull": "抽",
+    "unit_count": "个",
+    "below_expected": "略低于期望值 {n}",
+    "at_expected": "符合期望值 {n}",
+    "above_expected": "略高于期望值 {n}",
+    "stat_avg": "平均",
+    "stat_top": "最高星",
+    "luck_title": "欧非程度评比",
+    "pity_title": "保底进度",
+    "pity_remain": "距离保底还有 {n} 抽",
+    "dist_title": "出货分布",
+    "dist_axis_low": "1-9",
+    "dist_axis_mid": "抽数区间",
+    "dist_axis_high": "80+",
+    "recent_title": "最近高星纪录",
+    "error_other": "读取失败，请重试。",
+    "luck_band": {
+      "superb": "极欧 · 天选之人",
+      "good": "微欧 · 运气不错",
+      "avg": "中规中矩",
+      "bad": "微非 · 别灰心",
+      "awful": "极非 · 下次一定"
+    },
+    "item_type": {
+      "char": "角色",
+      "weapon": "武器",
+      "lightcone": "光锥",
+      "wengine": "音擎",
+      "bangboo": "邦布"
+    }
   },
   "buttons": {
     "play": "开始游戏",
@@ -184,5 +215,9 @@
     "src_invalid": "手动・未找到",
     "src_locate": "定位…"
   },
-  "nav": { "overview": "总览", "gacha": "抽卡分析", "coming_soon": "即将推出" }
+  "nav": {
+    "overview": "总览",
+    "gacha": "抽卡分析",
+    "coming_soon": "即将推出"
+  }
 }
