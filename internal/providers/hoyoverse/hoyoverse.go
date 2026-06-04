@@ -34,6 +34,10 @@ type Provider struct {
 	// gameDirFn is a test seam to bypass DetectInstall. nil → use DetectInstall.
 	gameDirFn     func(core.GameID) (string, error)
 	resolvedPaths map[core.GameID]string
+	// gachaEndpoint is a test seam for the getGachaLog endpoint URL. nil → real endpoints.
+	gachaEndpoint func(core.GameID) string
+	// gachaPageDelay is the inter-page sleep for rate limiting. 0 → no sleep (tests).
+	gachaPageDelay time.Duration
 }
 
 // New returns a new HoYoverse Provider. logger may be nil; falls back to
@@ -50,6 +54,7 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 	p.manifestCache = newManifestCache()
 	p.branchAPIBase = APIBase
 	p.sophonAPIBase = sophonChunkAPIBase
+	p.gachaPageDelay = 400 * time.Millisecond
 	return p
 }
 

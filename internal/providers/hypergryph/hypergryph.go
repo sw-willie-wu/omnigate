@@ -22,18 +22,25 @@ type Provider struct {
 	client        *http.Client
 	clock         RetryClock
 	resolvedPaths map[core.GameID]string
+	recordAPIBase string
+	pageDelay     time.Duration
+	logPathFn     func() string
 }
 
 func New(settings Settings, logger *slog.Logger) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Provider{
+	p := &Provider{
 		settings: settings,
 		logger:   logger,
 		client:   &http.Client{Timeout: 5 * time.Minute}, // download-grade; get_latest also fine
 		clock:    realRetryClock{},
 	}
+	p.recordAPIBase = "https://ef-webview.gryphline.com"
+	p.pageDelay = 700 * time.Millisecond
+	p.logPathFn = defaultEndfieldLogPath
+	return p
 }
 
 func (p *Provider) ID() core.BackendID { return BackendID }

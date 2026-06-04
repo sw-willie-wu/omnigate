@@ -15,6 +15,7 @@ import (
 	"omnigate/internal/providers/hoyoverse"
 	"omnigate/internal/providers/hypergryph"
 	"omnigate/internal/providers/kurogames"
+	"omnigate/internal/store"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -36,6 +37,7 @@ type App struct {
 	logger         *slog.Logger
 	updateRegistry *UpdateStateRegistry
 	playState      *playState
+	gachaStore     store.GachaStore
 }
 
 // New returns an App. settingsPath may be "" → default to alongside the binary.
@@ -59,6 +61,11 @@ func New(settingsPath string, logger *slog.Logger) *App {
 		logger:    logger,
 	}
 	a.playState = loadPlayState(playStatePathFor(settingsPath))
+	if gs, gerr := store.OpenSQLite(gachaDBPathFor(settingsPath)); gerr == nil {
+		a.gachaStore = gs
+	} else {
+		logger.Error("gacha store open failed; gacha disabled", "err", gerr)
+	}
 	if err := a.constructProviders(); err != nil {
 		logger.Error("provider construction failed", "err", err)
 	}
@@ -261,6 +268,13 @@ func (a *App) invalidateDetectFor(id core.BackendID) {
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+}
+
+// Close releases App-held resources (gacha DB). Safe to call once.
+func (a *App) Close() {
+	if a.gachaStore != nil {
+		a.gachaStore.Close()
+	}
 }
 
 // ─── Wails-bound commands (return values must be JSON-serializable) ───

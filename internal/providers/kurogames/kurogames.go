@@ -17,23 +17,30 @@ type Settings struct {
 }
 
 type Provider struct {
-	settings      Settings
-	logger        *slog.Logger
-	httpClient    *http.Client     // for manifest + downloads; injected from app layer
-	clock         RetryClock       // for download retry backoff (test-only injection)
-	resolvedPaths map[core.GameID]string
+	settings       Settings
+	logger         *slog.Logger
+	httpClient     *http.Client // for manifest + downloads; injected from app layer
+	clock          RetryClock   // for download retry backoff (test-only injection)
+	resolvedPaths  map[core.GameID]string
+	recordAPIBase  string
+	convLogPathsFn func(installDir string) []string
+	recordDelay    time.Duration
 }
 
 func New(settings Settings, logger *slog.Logger) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Provider{
+	p := &Provider{
 		settings:   settings,
 		logger:     logger,
 		httpClient: &http.Client{Timeout: 5 * time.Minute},
 		clock:      realRetryClock{},
 	}
+	p.recordAPIBase = "https://gmserver-api.aki-game2.net"
+	p.convLogPathsFn = defaultConvLogPaths
+	p.recordDelay = 400 * time.Millisecond
+	return p
 }
 
 func (p *Provider) ID() core.BackendID { return BackendID }
@@ -387,9 +394,9 @@ func (p *Provider) SetResolvedPaths(paths map[core.GameID]string) {
 
 // compile-time interface compliance (EDIT 3 — deviation: removed AssetServer)
 var (
-	_ core.Provider                = (*Provider)(nil)
-	_ core.ExeNamer                = (*Provider)(nil)
-	_ core.Updater                 = (*Provider)(nil) // M3.A: implements update interface
-	_ core.CheckForUpdateProgress  = (*Provider)(nil) // verify-local progress for BottomBar
-	_ core.ProcessChecker          = (*Provider)(nil)
+	_ core.Provider               = (*Provider)(nil)
+	_ core.ExeNamer               = (*Provider)(nil)
+	_ core.Updater                = (*Provider)(nil) // M3.A: implements update interface
+	_ core.CheckForUpdateProgress = (*Provider)(nil) // verify-local progress for BottomBar
+	_ core.ProcessChecker         = (*Provider)(nil)
 )
