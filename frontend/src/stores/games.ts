@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ListGames, RefreshVersion, GetIcon, GetBackgrounds, SetGameOverride, ClearGameOverride, RefreshGame, Launch } from '../../wailsjs/go/app/App';
+import { ListGames, RefreshVersion, GetIcon, GetBackgrounds, GetCustomBackground, SetGameOverride, ClearGameOverride, RefreshGame, Launch } from '../../wailsjs/go/app/App';
 
 export type GameRow = {
   id: string;
@@ -11,8 +11,8 @@ export type GameRow = {
   latest_version?: string;
   has_predownload: boolean;
   icon_url?: string;
-  background_url?: string;
-  background_video?: string;
+  backgrounds?: { image: string; video: string }[];
+  bgIndex?: number;
   resolved_path?: string;
   path_source?: string;
   override_path?: string;
@@ -23,6 +23,7 @@ export const useGamesStore = defineStore('games', {
   state: () => ({
     games: [] as GameRow[],
     selectedID: '' as string,
+    _customBg: {} as Record<string, string>,
   }),
   actions: {
     async load() {
@@ -42,19 +43,38 @@ export const useGamesStore = defineStore('games', {
         }
       }
     },
+    _randomIndex(len: number): number {
+      return len > 0 ? Math.floor(Math.random() * len) : 0;
+    },
+    // _customBg[id]: undefined = not fetched; '' = fetched, none (or a transient
+    // GetCustomBackground error — treated as "no custom" until invalidateCustomBg,
+    // so we fail closed to the official backgrounds rather than refetch-storm);
+    // url = custom background in effect.
+    async _applyCustomBg(g: GameRow): Promise<boolean> {
+      if (this._customBg[g.id] === undefined) {
+        try { this._customBg[g.id] = await GetCustomBackground(g.id); }
+        catch { this._customBg[g.id] = ''; }
+      }
+      const url = this._customBg[g.id];
+      if (url) { g.backgrounds = [{ image: url, video: '' }]; return true; }
+      return false;
+    },
+    invalidateCustomBg() { this._customBg = {}; },
+    // Load icon + backgrounds[] + reseed bgIndex for one row. loadAssets and
+    // loadAssetsFor both delegate here so the sequence stays in lockstep.
+    async _loadAssetsForRow(g: GameRow) {
+      if (!g.icon_url) g.icon_url = await GetIcon(g.id);
+      if (!(await this._applyCustomBg(g))) {
+        const bgs = await GetBackgrounds(g.id);
+        g.backgrounds = bgs.map((b) => ({ image: b.ImageURL, video: b.VideoURL }));
+      }
+      g.bgIndex = this._randomIndex(g.backgrounds?.length ?? 0);
+    },
     async loadAssets() {
       for (const g of this.games) {
         if (!g.installed) continue;
         try {
-          if (!g.icon_url) g.icon_url = await GetIcon(g.id);
-          const bgs = await GetBackgrounds(g.id);
-          if (bgs.length) {
-            // Prefer the first background with a video; fall back to the first bg's image otherwise.
-            const withVideo = bgs.find((b) => b.VideoURL);
-            const pick = withVideo ?? bgs[0];
-            g.background_url = pick.ImageURL;
-            g.background_video = pick.VideoURL;
-          }
+          await this._loadAssetsForRow(g);
         } catch (e) {
           console.warn('assets failed', g.id, e);
         }
@@ -76,15 +96,7 @@ export const useGamesStore = defineStore('games', {
       const idx = this.games.findIndex((g) => g.id === gameID);
       if (idx < 0 || !this.games[idx].installed) return;
       try {
-        const g = this.games[idx];
-        if (!g.icon_url) g.icon_url = await GetIcon(gameID);
-        const bgs = await GetBackgrounds(gameID);
-        if (bgs.length) {
-          const withVideo = bgs.find((b) => b.VideoURL);
-          const pick = withVideo ?? bgs[0];
-          g.background_url = pick.ImageURL;
-          g.background_video = pick.VideoURL;
-        }
+        await this._loadAssetsForRow(this.games[idx]);
       } catch (e) {
         console.warn('loadAssetsFor failed', gameID, e);
       }
@@ -112,7 +124,7 @@ export const useGamesStore = defineStore('games', {
     },
     // Launch a game and optimistically stamp last_played on the live row.
     // Direct field mutation only — NEVER via _replaceRow (that re-fetches and
-    // would wipe icon_url/background_url/background_video). Backend persists the
+    // would wipe icon_url/backgrounds/bgIndex). Backend persists the
     // authoritative value to playstate.json; it reaches us on next cold start.
     async launchGame(gameID: string) {
       await Launch(gameID);

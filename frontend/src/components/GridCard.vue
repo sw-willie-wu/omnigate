@@ -19,7 +19,7 @@ async function onPlay() {
 <template>
   <div class="grid-card">
     <div class="grid-card-art">
-      <img v-if="row.background_url" :src="row.background_url" alt="" />
+      <img v-if="row.backgrounds?.[0]?.image" :src="row.backgrounds[0].image" alt="" />
       <span class="grid-card-status-pill ready">v{{ row.current_version || '?' }}</span>
       <div class="grid-card-name">{{ row.display_name[locale as string] || row.display_name.en }}</div>
     </div>
