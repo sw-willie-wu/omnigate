@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -685,6 +686,43 @@ func stringIndex(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// imageMIME maps a lowercased file extension to its image MIME type. We do NOT
+// use mime.TypeByExtension — webp/bmp are unreliable on Windows registries.
+func imageMIME(ext string) (string, bool) {
+	switch strings.ToLower(ext) {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".webp":
+		return "image/webp", true
+	case ".bmp":
+		return "image/bmp", true
+	}
+	return "", false
+}
+
+// GetCustomBackground returns the per-game custom background as a base64 data
+// URL, or "" (nil error) when no custom path is set. Read errors / unknown
+// extensions return a non-nil error so the frontend falls back to official art.
+func (a *App) GetCustomBackground(gameID string) (string, error) {
+	a.settingsMu.RLock()
+	path := a.settings.Games[gameID].BackgroundPath
+	a.settingsMu.RUnlock()
+	if path == "" {
+		return "", nil
+	}
+	mimeType, ok := imageMIME(filepath.Ext(path))
+	if !ok {
+		return "", fmt.Errorf("unsupported image extension: %s", filepath.Ext(path))
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(b), nil
 }
 
 // tempDirFor resolves the per-backend temp root for sidecar/staging files.

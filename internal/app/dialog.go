@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"path/filepath"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -32,5 +33,21 @@ func (a *App) BrowseForDirectory(current string) (string, error) {
 	return wruntime.OpenDirectoryDialog(a.ctx, wruntime.OpenDialogOptions{
 		Title:            "選擇資料夾",
 		DefaultDirectory: dialogDefaultDir(current),
+	})
+}
+
+// BrowseForImage opens the native file picker filtered to image files and
+// returns the chosen absolute path, or "" if cancelled. nil-ctx guard mirrors
+// BrowseForDirectory (avoids Wails getFrontend(nil) log.Fatalf in tests).
+func (a *App) BrowseForImage(current string) (string, error) {
+	if a.ctx == nil {
+		return "", nil
+	}
+	return wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
+		Title:            "選擇背景圖片",
+		DefaultDirectory: dialogDefaultDir(filepath.Dir(current)),
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "Images (*.png;*.jpg;*.jpeg;*.webp;*.bmp)", Pattern: "*.png;*.jpg;*.jpeg;*.webp;*.bmp"},
+		},
 	})
 }
