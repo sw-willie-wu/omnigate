@@ -370,6 +370,49 @@ func TestClearGameOverride_RevertsToDetection(t *testing.T) {
 	}
 }
 
+func TestSetGameOverride_PreservesBackgroundPath(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	a.settings.Games = map[string]GameSettings{string(gid): {BackgroundPath: `D:\bg.png`}}
+	override := t.TempDir()
+	if _, err := a.SetGameOverride(string(gid), override); err != nil {
+		t.Fatal(err)
+	}
+	a.settingsMu.RLock()
+	g := a.settings.Games[string(gid)]
+	a.settingsMu.RUnlock()
+	if g.Path != override {
+		t.Errorf("Path = %q, want %q", g.Path, override)
+	}
+	if g.BackgroundPath != `D:\bg.png` {
+		t.Errorf("BackgroundPath lost on SetGameOverride: %q", g.BackgroundPath)
+	}
+}
+
+func TestClearGameOverride_KeepsEntryWhenBackgroundPathSet(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	a.settings.Games = map[string]GameSettings{string(gid): {Path: t.TempDir(), BackgroundPath: `D:\bg.png`}}
+	if _, err := a.ClearGameOverride(string(gid)); err != nil {
+		t.Fatal(err)
+	}
+	a.settingsMu.RLock()
+	g, ok := a.settings.Games[string(gid)]
+	a.settingsMu.RUnlock()
+	if !ok {
+		t.Fatal("entry deleted; BackgroundPath should have kept it")
+	}
+	if g.Path != "" {
+		t.Errorf("Path = %q, want empty after clear", g.Path)
+	}
+	if g.BackgroundPath != `D:\bg.png` {
+		t.Errorf("BackgroundPath lost on ClearGameOverride: %q", g.BackgroundPath)
+	}
+}
+
 func TestRefreshGame_ReResolvesNoSettingsChange(t *testing.T) {
 	dir := t.TempDir()
 	gid := core.GameID("fake/g")

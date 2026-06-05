@@ -374,7 +374,10 @@ func (a *App) SetGameOverride(gameID, path string) (GameRow, error) {
 	if a.settings.Games == nil {
 		a.settings.Games = map[string]GameSettings{}
 	}
-	a.settings.Games[gameID] = GameSettings{Path: path}
+	// Read-modify-write so a custom BackgroundPath on this game survives a path change.
+	g := a.settings.Games[gameID]
+	g.Path = path
+	a.settings.Games[gameID] = g
 	if err := SaveSettings(a.settingsP, a.settings); err != nil {
 		a.settingsMu.Unlock()
 		return GameRow{}, err
@@ -395,7 +398,14 @@ func (a *App) ClearGameOverride(gameID string) (GameRow, error) {
 		return GameRow{}, err
 	}
 	a.settingsMu.Lock()
-	delete(a.settings.Games, gameID)
+	// Preserve a custom BackgroundPath when clearing only the path override; drop
+	// the whole entry only if there's nothing else to keep.
+	if g, ok := a.settings.Games[gameID]; ok && g.BackgroundPath != "" {
+		g.Path = ""
+		a.settings.Games[gameID] = g
+	} else {
+		delete(a.settings.Games, gameID)
+	}
 	if err := SaveSettings(a.settingsP, a.settings); err != nil {
 		a.settingsMu.Unlock()
 		return GameRow{}, err
