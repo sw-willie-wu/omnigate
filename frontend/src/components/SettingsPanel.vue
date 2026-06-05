@@ -3,13 +3,15 @@ import { ref, computed, watch, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useViewStore } from '../stores/view';
 import { useUpdatesStore } from '../stores/updates';
-import { GetSettings, UpdateSettings, BrowseForDirectory } from '../../wailsjs/go/app/App';
+import { useGamesStore } from '../stores/games';
+import { GetSettings, UpdateSettings, BrowseForDirectory, BrowseForImage } from '../../wailsjs/go/app/App';
 import { refreshAll } from '../composables/useRefreshAll';
 import { i18n, setLang } from '../i18n';
 
 const { t } = useI18n();
 const view = useViewStore();
 const updates = useUpdatesStore();
+const games = useGamesStore();
 
 const draft = ref<any>(null);
 const saveError = ref('');
@@ -57,6 +59,25 @@ async function browse(setter: (p: string) => void, current: string) {
   }
 }
 
+function bgPath(id: string): string {
+  return draft.value?.Games?.[id]?.BackgroundPath ?? '';
+}
+function setBgPath(id: string, p: string) {
+  if (!p && !draft.value.Games?.[id]) return; // don't materialize an entry just to clear nothing
+  if (!draft.value.Games) draft.value.Games = {};
+  if (!draft.value.Games[id]) draft.value.Games[id] = {};
+  draft.value.Games[id].BackgroundPath = p;
+}
+async function browseImage(id: string) {
+  try {
+    const p = await BrowseForImage(bgPath(id));
+    if (p) setBgPath(id, p);
+  } catch (e) { console.error('BrowseForImage failed', e); }
+}
+function displayName(g: any): string {
+  return g.display_name[i18n.global.locale.value] || g.display_name.en;
+}
+
 function onLangChange(e: Event) {
   const v = (e.target as HTMLSelectElement).value as 'zh-TW' | 'zh-CN' | 'en';
   draft.value.App.Language = v;
@@ -70,6 +91,7 @@ async function onSave() {
   try {
     await UpdateSettings(draft.value);
     savedThisSession = true;
+    games.invalidateCustomBg();
     await refreshAll();
     view.closeSettings();
   } catch (e: any) {
@@ -109,6 +131,18 @@ function onKeydown(e: KeyboardEvent) {
             <button class="settings-browse" @click="browse((p) => (draft.App.TempDir = p), draft.App.TempDir)">{{ t('settings.browse') }}</button>
             <button class="settings-clear" @click="draft.App.TempDir = ''">{{ t('settings.clear') }}</button>
           </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="grid-section-label"><span>{{ t('settings.custom_bg') }}</span></div>
+          <template v-for="g in games.games" :key="g.id">
+            <label class="settings-label">{{ displayName(g) }} — {{ t('settings.custom_bg_label') }}</label>
+            <div class="settings-row">
+              <input type="text" :data-test="`settings-custombg-${g.id}`" :value="bgPath(g.id)" @input="setBgPath(g.id, ($event.target as HTMLInputElement).value)" :placeholder="t('settings.custom_bg_label')" />
+              <button class="settings-browse" @click="browseImage(g.id)">{{ t('settings.browse') }}</button>
+              <button class="settings-clear" @click="setBgPath(g.id, '')">{{ t('settings.clear') }}</button>
+            </div>
+          </template>
         </div>
 
         <div v-if="saveError" class="settings-error">{{ saveError }}</div>

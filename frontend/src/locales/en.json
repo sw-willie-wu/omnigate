@@ -207,6 +207,8 @@
     "tempdir_hint": "Leave empty to use the default temp folder (shared by all games)",
     "save_error": "Save failed: {detail}",
     "save_disabled_inflight": "Cannot save while an update is in progress",
+    "custom_bg": "Background",
+    "custom_bg_label": "Custom background",
     "backend": {
       "hoyoverse": "HoYoverse",
       "kurogames": "Kuro Games",

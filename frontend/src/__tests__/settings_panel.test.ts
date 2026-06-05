@@ -8,6 +8,7 @@ import { i18n } from '../i18n';
 enableAutoUnmount(afterEach);
 import { useViewStore } from '../stores/view';
 import { useUpdatesStore } from '../stores/updates';
+import { useGamesStore } from '../stores/games';
 
 const sampleSettings = () => ({
   Version: 1,
@@ -25,10 +26,12 @@ const sampleSettings = () => ({
 const GetSettings = vi.fn();
 const UpdateSettings = vi.fn();
 const BrowseForDirectory = vi.fn();
+const BrowseForImage = vi.fn(() => Promise.resolve(''));
 vi.mock('../../wailsjs/go/app/App', () => ({
   GetSettings: (...a: any[]) => GetSettings(...a),
   UpdateSettings: (...a: any[]) => UpdateSettings(...a),
   BrowseForDirectory: (...a: any[]) => BrowseForDirectory(...a),
+  BrowseForImage: (...a: any[]) => BrowseForImage(...a),
   Refresh: vi.fn(() => Promise.resolve()),
 }));
 // refreshAll pulls stores; stub the games store loaders it calls.
@@ -128,5 +131,30 @@ describe('SettingsPanel', () => {
     await w.find('[data-test="settings-cancel"]').trigger('click');
     await flushPromises();
     expect(i18n.global.locale.value).toBe('zh-TW');
+  });
+
+  it('lists games with a custom background field bound to Games[id].BackgroundPath', async () => {
+    const games = useGamesStore();
+    games.games = [{ id: 'hoyoverse/genshin', backend: 'hoyoverse', display_name: { 'zh-TW': '原神', en: 'Genshin' }, installed: true, has_predownload: false } as any];
+    const w = mountOpen();
+    await flushPromises();
+    expect(w.find('input[data-test="settings-custombg-hoyoverse/genshin"]').exists()).toBe(true);
+  });
+
+  it('browse sets the custom bg path and clear empties it (preserving existing Path)', async () => {
+    const games = useGamesStore();
+    games.games = [{ id: 'kurogames/wutheringwaves', backend: 'kurogames', display_name: { en: 'WuWa' }, installed: true, has_predownload: false } as any];
+    BrowseForImage.mockResolvedValueOnce('D:/custom.png');
+    const w = mountOpen();
+    await flushPromises();
+    const input = w.find('input[data-test="settings-custombg-kurogames/wutheringwaves"]');
+    await w.findAll('.settings-group')[1].find('.settings-browse').trigger('click');
+    await flushPromises();
+    expect((input.element as HTMLInputElement).value).toBe('D:/custom.png');
+    await w.find('[data-test="settings-save"]').trigger('click');
+    await flushPromises();
+    const arg = UpdateSettings.mock.calls[0][0];
+    expect(arg.Games['kurogames/wutheringwaves'].BackgroundPath).toBe('D:/custom.png');
+    expect(arg.Games['kurogames/wutheringwaves'].Path).toBe('D:/WW'); // existing Path preserved
   });
 });

@@ -207,6 +207,8 @@
     "tempdir_hint": "留空 = 使用默认临时文件夹（所有游戏共用）",
     "save_error": "保存失败:{detail}",
     "save_disabled_inflight": "更新进行中无法保存",
+    "custom_bg": "背景图",
+    "custom_bg_label": "自定义背景图",
     "backend": {
       "hoyoverse": "米哈游",
       "kurogames": "库洛游戏",
