@@ -27,16 +27,17 @@
 
 - [ ] **Step 1: 先把既有 version 斷言改成 3（會先紅）**
 
-`internal/app/settings_test.go` 內所有 `Version != 2` / `want 2` 改為 3，共 5 處：`:20-21`、`:108-109`、`:130-131`、`:256-257`、`:274`（含其下一行 errorf 文案）。例如：
-
+`internal/app/settings_test.go` 內所有 version 斷言改 3，**共 7 處**（漏任何一處 Task 1 都無法全綠）：
+- 數值斷言 5 處 `Version != 2` / `want 2` → `!= 3` / `want 3`：`:20-21`、`:108-109`、`:130-131`、`:256-257`、`:274`（含下一行 errorf 文案）。例如：
 ```go
 // :20
 if s.Version != 3 {
     t.Errorf("default Version = %d, want 3", s.Version)
 }
 ```
+- **字串斷言 2 處**（在 `SaveSettings` 之後檢查 TOML 內容）：`:49` 與 `:92` 的 `strings.Contains(..., "version = 2")` → `"version = 3"`（這兩處 Step 5 把 `SaveSettings` 改寫 `version = 3` 後才會失敗，必須一起改；對應測試名含 `Version1`，可順手把函式名/註解的 1 改為 3）。
 
-其餘 4 處同樣 `2`→`3`（含 errorf 文字）。
+同時把 `internal/app/settings.go:210` `SaveSettings` 上方 doc 註解「Always includes version = 2」文字改為 3。
 
 - [ ] **Step 2: 加新遷移 + 新欄位 round-trip 測試（先紅）**
 
@@ -122,12 +123,14 @@ func TestSettings_SaveDoesNotEmitBackendTempDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(p)
-	if strings.Contains(string(b), "[backends.hoyoverse]\n") && strings.Contains(string(b), "\ntemp_dir") {
-		// only the [app] temp_dir is allowed; ensure no per-backend temp_dir lines
+	out := string(b)
+	// App temp_dir must be present (under [app]):
+	if !strings.Contains(out, "temp_dir = \"D:\\\\g\"") {
+		t.Errorf("App.TempDir not written:\n%s", out)
 	}
-	// App temp_dir must be present:
-	if !strings.Contains(string(b), "temp_dir = \"D:\\\\g\"") {
-		t.Errorf("App.TempDir not written:\n%s", string(b))
+	// No per-backend temp_dir: every temp_dir occurrence must be the [app] one.
+	if strings.Count(out, "temp_dir") != 1 {
+		t.Errorf("expected exactly one temp_dir ([app]); got:\n%s", out)
 	}
 }
 ```
@@ -561,7 +564,7 @@ Expected: PASS。再 `go build ./...` 確認整體編譯。
 - [ ] **Step 6: 重新產生 Wails bindings**
 
 Run（專案根目錄）: `wails generate module`
-這會把 `BrowseForImage` / `GetCustomBackground` 寫進 `frontend/wailsjs/go/app/App.js` 與 `App.d.ts`。
+這會把 `BrowseForImage` / `GetCustomBackground` 寫進 `frontend/wailsjs/go/app/App.js` 與 `App.d.ts`，並同步刷新 `frontend/wailsjs/go/models.ts`（Settings 結構已變：+`App.TempDir`/`GameSettings.BackgroundPath`、−per-backend `TempDir`）。若有 `models.ts` 變更也一併 commit。
 若 `wails` CLI 不可用，手動在 `frontend/wailsjs/go/app/App.d.ts` 加：
 ```ts
 export function BrowseForImage(arg1:string):Promise<string>;
@@ -576,7 +579,7 @@ export function GetCustomBackground(arg1) { return window['go']['app']['App']['G
 - [ ] **Step 7: Commit**
 
 ```bash
-git add internal/app/dialog.go internal/app/app.go internal/app/custombg_test.go frontend/wailsjs/go/app/App.js frontend/wailsjs/go/app/App.d.ts
+git add internal/app/dialog.go internal/app/app.go internal/app/custombg_test.go frontend/wailsjs/go/app/App.js frontend/wailsjs/go/app/App.d.ts frontend/wailsjs/go/models.ts
 git commit -m "feat(app): BrowseForImage + GetCustomBackground (data URL, explicit image mime map)"
 ```
 
@@ -1165,7 +1168,7 @@ template：在 `<div class="bottom-bar">` 內（與 `hero-meta`/`bottombar-right
     </div>
 ```
 
-樣式（在 `BottomBar.vue` `<style>` 末尾；若無 style 區塊則新增 `<style scoped>`，但本元件樣式多在全域 style.css —— 檢查既有 `.bottom-bar` 樣式所在檔，新增規則放同處以保持一致；若 BottomBar 無 scoped style，加到 `frontend/src/style.css` 或對應 styles 檔）：
+樣式：`.bottom-bar` 規則在 `frontend/src/styles/theme.css`（`theme.css:288`，且**只有 `theme.css` 被 `main.ts:5` import**；`frontend/src/style.css` 沒被任何地方 import，**不要**放那裡否則正式版無樣式）。把以下規則加到 `frontend/src/styles/theme.css`（`.bottom-bar` 已是 `position: absolute`，本身即定位脈絡，**不需**再加 `position: relative`）：
 ```css
 .bg-dots {
   position: absolute;
@@ -1193,8 +1196,6 @@ template：在 `<div class="bottom-bar">` 內（與 `hero-meta`/`bottombar-right
 }
 ```
 
-> `.bottom-bar` 需為定位脈絡：確認其 CSS 有 `position: relative`；若無則加（grep 既有 `.bottom-bar` 規則所在檔）。
-
 - [ ] **Step 4: 跑測試 + build**
 
 Run（`frontend/`）: `npm run test -- bottombar_dots` 然後 `npm run build`
@@ -1203,7 +1204,7 @@ Expected: 綠。
 - [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/components/BottomBar.vue frontend/src/__tests__/bottombar_dots.test.ts frontend/src/style.css
+git add frontend/src/components/BottomBar.vue frontend/src/__tests__/bottombar_dots.test.ts frontend/src/styles/theme.css
 git commit -m "feat(bg): BottomBar centered dot indicators for background carousel (manual switch, hidden when <2)"
 ```
 
