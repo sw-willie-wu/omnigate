@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse"
+	"omnigate/internal/providers/hypergryph"
+	"omnigate/internal/providers/kurogames"
 )
 
 // fakeProvider satisfies core.Provider with configurable behavior for tests.
@@ -601,5 +604,25 @@ func TestOpenExternalURL_RejectsNonHTTP(t *testing.T) {
 	}
 	if err := a.OpenExternalURL("https://example.com"); err != nil {
 		t.Errorf("https rejected: %v", err)
+	}
+}
+
+func TestTempDirFor_UsesGlobalAppTempDir(t *testing.T) {
+	a := &App{settings: Settings{App: AppSettings{TempDir: `D:\custom`}}}
+	if got := a.tempDirFor(hoyoverse.BackendID, "hoyoverse/genshin"); got != filepath.Join(`D:\custom`, "hoyoverse") {
+		t.Errorf("hoyoverse tempDir = %q", got)
+	}
+	if got := a.tempDirFor(kurogames.BackendID, "kurogames/wuwa"); got != `D:\custom` {
+		t.Errorf("kuro tempDir = %q (want flat root)", got)
+	}
+	if got := a.tempDirFor(hypergryph.BackendID, "hypergryph/endfield"); got != filepath.Join(`D:\custom`, "hypergryph") {
+		t.Errorf("gryph tempDir = %q", got)
+	}
+}
+
+func TestTempDirFor_EmptyFallsBackToOSTemp(t *testing.T) {
+	a := &App{settings: Settings{App: AppSettings{TempDir: ""}}}
+	if got := a.tempDirFor(kurogames.BackendID, "kurogames/wuwa"); got != filepath.Join(osTempDir(), "omnigate") {
+		t.Errorf("default kuro tempDir = %q", got)
 	}
 }

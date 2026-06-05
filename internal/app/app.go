@@ -98,33 +98,22 @@ func (a *App) emit(name string, args ...any) {
 func (a *App) constructProviders() error {
 	a.providers = nil
 	hoyo := hoyoverse.New(
-		hoyoverse.Settings{
-			Region:  a.settings.Backends.Hoyoverse.Region,
-			TempDir: a.settings.Backends.Hoyoverse.TempDir,
-		},
+		hoyoverse.Settings{Region: a.settings.Backends.Hoyoverse.Region},
 		a.logger.With("backend", "hoyoverse"),
 	)
-	hoyo.SetTempRootFn(func(gid core.GameID) string {
-		return a.tempDirFor(hoyoverse.BackendID, gid)
-	})
+	hoyo.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(hoyoverse.BackendID, gid) })
 	if err := a.registerProvider(hoyo); err != nil {
 		return err
 	}
-	kuro := kurogames.New(
-		kurogames.Settings{
-			TempDir: a.settings.Backends.Kurogames.TempDir,
-		},
-		a.logger.With("backend", "kurogames"),
-	)
+
+	kuro := kurogames.New(kurogames.Settings{}, a.logger.With("backend", "kurogames"))
+	kuro.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(kurogames.BackendID, gid) })
 	if err := a.registerProvider(kuro); err != nil {
 		return err
 	}
-	gryph := hypergryph.New(
-		hypergryph.Settings{
-			TempDir: a.settings.Backends.Hypergryph.TempDir,
-		},
-		a.logger.With("backend", "hypergryph"),
-	)
+
+	gryph := hypergryph.New(hypergryph.Settings{}, a.logger.With("backend", "hypergryph"))
+	gryph.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(hypergryph.BackendID, gid) })
 	if err := a.registerProvider(gryph); err != nil {
 		return err
 	}
@@ -700,32 +689,27 @@ func stringIndex(s, sub string) int {
 
 // tempDirFor resolves the per-backend temp root for sidecar/staging files.
 //
-// kurogames returns <TEMP>/omnigate (flat, bit-exact preservation per
-// the legacy kurogamesTempDir helper).
-// hoyoverse returns <TEMP>/omnigate/hoyoverse (subdir-per-backend; M3.B).
-// Future backends (M3.C hypergryph, M3.D HSR/ZZZ) follow the default
-// branch unless they add a settings TempDir field.
+// App.TempDir is the single source of truth. When empty it falls back to
+// <os.TempDir>/omnigate so existing defaults are preserved bit-exactly:
+//
+//	kurogames  → root (flat, legacy bit-exact)
+//	hoyoverse  → root/hoyoverse
+//	hypergryph → root/hypergryph
+//	other      → root/<backend>
 func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 	a.settingsMu.RLock()
 	defer a.settingsMu.RUnlock()
+	root := a.settings.App.TempDir
+	if root == "" {
+		root = filepath.Join(osTempDir(), "omnigate")
+	}
 	switch backend {
 	case kurogames.BackendID:
-		if td := a.settings.Backends.Kurogames.TempDir; td != "" {
-			return td
-		}
-		return filepath.Join(osTempDir(), "omnigate")
+		return root // flat (legacy bit-exact)
 	case hoyoverse.BackendID:
-		if td := a.settings.Backends.Hoyoverse.TempDir; td != "" {
-			return td
-		}
-		return filepath.Join(osTempDir(), "omnigate", "hoyoverse")
+		return filepath.Join(root, "hoyoverse")
 	case hypergryph.BackendID:
-		if td := a.settings.Backends.Hypergryph.TempDir; td != "" {
-			return td
-		}
-		return filepath.Join(osTempDir(), "omnigate", "hypergryph")
+		return filepath.Join(root, "hypergryph")
 	}
-	// Default for backends without a settings TempDir field: per-backend subdir
-	// to avoid collisions.
-	return filepath.Join(osTempDir(), "omnigate", string(backend))
+	return filepath.Join(root, string(backend))
 }

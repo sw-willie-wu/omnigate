@@ -24,7 +24,7 @@ type Settings struct {
 
 type AppSettings struct {
 	Language            string `toml:"language"`
-	TempDir             string `toml:"temp_dir,omitempty"`
+	TempDir             string `toml:"temp_dir,omitempty"` // single temp-root source; empty → <os.TempDir>/omnigate
 	BannerAnimationPref string `toml:"banner_animation_pref"`
 	ShowTechnicalInfo   bool   `toml:"show_technical_info"`
 }
@@ -36,18 +36,16 @@ type BackendSettings struct {
 }
 
 type HoyoverseSettings struct {
-	Path    string `toml:"path"`
-	Region  string `toml:"region"`
-	TempDir string `toml:"temp_dir,omitempty"` // M3.B: empty → runtime default <TEMP>/omnigate/hoyoverse/
+	Path   string `toml:"path"`
+	Region string `toml:"region"`
 }
 
 type KurogamesSettings struct {
-	Path    string `toml:"path"`
-	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/<gameID>
+	Path string `toml:"path"`
 }
+
 type HypergryphSettings struct {
-	Path    string `toml:"path"`
-	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/hypergryph
+	Path string `toml:"path"`
 }
 
 type GameSettings struct {
@@ -65,13 +63,26 @@ type hoyoverseRawTOML struct {
 	TempDir      string `toml:"temp_dir"`
 }
 
+// kurogamesRawTOML retains TempDir for the v2→v3 migration that collapses
+// per-backend temp_dir into a single global App.TempDir.
+type kurogamesRawTOML struct {
+	Path    string `toml:"path"`
+	TempDir string `toml:"temp_dir"`
+}
+
+// hypergryphRawTOML retains TempDir for the same v2→v3 migration.
+type hypergryphRawTOML struct {
+	Path    string `toml:"path"`
+	TempDir string `toml:"temp_dir"`
+}
+
 type rawTOML struct {
 	Version  int         `toml:"version"`
 	App      AppSettings `toml:"app"`
 	Backends struct {
-		Hoyoverse  hoyoverseRawTOML   `toml:"hoyoverse"`
-		Kurogames  KurogamesSettings  `toml:"kurogames"`
-		Hypergryph HypergryphSettings `toml:"hypergryph"`
+		Hoyoverse  hoyoverseRawTOML  `toml:"hoyoverse"`
+		Kurogames  kurogamesRawTOML  `toml:"kurogames"`
+		Hypergryph hypergryphRawTOML `toml:"hypergryph"`
 	} `toml:"backends"`
 	Games map[string]GameSettings `toml:"games"`
 }
@@ -145,14 +156,8 @@ func LoadSettings(path string) (Settings, error) {
 	if raw.Backends.Kurogames.Path != "" {
 		out.Backends.Kurogames.Path = raw.Backends.Kurogames.Path
 	}
-	if raw.Backends.Kurogames.TempDir != "" {
-		out.Backends.Kurogames.TempDir = raw.Backends.Kurogames.TempDir
-	}
 	if raw.Backends.Hypergryph.Path != "" {
 		out.Backends.Hypergryph.Path = raw.Backends.Hypergryph.Path
-	}
-	if raw.Backends.Hypergryph.TempDir != "" {
-		out.Backends.Hypergryph.TempDir = raw.Backends.Hypergryph.TempDir
 	}
 
 	// games (per-game overrides)

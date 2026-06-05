@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pelletier/go-toml/v2"
-
 	"omnigate/internal/providers/hoyoverse"
 )
 
@@ -132,112 +130,6 @@ func TestSettings_FreshInstallSavesVersion1(t *testing.T) {
 	}
 	if s2.Backends.Hoyoverse.Path != `C:\Program Files\HoYoPlay` {
 		t.Errorf("re-loaded hoyoverse Path = %q", s2.Backends.Hoyoverse.Path)
-	}
-}
-
-func TestSettings_KurogamesTempDir_DefaultEmpty(t *testing.T) {
-	tmp := t.TempDir()
-	s, err := LoadSettings(filepath.Join(tmp, "settings.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.Backends.Kurogames.TempDir != "" {
-		t.Errorf("default TempDir = %q, want empty", s.Backends.Kurogames.TempDir)
-	}
-}
-
-func TestSettings_KurogamesTempDir_RoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	p := filepath.Join(tmp, "settings.toml")
-	s := defaultSettings()
-	s.Backends.Kurogames.TempDir = `D:\my-temp`
-	if err := SaveSettings(p, s); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := LoadSettings(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.Backends.Kurogames.TempDir != `D:\my-temp` {
-		t.Errorf("round-trip TempDir = %q", loaded.Backends.Kurogames.TempDir)
-	}
-}
-
-func TestSettings_KurogamesTempDir_BackwardCompat(t *testing.T) {
-	tmp := t.TempDir()
-	p := filepath.Join(tmp, "settings.toml")
-	m2 := "version = 1\n\n[app]\nlanguage = \"zh-TW\"\n\n[backends.kurogames]\npath = \"C:\\\\Program Files\\\\Wuthering Waves\"\n"
-	if err := os.WriteFile(p, []byte(m2), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s, err := LoadSettings(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.Backends.Kurogames.Path != `C:\Program Files\Wuthering Waves` {
-		t.Errorf("path lost during load: %q", s.Backends.Kurogames.Path)
-	}
-	if s.Backends.Kurogames.TempDir != "" {
-		t.Errorf("TempDir = %q on M2-era file", s.Backends.Kurogames.TempDir)
-	}
-}
-
-func TestSettings_HoyoverseSettings_TempDir_RoundTrip(t *testing.T) {
-	s := Settings{
-		Version: 1,
-		Backends: BackendSettings{
-			Hoyoverse: HoyoverseSettings{
-				Path:    `C:\Program Files\HoYoPlay`,
-				Region:  "global",
-				TempDir: `D:\genshin-temp`,
-			},
-		},
-	}
-	data, err := toml.Marshal(s)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var s2 Settings
-	if err := toml.Unmarshal(data, &s2); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if s2.Backends.Hoyoverse.TempDir != `D:\genshin-temp` {
-		t.Errorf("TempDir round-trip lost: %q", s2.Backends.Hoyoverse.TempDir)
-	}
-}
-
-func TestSettings_HoyoverseSettings_TempDir_Omitempty(t *testing.T) {
-	s := Settings{
-		Version: 1,
-		Backends: BackendSettings{
-			Hoyoverse: HoyoverseSettings{Path: `C:\Program Files\HoYoPlay`, Region: "global"},
-			// TempDir omitted → zero value ""
-		},
-	}
-	data, err := toml.Marshal(s)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if strings.Contains(string(data), "temp_dir") {
-		t.Errorf("zero-value TempDir should be omitted; got:\n%s", string(data))
-	}
-}
-
-func TestSettings_HypergryphTempDirRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	s := defaultSettings() // NOTE: unexported (settings.go:61); NOT DefaultSettings
-	s.Backends.Hypergryph.Path = `C:\Games\GRYPHLINK`
-	s.Backends.Hypergryph.TempDir = `D:\omnigate-temp`
-	if err := SaveSettings(path, s); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	loaded, err := LoadSettings(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if loaded.Backends.Hypergryph.TempDir != `D:\omnigate-temp` {
-		t.Errorf("TempDir = %q, want D:\\omnigate-temp", loaded.Backends.Hypergryph.TempDir)
 	}
 }
 
@@ -369,6 +261,24 @@ func TestSettings_V1toV3_MigratesTempDir(t *testing.T) {
 	}
 	if s.App.TempDir != `D:\kuro` {
 		t.Errorf("App.TempDir = %q, want D:\\kuro (v1→v3 chain)", s.App.TempDir)
+	}
+}
+
+func TestSettings_V2toV3_MigratesHypergryphOnlyTempDir(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "settings.toml")
+	// Only hypergryph sets a legacy temp_dir → exercises the 3rd precedence slot
+	// and the hypergryphRawTOML raw read.
+	v2 := "version = 2\n\n[backends.hypergryph]\npath = \"C:\\\\EF\"\ntemp_dir = \"D:\\\\gryph\"\n"
+	if err := os.WriteFile(p, []byte(v2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.App.TempDir != `D:\gryph` {
+		t.Errorf("App.TempDir = %q, want D:\\gryph (hypergryph-only migration)", s.App.TempDir)
 	}
 }
 
