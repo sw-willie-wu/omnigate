@@ -291,6 +291,31 @@
     display: flex; align-items: flex-end; justify-content: space-between;
     gap: 24px; z-index: 5;
   }
+  .bg-dots {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .bg-dot {
+    pointer-events: auto;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.35);
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+  }
+  .bg-dot.active {
+    background: var(--accent);
+    transform: scale(1.25);
+  }
+
   /* Error line floats ABOVE the bar (anchored to the positioned .bottom-bar)
      so it does NOT push the version pill / buttons sideways. */
   .bottom-bar .update-error {
