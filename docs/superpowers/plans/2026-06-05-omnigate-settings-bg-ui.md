@@ -379,9 +379,11 @@ type HypergryphSettings struct {
 		settings:       Settings{App: AppSettings{TempDir: tempRoot}, Backends: BackendSettings{}},
 ```
 
-- [ ] **Step 7: 移除 6 個 compile-break 測試**
+- [ ] **Step 7: 移除 6 個 compile-break 測試 + 清未使用 import**
 
 `internal/app/settings_test.go` 刪除整段：`TestSettings_KurogamesTempDir_DefaultEmpty`、`TestSettings_KurogamesTempDir_RoundTrip`、`TestSettings_KurogamesTempDir_BackwardCompat`（其 path-保留斷言已被其他測試覆蓋，可整段刪）、`TestSettings_HoyoverseSettings_TempDir_RoundTrip`、`TestSettings_HoyoverseSettings_TempDir_Omitempty`、`TestSettings_HypergryphTempDirRoundTrip`。
+
+刪除上述測試後，`github.com/pelletier/go-toml/v2` 變成未使用 import（其唯一使用點 `:196/:201/:217` 都在被刪的 hoyoverse 測試內）→ **必須移除 `settings_test.go:9` 的 `"github.com/pelletier/go-toml/v2"` import**，否則 Step 8 `go build`/`go test` 編譯失敗。`strings`/`os`/`path/filepath` 等其他 import 仍有使用，保留。
 
 - [ ] **Step 8: 跑全套後端測試**
 
