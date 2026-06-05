@@ -374,6 +374,11 @@ type HypergryphSettings struct {
 
 > `rawTOML.Backends.Kurogames`/`.Hypergryph` 仍是真結構帶 TempDir（遷移讀取用），不動。
 
+另有一個非 settings_test 的 compile-break 點：`internal/app/update_phantom_predl_test.go:31` 用了 `KurogamesSettings{TempDir: tempRoot}`，移除欄位後不編譯。改為全域欄位（`tempDirFor(kurogames)` 現回 `App.TempDir` 扁平 root = `tempRoot`，第 39 行 `versionDir` 期望不變）：
+```go
+		settings:       Settings{App: AppSettings{TempDir: tempRoot}, Backends: BackendSettings{}},
+```
+
 - [ ] **Step 7: 移除 6 個 compile-break 測試**
 
 `internal/app/settings_test.go` 刪除整段：`TestSettings_KurogamesTempDir_DefaultEmpty`、`TestSettings_KurogamesTempDir_RoundTrip`、`TestSettings_KurogamesTempDir_BackwardCompat`（其 path-保留斷言已被其他測試覆蓋，可整段刪）、`TestSettings_HoyoverseSettings_TempDir_RoundTrip`、`TestSettings_HoyoverseSettings_TempDir_Omitempty`、`TestSettings_HypergryphTempDirRoundTrip`。
@@ -386,7 +391,7 @@ Expected: 全綠（含 `hypergryph/update_integration_test.go` 仍用 provider `
 - [ ] **Step 9: Commit**
 
 ```bash
-git add internal/app/settings.go internal/app/app.go internal/app/settings_test.go internal/app/app_test.go internal/providers/kurogames/kurogames.go internal/providers/hypergryph/hypergryph.go internal/providers/hoyoverse/hoyoverse.go
+git add internal/app/settings.go internal/app/app.go internal/app/settings_test.go internal/app/app_test.go internal/app/update_phantom_predl_test.go internal/providers/kurogames/kurogames.go internal/providers/hypergryph/hypergryph.go internal/providers/hoyoverse/hoyoverse.go
 git commit -m "feat(settings): global temp dir — tempDirFor root from App.TempDir, unify all providers via SetTempRootFn, drop per-backend temp_dir"
 ```
 
