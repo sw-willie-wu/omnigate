@@ -5,6 +5,7 @@ import { useViewStore } from '../stores/view';
 import { useUpdatesStore } from '../stores/updates';
 import { GetSettings, UpdateSettings, BrowseForDirectory } from '../../wailsjs/go/app/App';
 import { refreshAll } from '../composables/useRefreshAll';
+import { i18n, setLang } from '../i18n';
 
 const { t } = useI18n();
 const view = useViewStore();
@@ -13,6 +14,9 @@ const updates = useUpdatesStore();
 const draft = ref<any>(null);
 const saveError = ref('');
 const saving = ref(false);
+
+let openLang: 'zh-TW' | 'zh-CN' | 'en' = 'zh-TW';
+let savedThisSession = false;
 
 const anyInFlight = computed(() =>
   Object.values(updates.byGame).some((s: any) => s?.in_flight != null),
@@ -25,12 +29,17 @@ watch(
   async (open) => {
     if (open) {
       saveError.value = '';
+      savedThisSession = false;
+      openLang = i18n.global.locale.value as typeof openLang;
       // Window-level ESC: a panel-local @keydown only fires when the panel has
       // focus, which it doesn't on open — so bind on window while open.
       window.addEventListener('keydown', onKeydown);
       draft.value = JSON.parse(JSON.stringify(await GetSettings()));
     } else {
       window.removeEventListener('keydown', onKeydown);
+      if (!savedThisSession && i18n.global.locale.value !== openLang) {
+        setLang(openLang);
+      }
       draft.value = null;
     }
   },
@@ -48,12 +57,19 @@ async function browse(setter: (p: string) => void, current: string) {
   }
 }
 
+function onLangChange(e: Event) {
+  const v = (e.target as HTMLSelectElement).value as 'zh-TW' | 'zh-CN' | 'en';
+  draft.value.App.Language = v;
+  setLang(v);
+}
+
 async function onSave() {
   if (saveDisabled.value) return;
   saving.value = true;
   saveError.value = '';
   try {
     await UpdateSettings(draft.value);
+    savedThisSession = true;
     await refreshAll();
     view.closeSettings();
   } catch (e: any) {
@@ -75,36 +91,23 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <div v-if="view.settingsOpen && draft" class="settings-view">
       <div class="settings-body">
-        <!-- HoYoverse -->
         <div class="settings-group">
-          <div class="grid-section-label"><span>{{ t('settings.backend.hoyoverse') }}</span></div>
-          <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
-          <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Hoyoverse.TempDir" :placeholder="t('settings.tempdir_hint')" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hoyoverse.TempDir = p), draft.Backends.Hoyoverse.TempDir)">{{ t('settings.browse') }}</button>
-            <button class="settings-clear" @click="draft.Backends.Hoyoverse.TempDir = ''">{{ t('settings.clear') }}</button>
-          </div>
-        </div>
+          <div class="grid-section-label"><span>{{ t('settings.general') }}</span></div>
 
-        <!-- Kuro -->
-        <div class="settings-group">
-          <div class="grid-section-label"><span>{{ t('settings.backend.kurogames') }}</span></div>
-          <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
+          <label class="settings-label">{{ t('settings.language_label') }}</label>
           <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Kurogames.TempDir" :placeholder="t('settings.tempdir_hint')" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Kurogames.TempDir = p), draft.Backends.Kurogames.TempDir)">{{ t('settings.browse') }}</button>
-            <button class="settings-clear" @click="draft.Backends.Kurogames.TempDir = ''">{{ t('settings.clear') }}</button>
+            <select data-test="settings-language" :value="draft.App.Language" @change="onLangChange">
+              <option value="zh-TW">繁體中文</option>
+              <option value="zh-CN">简体中文</option>
+              <option value="en">English</option>
+            </select>
           </div>
-        </div>
 
-        <!-- Hypergryph -->
-        <div class="settings-group">
-          <div class="grid-section-label"><span>{{ t('settings.backend.hypergryph') }}</span></div>
           <label class="settings-label">{{ t('settings.tempdir_label') }}</label>
           <div class="settings-row">
-            <input type="text" v-model="draft.Backends.Hypergryph.TempDir" :placeholder="t('settings.tempdir_hint')" />
-            <button class="settings-browse" @click="browse((p) => (draft.Backends.Hypergryph.TempDir = p), draft.Backends.Hypergryph.TempDir)">{{ t('settings.browse') }}</button>
-            <button class="settings-clear" @click="draft.Backends.Hypergryph.TempDir = ''">{{ t('settings.clear') }}</button>
+            <input type="text" data-test="settings-tempdir" v-model="draft.App.TempDir" :placeholder="t('settings.tempdir_hint')" />
+            <button class="settings-browse" @click="browse((p) => (draft.App.TempDir = p), draft.App.TempDir)">{{ t('settings.browse') }}</button>
+            <button class="settings-clear" @click="draft.App.TempDir = ''">{{ t('settings.clear') }}</button>
           </div>
         </div>
 

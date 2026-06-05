@@ -11,7 +11,7 @@ import { useUpdatesStore } from '../stores/updates';
 
 const sampleSettings = () => ({
   Version: 1,
-  App: { Language: 'zh-TW', BannerAnimationPref: 'video-when-available', ShowTechnicalInfo: false },
+  App: { Language: 'zh-TW', TempDir: '', BannerAnimationPref: 'video-when-available', ShowTechnicalInfo: false },
   Backends: {
     Hoyoverse: { Path: 'C:/HoYoPlay', Region: 'global', TempDir: '' },
     Kurogames: { Path: 'C:/Wuthering', TempDir: '' },
@@ -46,6 +46,7 @@ function mountOpen() {
 describe('SettingsPanel', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    i18n.global.locale.value = 'zh-TW';
     GetSettings.mockReset().mockResolvedValue(sampleSettings());
     UpdateSettings.mockReset().mockResolvedValue(undefined);
     BrowseForDirectory.mockReset().mockResolvedValue('');
@@ -55,33 +56,21 @@ describe('SettingsPanel', () => {
     const w = mountOpen();
     await flushPromises();
     expect(GetSettings).toHaveBeenCalled();
-    // First text input should now be HoYoverse TempDir (empty string)
-    const firstInput = w.findAll('input[type="text"]')[0];
-    expect((firstInput.element as HTMLInputElement).value).toBe('');
-    // Verify no Path inputs exist (they were removed)
-    const pathInputs = w.findAll('input[type="text"]').filter(
-      (input) => (input.element as HTMLInputElement).value === 'C:/HoYoPlay'
-    );
-    expect(pathInputs).toHaveLength(0);
+    expect(w.find('input[data-test="settings-tempdir"]').exists()).toBe(true);
+    expect((w.find('input[data-test="settings-tempdir"]').element as HTMLInputElement).value).toBe('');
   });
 
   it('Save calls UpdateSettings with the (edited) draft, preserving unshown fields', async () => {
     const w = mountOpen();
     await flushPromises();
-    // Edit the HoYoverse TempDir input (first text input in the panel, now that Path is removed).
-    const input = w.findAll('input[type="text"]')[0];
-    await input.setValue('D:/NewTemp');
+    await w.find('input[data-test="settings-tempdir"]').setValue('D:/NewTemp');
     await w.find('[data-test="settings-save"]').trigger('click');
     await flushPromises();
     expect(UpdateSettings).toHaveBeenCalledTimes(1);
     const arg = UpdateSettings.mock.calls[0][0];
-    // Verify TempDir was edited
-    expect(arg.Backends.Hoyoverse.TempDir).toBe('D:/NewTemp');
-    // Verify Path is PRESERVED (unchanged, though not shown in the UI)
+    expect(arg.App.TempDir).toBe('D:/NewTemp');
     expect(arg.Backends.Hoyoverse.Path).toBe('C:/HoYoPlay');
-    expect(arg.App.Language).toBe('zh-TW'); // unshown field preserved
-    expect(arg.Backends.Hoyoverse.Region).toBe('global'); // preserved
-    // Per-game overrides (set via the popover) must survive a settings Save.
+    expect(arg.App.Language).toBe('zh-TW');
     expect(arg.Games['kurogames/wutheringwaves'].Path).toBe('D:/WW');
   });
 
@@ -120,5 +109,24 @@ describe('SettingsPanel', () => {
     await flushPromises();
     expect(useViewStore().settingsOpen).toBe(true);
     expect(w.html()).toContain('disk full');
+  });
+
+  it('renders a language dropdown with three options', async () => {
+    const w = mountOpen();
+    await flushPromises();
+    const select = w.find('select[data-test="settings-language"]');
+    expect(select.exists()).toBe(true);
+    expect(select.findAll('option')).toHaveLength(3);
+  });
+
+  it('applies language live on change and reverts on cancel', async () => {
+    const w = mountOpen();
+    await flushPromises();
+    expect(i18n.global.locale.value).toBe('zh-TW');
+    await w.find('select[data-test="settings-language"]').setValue('en');
+    expect(i18n.global.locale.value).toBe('en');
+    await w.find('[data-test="settings-cancel"]').trigger('click');
+    await flushPromises();
+    expect(i18n.global.locale.value).toBe('zh-TW');
   });
 });

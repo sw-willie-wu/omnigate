@@ -201,8 +201,10 @@
     "browse": "Browse…",
     "clear": "Clear",
     "path_label": "Install path",
-    "tempdir_label": "Temp folder override",
-    "tempdir_hint": "Leave empty to use the default temp folder",
+    "general": "General",
+    "language_label": "Language",
+    "tempdir_label": "Temp folder",
+    "tempdir_hint": "Leave empty to use the default temp folder (shared by all games)",
     "save_error": "Save failed: {detail}",
     "save_disabled_inflight": "Cannot save while an update is in progress",
     "backend": {

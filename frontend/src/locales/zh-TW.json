@@ -201,8 +201,10 @@
     "browse": "瀏覽…",
     "clear": "清除",
     "path_label": "安裝路徑",
-    "tempdir_label": "暫存資料夾覆寫",
-    "tempdir_hint": "留空 = 使用預設暫存資料夾",
+    "general": "一般",
+    "language_label": "語言",
+    "tempdir_label": "暫存資料夾",
+    "tempdir_hint": "留空 = 使用預設暫存資料夾（所有遊戲共用）",
     "save_error": "儲存失敗:{detail}",
     "save_disabled_inflight": "更新進行中無法儲存",
     "backend": {

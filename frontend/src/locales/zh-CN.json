@@ -201,8 +201,10 @@
     "browse": "浏览…",
     "clear": "清除",
     "path_label": "安装路径",
-    "tempdir_label": "临时文件夹覆盖",
-    "tempdir_hint": "留空 = 使用默认临时文件夹",
+    "general": "常规",
+    "language_label": "语言",
+    "tempdir_label": "临时文件夹",
+    "tempdir_hint": "留空 = 使用默认临时文件夹（所有游戏共用）",
     "save_error": "保存失败:{detail}",
     "save_disabled_inflight": "更新进行中无法保存",
     "backend": {
