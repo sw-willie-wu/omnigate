@@ -637,6 +637,68 @@ func TestGetNews_ProviderWithoutNews_ReturnsEmpty(t *testing.T) {
 	}
 }
 
+// fakeLangNewsProvider returns per-lang canned news and records the langs asked.
+type fakeLangNewsProvider struct {
+	fakeProvider
+	byLang     map[string][]core.NewsItem
+	askedLangs []string
+}
+
+func (f *fakeLangNewsProvider) GetNews(_ context.Context, _ core.GameID, lang string) ([]core.NewsItem, error) {
+	f.askedLangs = append(f.askedLangs, lang)
+	return f.byLang[lang], nil
+}
+
+func TestGetNews_ZhCNEmptyFallsBackToZhTW(t *testing.T) {
+	gid := core.GameID("fake/g")
+	fp := &fakeLangNewsProvider{
+		fakeProvider: fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}},
+		byLang: map[string][]core.NewsItem{
+			"zh-TW": {{Title: "繁中新聞", Category: core.NewsAnnounce, URL: "https://x/1"}},
+			// zh-CN intentionally absent → empty, so it must fall back to zh-TW.
+		},
+	}
+	a := &App{settings: Settings{Version: 3}, logger: slog.Default()}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Title != "繁中新聞" {
+		t.Fatalf("want zh-TW fallback news, got %v", out)
+	}
+	if len(fp.askedLangs) != 2 || fp.askedLangs[0] != "zh-CN" || fp.askedLangs[1] != "zh-TW" {
+		t.Errorf("expected fetch sequence [zh-CN, zh-TW], got %v", fp.askedLangs)
+	}
+}
+
+func TestGetNews_ZhCNWithData_NoFallback(t *testing.T) {
+	gid := core.GameID("fake/g")
+	fp := &fakeLangNewsProvider{
+		fakeProvider: fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}},
+		byLang: map[string][]core.NewsItem{
+			"zh-CN": {{Title: "简中新闻", Category: core.NewsAnnounce, URL: "https://x/1"}},
+			"zh-TW": {{Title: "繁中新聞", Category: core.NewsAnnounce, URL: "https://x/2"}},
+		},
+	}
+	a := &App{settings: Settings{Version: 3}, logger: slog.Default()}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Title != "简中新闻" {
+		t.Fatalf("want zh-CN news with no fallback, got %v", out)
+	}
+	if len(fp.askedLangs) != 1 {
+		t.Errorf("expected only [zh-CN] (no fallback when zh-CN has data), got %v", fp.askedLangs)
+	}
+}
+
 func TestOpenExternalURL_RejectsNonHTTP(t *testing.T) {
 	a := &App{logger: slog.Default()}
 	if err := a.OpenExternalURL("file:///etc/passwd"); err == nil {

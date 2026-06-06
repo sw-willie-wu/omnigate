@@ -474,6 +474,14 @@ func (a *App) GetNews(gameID string, lang string) ([]core.NewsItem, error) {
 		a.logger.Warn("GetNews failed", "gid", gameID, "err", err)
 		return nil, err
 	}
+	// Simplified-Chinese fallback: WuWa and Endfield only publish zh-TW / en news
+	// on their global feeds (zh-CN source is 404 / empty list). Rather than show a
+	// zh-CN user a blank panel, fall back to the Traditional-Chinese feed.
+	if len(items) == 0 && lang == "zh-CN" {
+		if alt, aerr := np.GetNews(ctx, gid, "zh-TW"); aerr == nil && len(alt) > 0 {
+			items = alt
+		}
+	}
 	if items == nil {
 		items = []core.NewsItem{}
 	}
