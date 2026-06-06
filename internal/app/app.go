@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"omnigate/internal/core"
 	"omnigate/internal/providers/hoyoverse"
 	"omnigate/internal/providers/hypergryph"
 	"omnigate/internal/providers/kurogames"
 	"omnigate/internal/store"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type detectEntry struct {
@@ -550,7 +550,7 @@ func (a *App) RefreshVersion(gameID string) (core.VersionInfo, error) {
 		predl := state.PredlReady
 		state.mu.RUnlock()
 		if predl != nil && vi.Current == predl.Version {
-			tempDir := a.tempDirFor(kurogames.BackendID, gid)
+			tempDir := a.tempDirFor(p.ID(), gid)
 			gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
 			versionDir := filepath.Join(tempDir, gameIDFlat, predl.Version)
 			_ = removeAll(versionDir)
