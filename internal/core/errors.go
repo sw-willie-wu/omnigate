@@ -5,12 +5,13 @@ import "errors"
 // Sentinel errors that the rest of the codebase wraps with %w. The frontend
 // uses ErrorCode to map these to stable JSON-friendly codes.
 var (
-	ErrUnknownGame          = errors.New("unknown game id")
-	ErrGameNotInstalled     = errors.New("game not installed")
-	ErrBackendNotConfigured = errors.New("backend not configured")
-	ErrLauncherMissing      = errors.New("launcher folder not found")
-	ErrAssetNotAvailable    = errors.New("asset not available")
-	ErrGachaURLUnavailable  = errors.New("gacha history url unavailable")
+	ErrUnknownGame            = errors.New("unknown game id")
+	ErrGameNotInstalled       = errors.New("game not installed")
+	ErrBackendNotConfigured   = errors.New("backend not configured")
+	ErrLauncherMissing        = errors.New("launcher folder not found")
+	ErrAssetNotAvailable      = errors.New("asset not available")
+	ErrGachaURLUnavailable    = errors.New("gacha history url unavailable")
+	ErrPredownloadUnsupported = errors.New("predownload not supported for this game")
 )
 
 // ErrorCode returns a stable JSON-friendly code for the given error. The

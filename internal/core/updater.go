@@ -44,6 +44,23 @@ type CheckForUpdateProgress interface {
 	CheckForUpdateWithProgress(ctx context.Context, gid GameID, onProgress func(done, total int)) (UpdatePlan, error)
 }
 
+// PredownloadChecker is an optional interface a Provider may implement to
+// support predownloading the next game version ahead of release. The App
+// type-asserts it at the Refresh probe (to light the predl button) and at
+// StartPredownload (to build the predl plan).
+type PredownloadChecker interface {
+	// SupportsPredownload is the cheap, PER-GAME capability predicate. One
+	// provider type can serve several games whose predl support lands in
+	// different phases (e.g. hoyoverse: Genshin then HSR/ZZZ), so capability
+	// is gated per game, NOT by Go interface satisfaction.
+	SupportsPredownload(gid GameID) bool
+	// CheckForPredownload builds a predl plan targeting the predownload
+	// manifest (Kind=PlanPredownload, Version=<predl target>). For any gid
+	// where SupportsPredownload is false, or when no predl is currently
+	// published, it returns ErrPredownloadUnsupported.
+	CheckForPredownload(ctx context.Context, gid GameID, onProgress func(done, total int)) (UpdatePlan, error)
+}
+
 // ReasonCode identifies WHY an update plan was constructed. Used by frontend
 // to render appropriate tooltips on the [Update] button. M3.B introduced.
 type ReasonCode string
