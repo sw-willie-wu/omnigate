@@ -13,7 +13,7 @@ import (
 )
 
 type Settings struct {
-	TempDir string // optional override; empty → app layer's kurogamesTempDir() default
+	TempDir string // test-only temp-root fallback; production always injects via SetTempRootFn
 }
 
 type Provider struct {
@@ -25,6 +25,7 @@ type Provider struct {
 	recordAPIBase  string
 	convLogPathsFn func(installDir string) []string
 	recordDelay    time.Duration
+	tempRootFn     func(core.GameID) string
 }
 
 func New(settings Settings, logger *slog.Logger) *Provider {
@@ -42,6 +43,22 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 	p.recordDelay = 400 * time.Millisecond
 	return p
 }
+
+// tempRoot resolves the temp/sidecar root. Production injects tempRootFn via
+// SetTempRootFn (App.tempDirFor); the settings.TempDir and os-default rungs are
+// test-only fallbacks for when SetTempRootFn was not called.
+func (p *Provider) tempRoot(gid core.GameID) string {
+	if p.tempRootFn != nil {
+		return p.tempRootFn(gid)
+	}
+	if p.settings.TempDir != "" {
+		return p.settings.TempDir
+	}
+	return filepath.Join(os.TempDir(), "omnigate")
+}
+
+// SetTempRootFn wires the app-provided temp resolver. Called by App.constructProviders.
+func (p *Provider) SetTempRootFn(fn func(core.GameID) string) { p.tempRootFn = fn }
 
 func (p *Provider) ID() core.BackendID { return BackendID }
 
@@ -323,10 +340,7 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	}
 
 	// Determine TempDir — root only; newProgressStore.dir() appends gameID/version.
-	tempDir := p.settings.TempDir
-	if tempDir == "" {
-		tempDir = filepath.Join(os.TempDir(), "omnigate")
-	}
+	tempDir := p.tempRoot(plan.GameID)
 
 	progress := newProgressStore(tempDir, string(plan.GameID), plan.Version)
 	if err := progress.Init(plan.ManifestETag); err != nil {

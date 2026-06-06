@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse"
+	"omnigate/internal/providers/hypergryph"
+	"omnigate/internal/providers/kurogames"
 )
 
 // fakeProvider satisfies core.Provider with configurable behavior for tests.
@@ -367,6 +370,49 @@ func TestClearGameOverride_RevertsToDetection(t *testing.T) {
 	}
 }
 
+func TestSetGameOverride_PreservesBackgroundPath(t *testing.T) {
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, t.TempDir())
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	a.settings.Games = map[string]GameSettings{string(gid): {BackgroundPath: `D:\bg.png`}}
+	override := t.TempDir()
+	if _, err := a.SetGameOverride(string(gid), override); err != nil {
+		t.Fatal(err)
+	}
+	a.settingsMu.RLock()
+	g := a.settings.Games[string(gid)]
+	a.settingsMu.RUnlock()
+	if g.Path != override {
+		t.Errorf("Path = %q, want %q", g.Path, override)
+	}
+	if g.BackgroundPath != `D:\bg.png` {
+		t.Errorf("BackgroundPath lost on SetGameOverride: %q", g.BackgroundPath)
+	}
+}
+
+func TestClearGameOverride_KeepsEntryWhenBackgroundPathSet(t *testing.T) {
+	dir := t.TempDir()
+	gid := core.GameID("fake/g")
+	a := buildAppWithResolved(t, gid, dir)
+	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
+	a.settings.Games = map[string]GameSettings{string(gid): {Path: t.TempDir(), BackgroundPath: `D:\bg.png`}}
+	if _, err := a.ClearGameOverride(string(gid)); err != nil {
+		t.Fatal(err)
+	}
+	a.settingsMu.RLock()
+	g, ok := a.settings.Games[string(gid)]
+	a.settingsMu.RUnlock()
+	if !ok {
+		t.Fatal("entry deleted; BackgroundPath should have kept it")
+	}
+	if g.Path != "" {
+		t.Errorf("Path = %q, want empty after clear", g.Path)
+	}
+	if g.BackgroundPath != `D:\bg.png` {
+		t.Errorf("BackgroundPath lost on ClearGameOverride: %q", g.BackgroundPath)
+	}
+}
+
 func TestRefreshGame_ReResolvesNoSettingsChange(t *testing.T) {
 	dir := t.TempDir()
 	gid := core.GameID("fake/g")
@@ -591,6 +637,68 @@ func TestGetNews_ProviderWithoutNews_ReturnsEmpty(t *testing.T) {
 	}
 }
 
+// fakeLangNewsProvider returns per-lang canned news and records the langs asked.
+type fakeLangNewsProvider struct {
+	fakeProvider
+	byLang     map[string][]core.NewsItem
+	askedLangs []string
+}
+
+func (f *fakeLangNewsProvider) GetNews(_ context.Context, _ core.GameID, lang string) ([]core.NewsItem, error) {
+	f.askedLangs = append(f.askedLangs, lang)
+	return f.byLang[lang], nil
+}
+
+func TestGetNews_ZhCNEmptyFallsBackToZhTW(t *testing.T) {
+	gid := core.GameID("fake/g")
+	fp := &fakeLangNewsProvider{
+		fakeProvider: fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}},
+		byLang: map[string][]core.NewsItem{
+			"zh-TW": {{Title: "繁中新聞", Category: core.NewsAnnounce, URL: "https://x/1"}},
+			// zh-CN intentionally absent → empty, so it must fall back to zh-TW.
+		},
+	}
+	a := &App{settings: Settings{Version: 3}, logger: slog.Default()}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Title != "繁中新聞" {
+		t.Fatalf("want zh-TW fallback news, got %v", out)
+	}
+	if len(fp.askedLangs) != 2 || fp.askedLangs[0] != "zh-CN" || fp.askedLangs[1] != "zh-TW" {
+		t.Errorf("expected fetch sequence [zh-CN, zh-TW], got %v", fp.askedLangs)
+	}
+}
+
+func TestGetNews_ZhCNWithData_NoFallback(t *testing.T) {
+	gid := core.GameID("fake/g")
+	fp := &fakeLangNewsProvider{
+		fakeProvider: fakeProvider{id: "fake", games: []core.GameDescriptor{{ID: gid, Backend: "fake"}}},
+		byLang: map[string][]core.NewsItem{
+			"zh-CN": {{Title: "简中新闻", Category: core.NewsAnnounce, URL: "https://x/1"}},
+			"zh-TW": {{Title: "繁中新聞", Category: core.NewsAnnounce, URL: "https://x/2"}},
+		},
+	}
+	a := &App{settings: Settings{Version: 3}, logger: slog.Default()}
+	a.providers = []core.Provider{fp}
+	a.ctx = context.Background()
+
+	out, err := a.GetNews(string(gid), "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Title != "简中新闻" {
+		t.Fatalf("want zh-CN news with no fallback, got %v", out)
+	}
+	if len(fp.askedLangs) != 1 {
+		t.Errorf("expected only [zh-CN] (no fallback when zh-CN has data), got %v", fp.askedLangs)
+	}
+}
+
 func TestOpenExternalURL_RejectsNonHTTP(t *testing.T) {
 	a := &App{logger: slog.Default()}
 	if err := a.OpenExternalURL("file:///etc/passwd"); err == nil {
@@ -601,5 +709,25 @@ func TestOpenExternalURL_RejectsNonHTTP(t *testing.T) {
 	}
 	if err := a.OpenExternalURL("https://example.com"); err != nil {
 		t.Errorf("https rejected: %v", err)
+	}
+}
+
+func TestTempDirFor_UsesGlobalAppTempDir(t *testing.T) {
+	a := &App{settings: Settings{App: AppSettings{TempDir: `D:\custom`}}}
+	if got := a.tempDirFor(hoyoverse.BackendID, "hoyoverse/genshin"); got != filepath.Join(`D:\custom`, "hoyoverse") {
+		t.Errorf("hoyoverse tempDir = %q", got)
+	}
+	if got := a.tempDirFor(kurogames.BackendID, "kurogames/wuwa"); got != `D:\custom` {
+		t.Errorf("kuro tempDir = %q (want flat root)", got)
+	}
+	if got := a.tempDirFor(hypergryph.BackendID, "hypergryph/endfield"); got != filepath.Join(`D:\custom`, "hypergryph") {
+		t.Errorf("gryph tempDir = %q", got)
+	}
+}
+
+func TestTempDirFor_EmptyFallsBackToOSTemp(t *testing.T) {
+	a := &App{settings: Settings{App: AppSettings{TempDir: ""}}}
+	if got := a.tempDirFor(kurogames.BackendID, "kurogames/wuwa"); got != filepath.Join(osTempDir(), "omnigate") {
+		t.Errorf("default kuro tempDir = %q", got)
 	}
 }

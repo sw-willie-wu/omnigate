@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -98,33 +99,22 @@ func (a *App) emit(name string, args ...any) {
 func (a *App) constructProviders() error {
 	a.providers = nil
 	hoyo := hoyoverse.New(
-		hoyoverse.Settings{
-			Region:  a.settings.Backends.Hoyoverse.Region,
-			TempDir: a.settings.Backends.Hoyoverse.TempDir,
-		},
+		hoyoverse.Settings{Region: a.settings.Backends.Hoyoverse.Region},
 		a.logger.With("backend", "hoyoverse"),
 	)
-	hoyo.SetTempRootFn(func(gid core.GameID) string {
-		return a.tempDirFor(hoyoverse.BackendID, gid)
-	})
+	hoyo.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(hoyoverse.BackendID, gid) })
 	if err := a.registerProvider(hoyo); err != nil {
 		return err
 	}
-	kuro := kurogames.New(
-		kurogames.Settings{
-			TempDir: a.settings.Backends.Kurogames.TempDir,
-		},
-		a.logger.With("backend", "kurogames"),
-	)
+
+	kuro := kurogames.New(kurogames.Settings{}, a.logger.With("backend", "kurogames"))
+	kuro.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(kurogames.BackendID, gid) })
 	if err := a.registerProvider(kuro); err != nil {
 		return err
 	}
-	gryph := hypergryph.New(
-		hypergryph.Settings{
-			TempDir: a.settings.Backends.Hypergryph.TempDir,
-		},
-		a.logger.With("backend", "hypergryph"),
-	)
+
+	gryph := hypergryph.New(hypergryph.Settings{}, a.logger.With("backend", "hypergryph"))
+	gryph.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(hypergryph.BackendID, gid) })
 	if err := a.registerProvider(gryph); err != nil {
 		return err
 	}
@@ -384,7 +374,10 @@ func (a *App) SetGameOverride(gameID, path string) (GameRow, error) {
 	if a.settings.Games == nil {
 		a.settings.Games = map[string]GameSettings{}
 	}
-	a.settings.Games[gameID] = GameSettings{Path: path}
+	// Read-modify-write so a custom BackgroundPath on this game survives a path change.
+	g := a.settings.Games[gameID]
+	g.Path = path
+	a.settings.Games[gameID] = g
 	if err := SaveSettings(a.settingsP, a.settings); err != nil {
 		a.settingsMu.Unlock()
 		return GameRow{}, err
@@ -405,7 +398,14 @@ func (a *App) ClearGameOverride(gameID string) (GameRow, error) {
 		return GameRow{}, err
 	}
 	a.settingsMu.Lock()
-	delete(a.settings.Games, gameID)
+	// Preserve a custom BackgroundPath when clearing only the path override; drop
+	// the whole entry only if there's nothing else to keep.
+	if g, ok := a.settings.Games[gameID]; ok && g.BackgroundPath != "" {
+		g.Path = ""
+		a.settings.Games[gameID] = g
+	} else {
+		delete(a.settings.Games, gameID)
+	}
 	if err := SaveSettings(a.settingsP, a.settings); err != nil {
 		a.settingsMu.Unlock()
 		return GameRow{}, err
@@ -473,6 +473,14 @@ func (a *App) GetNews(gameID string, lang string) ([]core.NewsItem, error) {
 	if err != nil {
 		a.logger.Warn("GetNews failed", "gid", gameID, "err", err)
 		return nil, err
+	}
+	// Simplified-Chinese fallback: WuWa and Endfield only publish zh-TW / en news
+	// on their global feeds (zh-CN source is 404 / empty list). Rather than show a
+	// zh-CN user a blank panel, fall back to the Traditional-Chinese feed.
+	if len(items) == 0 && lang == "zh-CN" {
+		if alt, aerr := np.GetNews(ctx, gid, "zh-TW"); aerr == nil && len(alt) > 0 {
+			items = alt
+		}
 	}
 	if items == nil {
 		items = []core.NewsItem{}
@@ -698,34 +706,66 @@ func stringIndex(s, sub string) int {
 	return -1
 }
 
+// imageMIME maps a lowercased file extension to its image MIME type. We do NOT
+// use mime.TypeByExtension — webp/bmp are unreliable on Windows registries.
+func imageMIME(ext string) (string, bool) {
+	switch strings.ToLower(ext) {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".webp":
+		return "image/webp", true
+	case ".bmp":
+		return "image/bmp", true
+	}
+	return "", false
+}
+
+// GetCustomBackground returns the per-game custom background as a base64 data
+// URL, or "" (nil error) when no custom path is set. Read errors / unknown
+// extensions return a non-nil error so the frontend falls back to official art.
+func (a *App) GetCustomBackground(gameID string) (string, error) {
+	a.settingsMu.RLock()
+	path := a.settings.Games[gameID].BackgroundPath
+	a.settingsMu.RUnlock()
+	if path == "" {
+		return "", nil
+	}
+	mimeType, ok := imageMIME(filepath.Ext(path))
+	if !ok {
+		return "", fmt.Errorf("unsupported image extension: %s", filepath.Ext(path))
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(b), nil
+}
+
 // tempDirFor resolves the per-backend temp root for sidecar/staging files.
 //
-// kurogames returns <TEMP>/omnigate (flat, bit-exact preservation per
-// the legacy kurogamesTempDir helper).
-// hoyoverse returns <TEMP>/omnigate/hoyoverse (subdir-per-backend; M3.B).
-// Future backends (M3.C hypergryph, M3.D HSR/ZZZ) follow the default
-// branch unless they add a settings TempDir field.
+// App.TempDir is the single source of truth. When empty it falls back to
+// <os.TempDir>/omnigate so existing defaults are preserved bit-exactly:
+//
+//	kurogames  → root (flat, legacy bit-exact)
+//	hoyoverse  → root/hoyoverse
+//	hypergryph → root/hypergryph
+//	other      → root/<backend>
 func (a *App) tempDirFor(backend core.BackendID, gid core.GameID) string {
 	a.settingsMu.RLock()
 	defer a.settingsMu.RUnlock()
+	root := a.settings.App.TempDir
+	if root == "" {
+		root = filepath.Join(osTempDir(), "omnigate")
+	}
 	switch backend {
 	case kurogames.BackendID:
-		if td := a.settings.Backends.Kurogames.TempDir; td != "" {
-			return td
-		}
-		return filepath.Join(osTempDir(), "omnigate")
+		return root // flat (legacy bit-exact)
 	case hoyoverse.BackendID:
-		if td := a.settings.Backends.Hoyoverse.TempDir; td != "" {
-			return td
-		}
-		return filepath.Join(osTempDir(), "omnigate", "hoyoverse")
+		return filepath.Join(root, "hoyoverse")
 	case hypergryph.BackendID:
-		if td := a.settings.Backends.Hypergryph.TempDir; td != "" {
-			return td
-		}
-		return filepath.Join(osTempDir(), "omnigate", "hypergryph")
+		return filepath.Join(root, "hypergryph")
 	}
-	// Default for backends without a settings TempDir field: per-backend subdir
-	// to avoid collisions.
-	return filepath.Join(osTempDir(), "omnigate", string(backend))
+	return filepath.Join(root, string(backend))
 }

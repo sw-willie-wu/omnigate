@@ -15,8 +15,7 @@ import (
 )
 
 type Settings struct {
-	Region  string // "global" or "cn" — only "global" supported in M2
-	TempDir string // override for temp/sidecar root (tests + settings.toml)
+	Region string // "global" or "cn" — only "global" supported in M2
 }
 
 type Provider struct {

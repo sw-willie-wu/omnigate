@@ -106,6 +106,11 @@ const lastPlayedLabel = computed<string>(() => {
   return `${t('labels.last_played')} · ${rel}`;
 });
 
+const bgDots = computed(() => games.selected?.backgrounds?.length ?? 0);
+function setBg(i: number) {
+  if (games.selected) games.selected.bgIndex = i;
+}
+
 // Progress percentage (Download phase by bytes; Apply phase by file count)
 const progressPct = computed(() => {
   const ifl = inFlight.value;
@@ -169,6 +174,19 @@ async function onCancel() {
       <div class="last-played">
         <span class="lp-clock">◷</span>{{ lastPlayedLabel }}
       </div>
+    </div>
+
+    <div v-if="bgDots > 1" class="bg-dots">
+      <button
+        v-for="i in bgDots"
+        :key="i"
+        data-test="bg-dot"
+        class="bg-dot"
+        :class="{ active: (games.selected!.bgIndex ?? 0) === i - 1 }"
+        :aria-pressed="(games.selected!.bgIndex ?? 0) === i - 1"
+        :aria-label="`background ${i}`"
+        @click="setBg(i - 1)"
+      ></button>
     </div>
 
     <!-- right cluster: predl + per-game config gear + Play/Update, kept together

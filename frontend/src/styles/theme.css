@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Unbounded:wght@400;500;700;900&family=Noto+Sans+TC:wght@500;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Unbounded:wght@400;500;700;900&family=Noto+Sans+TC:wght@500;700;900&family=Noto+Sans+SC:wght@500;700;900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0');
   :root {
     --bg: #0a0a0c; --panel: rgba(15,15,25,0.55); --elev: rgba(30,30,42,0.65); --border: rgba(255,255,255,0.08); --border-strong: rgba(255,255,255,0.14);
@@ -14,11 +14,16 @@
     --line-1: rgba(255,255,255,0.06);
     --line-2: rgba(255,255,255,0.10);
     --warn: #e8b865; --info: #6fa8ff; --crit: #d66666; --ok: #74d68a;
+    /* CJK font: switches to Simplified for zh-CN so glyphs render with correct
+       forms. Every CJK-bearing font stack references var(--cjk). */
+    --cjk: 'Noto Sans TC';
   }
+  /* setLang sets <html lang="zh-Hans"> for zh-CN → swap the CJK font to SC. */
+  html[lang="zh-Hans"] { --cjk: 'Noto Sans SC'; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     background: #000; color: var(--text);
-    font-family: 'JetBrains Mono', 'Noto Sans TC', monospace;
+    font-family: 'JetBrains Mono', var(--cjk), monospace;
     width: 100vw; height: 100vh; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
   }
@@ -215,6 +220,7 @@
   .notif-btn-cancel:hover { background: rgba(255,255,255,0.14); }
   .notif-btn-ok:hover { filter: brightness(1.1); }
   .window-btn { border: 0 !important; background: transparent !important; width: 44px; height: 44px; font-size: 24px; line-height: 1; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .window-btn .material-symbols-outlined { font-size: 20px; }
   .window-btn.close { font-size: 30px; }
   .window-btn:hover { background: transparent !important; color: white; }
   .window-btn.close:hover { background: transparent !important; color: #e85555; }
@@ -248,7 +254,7 @@
   .group-label::after { content: ''; flex: 1; height: 0; border-bottom: 1px dashed var(--border-strong); transform: translateY(-2px); transition: opacity 0.2s; }
   .game-row { display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 12px; padding: 11px 14px 11px 14px; cursor: pointer; border-left: 2px solid transparent; transition: background 0.15s, border-color 0.15s, padding 0.25s, grid-template-columns 0.25s; position: relative; min-height: 56px; }
   .game-row > div:not(.game-icon) { min-width: 0; }
-  .game-icon { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: #222; display: flex; align-items: center; justify-content: center; font-family: 'Noto Sans TC', sans-serif; font-weight: 900; font-size: 18px; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+  .game-icon { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: #222; display: flex; align-items: center; justify-content: center; font-family: var(--cjk), sans-serif; font-weight: 900; font-size: 18px; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
   .game-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .sidebar.collapsed .game-row { grid-template-columns: 36px; gap: 0; padding: 11px 14px; }
   .sidebar.collapsed .game-row > *:not(.game-icon) { display: none; }
@@ -260,7 +266,7 @@
   .sidebar.collapsed .group-label::after { opacity: 0; }
   .game-row:hover { background: rgba(255,255,255,0.04); }
   .game-row.active { background: rgba(214,176,75,0.08); border-left-color: var(--accent); }
-  .game-name { font-family: 'Noto Sans TC', sans-serif; font-size: 14px; line-height: 18px; color: var(--text); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .game-name { font-family: var(--cjk), sans-serif; font-size: 14px; line-height: 18px; color: var(--text); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .icon-predl-ready { font-size: 10px; margin-left: 4px; color: var(--info); vertical-align: middle; }
   .icon-stale-warn { display: none; font-size: 10px; margin-left: 4px; color: var(--warn); vertical-align: middle; font-style: italic; font-weight: 700; cursor: default; }
   .game-row:hover .icon-stale-warn { display: inline; }
@@ -291,6 +297,31 @@
     display: flex; align-items: flex-end; justify-content: space-between;
     gap: 24px; z-index: 5;
   }
+  .bg-dots {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .bg-dot {
+    pointer-events: auto;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.35);
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+  }
+  .bg-dot.active {
+    background: var(--accent);
+    transform: scale(1.25);
+  }
+
   /* Error line floats ABOVE the bar (anchored to the positioned .bottom-bar)
      so it does NOT push the version pill / buttons sideways. */
   .bottom-bar .update-error {
@@ -305,7 +336,7 @@
   .hero-bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; }
 
   .hero-title-block { padding-left: 4px; min-width: 0; flex: 1; }
-  .hero-title { font-family: 'Noto Sans TC', 'Unbounded', sans-serif; font-weight: 900; font-size: 64px; line-height: 1; color: white; letter-spacing: -0.005em; text-shadow: 0 4px 24px rgba(0,0,0,0.7); }
+  .hero-title { font-family: var(--cjk), 'Unbounded', sans-serif; font-weight: 900; font-size: 64px; line-height: 1; color: white; letter-spacing: -0.005em; text-shadow: 0 4px 24px rgba(0,0,0,0.7); }
   .hero-subtitle { font-family: 'Unbounded', sans-serif; font-size: 11px; line-height: 16px; letter-spacing: 0.5em; font-weight: 500; color: rgba(255,255,255,0.7); text-transform: uppercase; margin-top: 14px; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
 
   /* small inline stats strip under subtitle */
@@ -334,7 +365,7 @@
 
   .launch-area { flex-shrink: 0; margin-right: 32px; }
 
-  .launch-btn { background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 0 44px; cursor: pointer; font-family: 'JetBrains Mono', 'Noto Sans TC', monospace; font-size: 17px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; height: 56px; min-width: 200px; transition: transform 0.12s, box-shadow 0.12s; }
+  .launch-btn { background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 0 44px; cursor: pointer; font-family: 'JetBrains Mono', var(--cjk), monospace; font-size: 17px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; height: 56px; min-width: 200px; transition: transform 0.12s, box-shadow 0.12s; }
   .launch-btn:hover { transform: translate(-3px, -3px); box-shadow: 6px 6px 0 var(--accent-dim); }
   .launch-btn .play-tri { display: inline-block; width: 0; height: 0; border-left: 9px solid var(--bg); border-top: 6px solid transparent; border-bottom: 6px solid transparent; margin-right: 12px; vertical-align: middle; }
 
@@ -359,7 +390,7 @@
   .grid-card-status-pill.update { color: var(--warn); border-color: rgba(232,184,101,0.5); }
   .grid-card-status-pill.predownload { color: var(--info); border-color: rgba(111,168,255,0.5); }
   .grid-card-status-pill.downloading { color: var(--text); border-color: rgba(184,184,196,0.5); }
-  .grid-card-name { position: absolute; bottom: 8px; left: 12px; right: 8px; font-family: 'Noto Sans TC', sans-serif; font-size: 14px; line-height: 18px; font-weight: 700; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
+  .grid-card-name { position: absolute; bottom: 8px; left: 12px; right: 8px; font-family: var(--cjk), sans-serif; font-size: 14px; line-height: 18px; font-weight: 700; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
   .grid-progress { position: absolute; bottom: 0; left: 0; height: 2px; background: var(--accent); }
   .grid-card-foot { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; }
   .grid-card-substatus { font-size: 9px; line-height: 13px; letter-spacing: 0.16em; font-weight: 500; text-transform: uppercase; }
@@ -427,7 +458,7 @@
   .gamecfg-resolved {
     font-size: 11px; color: var(--text-2);
     white-space: normal; word-break: break-all; line-height: 1.4;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', var(--cjk), monospace;
   }
   .gamecfg-label { font-size: 10px; letter-spacing: 0.16em; color: var(--text-2); text-transform: uppercase; margin-top: 4px; }
   .gamecfg-input {
@@ -435,7 +466,7 @@
     background: rgba(0,0,0,0.4);
     border: 1px solid var(--border-strong);
     color: var(--text);
-    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    font-family: 'JetBrains Mono', var(--cjk), monospace; font-size: 12px;
     padding: 7px 9px; border-radius: 6px;
   }
   .gamecfg-input:focus { outline: none; border-color: var(--accent); }
@@ -444,7 +475,7 @@
     background: rgba(255,255,255,0.06);
     border: 1px solid var(--border-strong);
     color: var(--text);
-    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+    font-family: 'JetBrains Mono', var(--cjk), monospace; font-size: 12px; font-weight: 600;
     padding: 7px 14px; border-radius: 6px; cursor: pointer;
     transition: background 0.12s, color 0.12s;
   }
@@ -557,11 +588,13 @@
   .settings-label { display: block; font-size: 11px; color: var(--text-2); margin: 10px 0 4px; }
   /* Inputs cap at a readable width instead of stretching the full page. */
   .settings-row { display: flex; gap: 6px; align-items: center; max-width: 720px; }
-  .settings-row input {
+  .settings-row input, .settings-row select {
     flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px;
     border: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.25); color: var(--text);
     font-size: 12px;
   }
+  .settings-row select { cursor: pointer; }
+  .settings-row select option { background: #1b1d24; color: var(--text); }
   .settings-browse, .settings-clear {
     padding: 6px 10px; border-radius: 6px; border: 0; cursor: pointer; font-size: 11px;
     background: rgba(255,255,255,0.08); color: var(--text); white-space: nowrap;
