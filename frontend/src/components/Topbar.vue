@@ -33,8 +33,8 @@ const onRefresh = async () => {
       </button>
       <button class="icon-btn" :class="{active: view.viewMode === 'grid'}" @click="view.setView(view.viewMode === 'grid' ? 'detail' : 'grid')"><span class="material-symbols-outlined">grid_view</span></button>
       <button class="icon-btn" :class="{active: view.viewMode === 'settings'}" @click="view.toggleSettings()" title="Settings"><span class="material-symbols-outlined">settings</span></button>
-      <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize">─</button>
-      <button class="icon-btn window-btn close" @click="Quit()" title="Close">×</button>
+      <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize"><span class="material-symbols-outlined">remove</span></button>
+      <button class="icon-btn window-btn close" @click="Quit()" title="Close"><span class="material-symbols-outlined">close</span></button>
     </div>
     <Teleport to="body">
       <div v-if="panelOpen" class="notif-panel-backdrop" @click="closeNotifPanel"></div>
