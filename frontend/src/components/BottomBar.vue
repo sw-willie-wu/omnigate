@@ -221,6 +221,11 @@ async function onCancel() {
       <button v-else-if="!inFlight && predlReady" class="launch-btn" @click="onApplyPredl">
         {{ t('update.predl_ready') }}
       </button>
+      <!-- During predownload the current version stays playable (predl stages the
+           NEXT version to a temp dir) — keep the Play button available. -->
+      <button v-else-if="inFlight && inFlight.kind === 'predownload'" class="launch-btn" @click="onLaunch" :disabled="!games.selected.installed">
+        <span class="play-tri"></span>{{ t('buttons.play') }}
+      </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'download'" class="progress-btn update">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
         <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || t('update.downloading', { pct: progressPct })) }}</span>

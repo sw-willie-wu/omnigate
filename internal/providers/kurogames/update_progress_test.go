@@ -51,6 +51,46 @@ func TestProgress_AtomicWrite(t *testing.T) {
 	}
 }
 
+func TestProgress_InitPreservesEntriesOnSameETag(t *testing.T) {
+	tmp := t.TempDir()
+	p := newProgressStore(tmp, "kurogames/wutheringwaves", "3.4.0")
+	if err := p.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	mt := time.Now().Truncate(time.Millisecond)
+	if err := p.MarkComplete("a.dll", mt, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-Init with the SAME ETag must PRESERVE entries so a re-started download
+	// resumes (skips already-completed files) instead of restarting.
+	if err := p.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := core.LoadProgress(p.dir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := loaded.Entries["a.dll"]; !ok {
+		t.Error("re-Init with same ETag must preserve entries (resume); entry was wiped")
+	}
+
+	// Re-Init with a DIFFERENT ETag must WIPE (manifest changed → re-download).
+	if err := p.Init("etag-2"); err != nil {
+		t.Fatal(err)
+	}
+	loaded2, err := core.LoadProgress(p.dir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded2.Entries) != 0 {
+		t.Errorf("re-Init with different ETag must wipe entries; got %d", len(loaded2.Entries))
+	}
+	if loaded2.ETag != "etag-2" {
+		t.Errorf("ETag = %q, want etag-2", loaded2.ETag)
+	}
+}
+
 func TestProgress_RenameToPredlReady(t *testing.T) {
 	tmp := t.TempDir()
 	p := newProgressStore(tmp, "kurogames/wutheringwaves", "3.4.0")
@@ -77,4 +117,3 @@ func TestProgress_RenameToPredlReady(t *testing.T) {
 		t.Errorf("ETag = %q", v.ETag)
 	}
 }
-

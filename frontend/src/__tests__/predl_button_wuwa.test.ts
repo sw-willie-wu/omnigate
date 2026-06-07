@@ -42,6 +42,22 @@ describe('BottomBar predl button (WuWa)', () => {
     expect(wrapper.find('.pill').classes()).toContain('info');
   });
 
+  it('keeps the Play button available during predownload (play current while staging next)', async () => {
+    const wrapper = mountBar();
+    seedWuwa({
+      available_update: null, available_predl: null, predl_ready: null,
+      in_flight: { kind: 'predownload', phase: 'download', current: 50, total: 100, stage: '' },
+      last_error: null,
+    });
+    await wrapper.vm.$nextTick();
+    // predl progress is shown in the predl-area...
+    expect(wrapper.find('.predl-area .progress-btn.predl').exists()).toBe(true);
+    // ...and the Play button remains available in the launch-area.
+    const launchBtn = wrapper.find('.launch-area .launch-btn');
+    expect(launchBtn.exists()).toBe(true);
+    expect(launchBtn.find('.play-tri').exists()).toBe(true);
+  });
+
   it('does NOT light predl from has_predownload alone (bypass removed)', async () => {
     const wrapper = mountBar();
     seedWuwa({ available_update: null, available_predl: null, predl_ready: null, in_flight: null, last_error: null });

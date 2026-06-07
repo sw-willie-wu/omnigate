@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-
 type progressStore struct {
 	// mu serializes concurrent MarkComplete calls from the download
 	// worker pool (Task 8 spawns 4 workers; each load-modify-writes
@@ -32,10 +31,20 @@ func (p *progressStore) dir() string {
 	return filepath.Join(p.tempRoot, flat, p.version)
 }
 
-// Init creates the progress dir and writes a fresh progress.json.
+// Init creates the progress dir and writes progress.json.
+//
+// Resume-aware: if an existing progress.json carries the SAME ETag, its Entries
+// are preserved so a re-started or resumed download skips already-completed
+// files (this is what makes ResumeInterrupted's documented "resume from
+// progress.json" and a re-clicked predownload actually resume rather than
+// re-download). A missing/corrupt file, or a changed ETag (the manifest changed
+// → staged bytes are stale), falls back to a fresh empty progress.json.
 func (p *progressStore) Init(etag string) error {
 	if err := os.MkdirAll(p.dir(), 0o755); err != nil {
 		return fmt.Errorf("mkdir progress: %w", err)
+	}
+	if existing, err := core.LoadProgressFromPath(filepath.Join(p.dir(), "progress.json")); err == nil && existing != nil && existing.ETag == etag {
+		return nil // keep prior Entries → resume
 	}
 	pf := core.ProgressFile{
 		GameID:  p.gameID,
