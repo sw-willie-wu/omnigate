@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse/sophon"
 )
 
 type Settings struct {
@@ -152,13 +153,21 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	// the correct number. The actual update flow is gated separately in
 	// CheckForUpdate (returns sophon_not_supported until M3.B v2 lands).
 	if g.UsesSophon {
-		tag, err := p.fetchBranchTag(ctx, g.APIGameID)
+		branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
 		if err != nil {
 			return core.VersionInfo{}, err
 		}
-		info := core.VersionInfo{Current: currentLocal, Latest: tag}
+		if branch.Main.IsEmpty() {
+			return core.VersionInfo{}, fmt.Errorf("getGameBranches: game id %q has empty main branch", g.APIGameID)
+		}
+		info := core.VersionInfo{Current: currentLocal, Latest: branch.Main.Tag}
 		if info.Current == "" {
 			info.Current = info.Latest
+		}
+		// Surface predl so App.CheckForUpdate (probe) can light the predl button
+		// for Genshin. Phase-1 probe additionally gates on SupportsPredownload.
+		if !branch.PreDownload.IsEmpty() && branch.PreDownload.Tag != info.Current {
+			info.Predownload = &core.PredownloadInfo{TargetVersion: branch.PreDownload.Tag}
 		}
 		return info, nil
 	}
@@ -261,6 +270,97 @@ func (p *Provider) GetPredownloadAvailable(gid core.GameID) bool {
 		return false
 	}
 	return gp.predlAvailable
+}
+
+// SupportsPredownload implements core.PredownloadChecker. PER-GAME: only Sophon
+// games (Genshin) in Phase 2; HSR/ZZZ legacy predl lands in Phase 3. This is what
+// keeps the Phase-1 App probe from lighting HSR/ZZZ buttons while one hoyoverse
+// type satisfies the interface for all three games.
+func (p *Provider) SupportsPredownload(gid core.GameID) bool {
+	g := findByID(gid)
+	return g != nil && g.UsesSophon
+}
+
+// CheckForPredownload implements core.PredownloadChecker. Routes Sophon (Genshin)
+// to checkForPredownloadSophon; legacy (HSR/ZZZ) returns ErrPredownloadUnsupported
+// until Phase 3.
+func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
+	g := findByID(gid)
+	if g == nil {
+		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+	}
+	if !g.UsesSophon {
+		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
+	}
+	return p.checkForPredownloadSophon(ctx, gid, onProgress)
+}
+
+// checkForPredownloadSophon builds the Sophon predl plan by calling
+// buildSophonPredlPlan DIRECTLY, NOT via checkForUpdateSophon. The latter's idle
+// short-circuit returns flavorNone with gp.predlPlan==nil exactly when up-to-date
+// — the case predl is offered (spec §2.3 B1). It caches gp so
+// RunUpdate(PlanPredownload) → runSophonPredownload consumes gp.predlPlan.
+func (p *Provider) checkForPredownloadSophon(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
+	g := findByID(gid)
+	gameDir, err := p.gameDir(gid)
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	tempRoot := p.tempRoot(gid)
+
+	branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
+	if err != nil {
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
+		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
+	}
+	if branch.PreDownload.IsEmpty() {
+		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
+	}
+
+	currentLocal, _ := ReadGameVersion(gameDir)
+	if currentLocal == "" {
+		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_no_install", Retryable: false}
+	}
+
+	audioFolders, _ := DetectInstalledLanguages(gameDir)
+	audioLangs := mapFoldersToMatchingFields(audioFolders)
+
+	prev := LoadAppliedManifests(tempRoot, gid)
+	oldMainManifest := prev.MatchByVersion(currentLocal, "game")
+
+	gp := &genshinPlan{
+		UpdatePlan: core.UpdatePlan{
+			GameID:  gid,
+			Kind:    core.PlanPredownload,
+			Version: branch.PreDownload.Tag,
+			Reason:  core.ReasonPredownload,
+		},
+		sophonBranch:              branch,
+		sophonPatchAssetsFromMain: map[string][]sophon.ChunkSource{},
+		sophonAssetMD5:            map[string]string{},
+		sophonRawManifests:        map[string][]byte{},
+		sourceVersion:             currentLocal,
+		audioLanguages:            audioLangs,
+	}
+
+	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, g.PlatApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
+	if err != nil {
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
+		return core.UpdatePlan{}, err
+	}
+	if !predlAvail || gp.predlPlan == nil {
+		// No chunk reuse possible (full-flavor predl is never offered, §0) → treat
+		// as no actionable predl.
+		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
+	}
+	gp.predlAvailable = true
+	gp.TotalBytes = sumPredlPlanBytes(gp.predlPlan)
+	p.manifestCache.put(gid, gp)
+	return gp.UpdatePlan, nil
 }
 
 // LastApplyTarget is the App-exposed view of the persistent sidecar.
@@ -874,7 +974,8 @@ func (defaultFreeSpaceProbe) FreeBytes(path string) (uint64, error) {
 
 // compile-time check
 var (
-	_ core.Provider       = (*Provider)(nil)
-	_ core.Updater        = (*Provider)(nil)
-	_ core.ProcessChecker = (*Provider)(nil)
+	_ core.Provider           = (*Provider)(nil)
+	_ core.Updater            = (*Provider)(nil)
+	_ core.ProcessChecker     = (*Provider)(nil)
+	_ core.PredownloadChecker = (*Provider)(nil)
 )

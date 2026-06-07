@@ -452,6 +452,26 @@ func sumSophonTotalBytes(gp *genshinPlan) int64 {
 	return total
 }
 
+// sumPredlPlanBytes is the progress denominator for a standalone predl plan
+// (CheckForPredownload builds gp.predlPlan but not gp.sophon* fields, so
+// sumSophonTotalBytes would return 0). Mirrors sumSophonTotalBytes over the
+// predl plan's chunk sources + deduped patch blobs.
+func sumPredlPlanBytes(pp *predlPlanCache) int64 {
+	var total int64
+	for _, s := range pp.ChunkSources {
+		total += s.DecompSize
+	}
+	seen := map[string]bool{}
+	for _, p := range pp.Patches {
+		if seen[p.PatchName] {
+			continue
+		}
+		seen[p.PatchName] = true
+		total += p.PatchSize
+	}
+	return total
+}
+
 // buildSophonPredlPlan implements §3.3. Returns predlAvail; when true it also
 // populates gp.predlPlan with the parallel plan built on branch.PreDownload.
 // Full-flavor predl is never offered (§0): if neither DiffTags nor a cached
