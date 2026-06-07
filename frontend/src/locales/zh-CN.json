@@ -203,6 +203,7 @@
     "language_label": "语言",
     "tempdir_label": "临时文件夹",
     "tempdir_hint": "留空 = 使用默认临时文件夹（所有游戏共用）",
+    "tempdir_effective": "当前位置：{path}",
     "save_error": "保存失败:{detail}",
     "custom_bg": "背景图",
     "custom_bg_label": "自定义背景图",

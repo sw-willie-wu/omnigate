@@ -203,6 +203,7 @@
     "language_label": "Language",
     "tempdir_label": "Temp folder",
     "tempdir_hint": "Leave empty to use the default temp folder (shared by all games)",
+    "tempdir_effective": "Current location: {path}",
     "save_error": "Save failed: {detail}",
     "custom_bg": "Background",
     "custom_bg_label": "Custom background",

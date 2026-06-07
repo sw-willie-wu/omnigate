@@ -114,12 +114,35 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 
 	var plan core.UpdatePlan
 	var err error
-	if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
+	if kind == core.PlanPredownload {
+		pc, ok := p.(core.PredownloadChecker)
+		if !ok || !pc.SupportsPredownload(gid) {
+			// Capability gate (defense-in-depth): the button should never appear
+			// for an unsupported game. Idle gracefully — clear AvailablePredl, no
+			// LastError, never force Kind=PlanPredownload onto a non-predl plan.
+			state.mu.Lock()
+			state.InFlight = nil
+			state.AvailablePredl = nil
+			state.mu.Unlock()
+			a.updateRegistry.EmitTerminal(gid)
+			return
+		}
+		plan, err = pc.CheckForPredownload(ctx, gid, onVerifyProgress)
+	} else if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
 		plan, err = updProg.CheckForUpdateWithProgress(ctx, gid, onVerifyProgress)
 	} else {
 		plan, err = upd.CheckForUpdate(ctx, gid)
 	}
 	if err != nil {
+		if errors.Is(err, core.ErrPredownloadUnsupported) {
+			// No active predl (race: pulled between probe and click). Idle quietly.
+			state.mu.Lock()
+			state.InFlight = nil
+			state.AvailablePredl = nil
+			state.mu.Unlock()
+			a.updateRegistry.EmitTerminal(gid)
+			return
+		}
 		abort(err)
 		return
 	}
@@ -540,6 +563,23 @@ func (a *App) CheckForUpdate(gameID string) error {
 		}
 	} else {
 		state.AvailableUpdate = nil
+	}
+	// Predl availability (spec §1.1): set only when the provider supports predl
+	// for THIS game (per-game capability — NOT a Go type assertion, because one
+	// provider type can serve games whose predl lands in different phases), an
+	// active predl is advertised, the game is up-to-date (predl/update mutually
+	// exclusive), and nothing is already staged for that target.
+	pc, predlCapable := p.(core.PredownloadChecker)
+	if predlCapable && pc.SupportsPredownload(gid) &&
+		vi.Predownload != nil && vi.Latest == vi.Current &&
+		(state.PredlReady == nil || state.PredlReady.Version != vi.Predownload.TargetVersion) {
+		state.AvailablePredl = &core.UpdatePlan{
+			GameID:  gid,
+			Kind:    core.PlanPredownload,
+			Version: vi.Predownload.TargetVersion,
+		}
+	} else {
+		state.AvailablePredl = nil
 	}
 	state.mu.Unlock()
 	a.updateRegistry.EmitTerminal(gid)

@@ -586,6 +586,8 @@
   }
   .settings-group { margin-bottom: 22px; }
   .settings-label { display: block; font-size: 11px; color: var(--text-2); margin: 10px 0 4px; }
+  /* Muted one-line hint under a settings row (e.g. the effective temp location). */
+  .settings-hint { font-size: 11px; color: var(--text-2); opacity: 0.8; margin: 4px 0 0; max-width: 720px; word-break: break-all; }
   /* Inputs cap at a readable width instead of stretching the full page. */
   .settings-row { display: flex; gap: 6px; align-items: center; max-width: 720px; }
   .settings-row input, .settings-row select {

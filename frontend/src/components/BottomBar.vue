@@ -79,11 +79,11 @@ const predlSizeLabel = computed<string>(() => {
   return t('update.predl_available');
 });
 
-// Pill state — priority: update > predl > ready. has_predownload is set by
-// providers (e.g. hoyoverse) directly via CheckVersion; availablePredl is only
-// populated for Updater providers (kurogames in M3.A) — read both to cover
-// non-Updater backends that still surface predl info.
-const hasAnyPredl = computed(() => availablePredl.value !== null || (games.selected?.has_predownload ?? false));
+// Pill + predl button both derive from available_predl — the App's single
+// actionable predl signal, populated only when the provider supports predl for
+// this game (per-game capability gate). The legacy has_predownload bypass is
+// dropped so the pill never lights for a game whose predl we can't start.
+const hasAnyPredl = computed(() => availablePredl.value !== null);
 const pillLabel = computed(() => {
   if (availableUpdate.value) {
     const cur = games.selected?.current_version ?? '?';
@@ -220,6 +220,11 @@ async function onCancel() {
       </button>
       <button v-else-if="!inFlight && predlReady" class="launch-btn" @click="onApplyPredl">
         {{ t('update.predl_ready') }}
+      </button>
+      <!-- During predownload the current version stays playable (predl stages the
+           NEXT version to a temp dir) — keep the Play button available. -->
+      <button v-else-if="inFlight && inFlight.kind === 'predownload'" class="launch-btn" @click="onLaunch" :disabled="!games.selected.installed">
+        <span class="play-tri"></span>{{ t('buttons.play') }}
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'download'" class="progress-btn update">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
