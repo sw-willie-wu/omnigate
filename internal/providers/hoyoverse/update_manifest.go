@@ -214,6 +214,83 @@ func runPreflight(gp *genshinPlan, tempRoot, gameDir string, probe freeSpaceProb
 	return gp, predlAvailable, nil
 }
 
+// buildPredlPlan builds a predownload plan from entry.PreDownload (the next
+// version), mirroring buildPlan's patch-vs-full decision sourced from PreDownload
+// instead of Main. Returns (nil, nil) when no actionable predownload is published
+// (no PreDownload, or its version equals the installed version). Flavors are
+// flavorPredlPatch / flavorPredlFull; Kind is PlanPredownload.
+func buildPredlPlan(
+	ctx context.Context,
+	resp *HypGetGamePackagesResponse,
+	gid core.GameID,
+	currentVer string,
+	tempRoot string,
+	gameDir string,
+	probe freeSpaceProbe,
+) (*genshinPlan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(resp.Data.GamePackages) == 0 {
+		return nil, fmt.Errorf("manifest has no game_packages")
+	}
+	entry := resp.Data.GamePackages[0]
+	if entry.PreDownload == nil {
+		return nil, nil
+	}
+	predlMajor := entry.PreDownload.Major
+	if predlMajor.Version == "" || predlMajor.Version == currentVer {
+		return nil, nil
+	}
+
+	gp := &genshinPlan{
+		UpdatePlan: core.UpdatePlan{
+			GameID:       gid,
+			Kind:         core.PlanPredownload,
+			ManifestETag: resp.ManifestETag,
+			Version:      predlMajor.Version,
+			Reason:       core.ReasonPredownload,
+		},
+		manifestETag:  resp.ManifestETag,
+		sourceVersion: currentVer,
+	}
+
+	installedFolders, err := DetectInstalledLanguages(gameDir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("detect audio langs: %w", err)
+	}
+	installedAPI := audioLanguageIntersect(&predlMajor, installedFolders)
+	gp.audioLanguages = append([]string{}, installedAPI...)
+
+	appendPkgs := func(info *HypPackageInfo) {
+		gp.UpdatePlan.Files = make([]core.FileTask, 0, len(info.GamePkgs)+len(info.AudioPkgs))
+		for _, pk := range info.GamePkgs {
+			gp.UpdatePlan.Files = append(gp.UpdatePlan.Files, core.FileTask{URL: pk.URL, Hash: pk.MD5, Size: pk.Size, Path: filepath.Base(pk.URL)})
+		}
+		for _, pk := range info.AudioPkgs {
+			if !contains(installedAPI, pk.Language) {
+				continue
+			}
+			gp.UpdatePlan.Files = append(gp.UpdatePlan.Files, core.FileTask{URL: pk.URL, Hash: pk.MD5, Size: pk.Size, Path: filepath.Base(pk.URL)})
+		}
+	}
+
+	for i := range entry.PreDownload.Patches {
+		patch := entry.PreDownload.Patches[i]
+		if patch.Version == currentVer {
+			gp.flavor = flavorPredlPatch
+			appendPkgs(&patch)
+			out, _, perr := runPreflight(gp, tempRoot, gameDir, probe, false)
+			return out, perr
+		}
+	}
+
+	gp.flavor = flavorPredlFull
+	appendPkgs(&predlMajor)
+	out, _, perr := runPreflight(gp, tempRoot, gameDir, probe, false)
+	return out, perr
+}
+
 func slicesEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

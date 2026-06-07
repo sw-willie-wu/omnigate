@@ -12,11 +12,12 @@ import (
 )
 
 type planSnapshot struct {
-	SourceVersion  string           `json:"source_version"`
-	TargetVersion  string           `json:"target_version"`
-	Files          []core.FileTask  `json:"files"`
-	AudioLanguages []string         `json:"audio_languages"`
-	ManifestETag   string           `json:"manifest_etag"`
+	SourceVersion  string          `json:"source_version"`
+	TargetVersion  string          `json:"target_version"`
+	Files          []core.FileTask `json:"files"`
+	AudioLanguages []string        `json:"audio_languages"`
+	ManifestETag   string          `json:"manifest_etag"`
+	Flavor         string          `json:"flavor,omitempty"` // planFlavor.String() of the predl flavor (predl_patch/predl_full); read back on apply to pick the apply path
 }
 
 type predlReadyFile struct {
