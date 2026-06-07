@@ -30,6 +30,7 @@ const BrowseForImage = vi.fn(() => Promise.resolve(''));
 const GetIcon = vi.fn(() => Promise.resolve('icon://x'));
 const GetBackgrounds = vi.fn(() => Promise.resolve([]));
 const GetCustomBackground = vi.fn(() => Promise.resolve(''));
+const DefaultTempRoot = vi.fn(() => Promise.resolve('C:/Temp/omnigate'));
 vi.mock('../../wailsjs/go/app/App', () => ({
   GetSettings: (...a: any[]) => GetSettings(...a),
   UpdateSettings: (...a: any[]) => UpdateSettings(...a),
@@ -39,6 +40,7 @@ vi.mock('../../wailsjs/go/app/App', () => ({
   GetIcon: (...a: any[]) => GetIcon(...a),
   GetBackgrounds: (...a: any[]) => GetBackgrounds(...a),
   GetCustomBackground: (...a: any[]) => GetCustomBackground(...a),
+  DefaultTempRoot: (...a: any[]) => DefaultTempRoot(...a),
 }));
 
 import SettingsPanel from '../components/SettingsPanel.vue';
@@ -63,6 +65,7 @@ describe('SettingsPanel (live settings)', () => {
     SetLanguage.mockReset().mockResolvedValue(undefined);
     BrowseForDirectory.mockReset().mockResolvedValue('');
     BrowseForImage.mockReset().mockResolvedValue('');
+    DefaultTempRoot.mockReset().mockResolvedValue('C:/Temp/omnigate');
   });
 
   it('loads settings on open', async () => {
@@ -71,6 +74,20 @@ describe('SettingsPanel (live settings)', () => {
     expect(GetSettings).toHaveBeenCalled();
     expect(w.find('input[data-test="settings-tempdir"]').exists()).toBe(true);
     expect((w.find('input[data-test="settings-tempdir"]').element as HTMLInputElement).value).toBe('');
+  });
+
+  it('shows the effective temp location: default when empty, custom when set', async () => {
+    DefaultTempRoot.mockResolvedValue('C:/Temp/omnigate');
+    const w = mountOpen();
+    await flushPromises();
+    const eff = w.find('[data-test="settings-tempdir-effective"]');
+    expect(eff.exists()).toBe(true);
+    expect(eff.text()).toContain('C:/Temp/omnigate'); // empty TempDir → resolved default shown
+    const input = w.find('input[data-test="settings-tempdir"]');
+    await input.setValue('D:/MyTemp');
+    await input.trigger('change');
+    await flushPromises();
+    expect(w.find('[data-test="settings-tempdir-effective"]').text()).toContain('D:/MyTemp');
   });
 
   it('renders a language dropdown with three options', async () => {

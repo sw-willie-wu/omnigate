@@ -743,6 +743,13 @@ func (a *App) GetCustomBackground(gameID string) (string, error) {
 	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(b), nil
 }
 
+// DefaultTempRoot returns the effective temp root used when App.TempDir is empty
+// (<os.TempDir>/omnigate). Surfaced to the settings UI so the user can see where
+// downloads / predownloads are actually staged by default. Bound as a Wails RPC.
+func (a *App) DefaultTempRoot() string {
+	return filepath.Join(osTempDir(), "omnigate")
+}
+
 // tempDirFor resolves the per-backend temp root for sidecar/staging files.
 //
 // App.TempDir is the single source of truth. When empty it falls back to

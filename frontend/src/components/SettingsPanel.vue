@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useViewStore } from '../stores/view';
 import { useGamesStore } from '../stores/games';
-import { GetSettings, UpdateSettings, SetLanguage, BrowseForDirectory, BrowseForImage } from '../../wailsjs/go/app/App';
+import { GetSettings, UpdateSettings, SetLanguage, BrowseForDirectory, BrowseForImage, DefaultTempRoot } from '../../wailsjs/go/app/App';
 import { i18n, setLang } from '../i18n';
 
 const { t } = useI18n();
@@ -13,6 +13,10 @@ const games = useGamesStore();
 // Live settings: every control applies + persists immediately (no Save/Cancel).
 const settings = ref<any>(null);
 const error = ref('');
+// Default temp root (<os.TempDir>/omnigate) resolved by the backend so the UI can
+// show the *effective* staging location even when App.TempDir is left empty.
+const defaultTempRoot = ref('');
+const effectiveTempRoot = computed(() => settings.value?.App?.TempDir || defaultTempRoot.value);
 
 watch(
   () => view.settingsOpen,
@@ -23,6 +27,7 @@ watch(
       // focus, which it doesn't on open — so bind on window while open.
       window.addEventListener('keydown', onKeydown);
       settings.value = JSON.parse(JSON.stringify(await GetSettings()));
+      try { defaultTempRoot.value = await DefaultTempRoot(); } catch (e) { console.error('DefaultTempRoot failed', e); }
     } else {
       window.removeEventListener('keydown', onKeydown);
       settings.value = null;
@@ -131,6 +136,7 @@ function onKeydown(e: KeyboardEvent) {
           <button class="settings-browse" @click="browseTempDir">{{ t('settings.browse') }}</button>
           <button class="settings-clear" @click="setTempDir('')">{{ t('settings.clear') }}</button>
         </div>
+        <div class="settings-hint" data-test="settings-tempdir-effective">{{ t('settings.tempdir_effective', { path: effectiveTempRoot }) }}</div>
       </div>
 
       <div class="settings-group">
