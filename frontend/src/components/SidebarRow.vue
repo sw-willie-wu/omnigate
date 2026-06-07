@@ -33,7 +33,7 @@ function onIconError() {
 
 const status = () => {
   if (!props.row.installed) return { key: 'not_installed', label: '—', cls: '' };
-  if (props.row.has_predownload) return { key: 'predownload', label: t('status.predownload') + ' · 0%', cls: 'predownload' };
+  if (snap.value?.available_predl) return { key: 'predownload', label: t('status.predownload') + ' · 0%', cls: 'predownload' };
   if (props.row.latest_version && props.row.current_version && props.row.latest_version !== props.row.current_version)
     return { key: 'update', label: `${t('status.update')} · ${props.row.current_version} → ${props.row.latest_version}`, cls: 'update' };
   return { key: 'ready', label: `${t('status.ready')} · v${props.row.current_version || props.row.latest_version || '?'}`, cls: 'ready' };
