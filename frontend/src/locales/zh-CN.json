@@ -229,5 +229,12 @@
     "overview": "总览",
     "gacha": "抽卡分析",
     "coming_soon": "即将推出"
+  },
+  "account": {
+    "switchHint": "切换账号",
+    "addInGame": "在游戏登录新账号",
+    "switchedToast": "已切到 {name}，启动游戏生效",
+    "gameRunning": "请先关闭游戏再切换",
+    "switchFailed": "账号切换失败"
   }
 }
