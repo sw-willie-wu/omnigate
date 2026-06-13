@@ -37,6 +37,16 @@ describe('AccountChip', () => {
     expect(w.text()).toContain('a@example.com');
   });
 
+  it('shows the user label as primary, above the uid', async () => {
+    list.mockResolvedValue([
+      { id: '537195734', uid: '700727240', label: '主帳', email: 'a@example.com', username: 'U547195734A', active: true },
+      { id: '535788351', uid: '', label: '', email: 'b@example.com', username: 'U545788351A', active: false },
+    ]);
+    const w = mountChip();
+    await flushPromises();
+    expect(w.text()).toContain('主帳');
+  });
+
   it('hides itself when the backend lacks the capability', async () => {
     list.mockRejectedValue(new Error('account switching not supported for this game'));
     const w = mountChip();

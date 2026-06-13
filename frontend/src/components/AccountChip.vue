@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ListGameAccounts, SwitchGameAccount } from '../../wailsjs/go/app/App';
 
-type Account = { id: string; uid: string; email: string; username: string; active: boolean };
+type Account = { id: string; uid: string; label: string; email: string; username: string; active: boolean };
 
 const props = defineProps<{ gameId: string }>();
 const { t } = useI18n();
@@ -16,7 +16,7 @@ const toast = ref('');
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 const active = computed(() => accounts.value.find((a) => a.active));
-function primary(a: Account): string { return a.uid || a.email || a.username; }
+function primary(a: Account): string { return a.label || a.uid || a.email || a.username; }
 
 function showToast(msg: string) {
   toast.value = msg;
@@ -69,7 +69,7 @@ onUnmounted(() => {
 
 <template>
   <div v-if="supported" ref="rootEl" class="account-chip" data-test="account-chip" :title="t('account.switchHint')" @click="open = !open">
-    <span class="avatar">{{ (active?.username || '?').slice(0, 1) }}</span>
+    <span class="avatar">{{ (active?.label || active?.username || '?').slice(0, 1) }}</span>
     <span class="ident">
       <span class="primary">{{ active ? primary(active) : '' }}</span>
       <span class="secondary">{{ active?.email }}</span>
@@ -77,19 +77,23 @@ onUnmounted(() => {
     <span class="chev">▾</span>
 
     <div v-if="open" class="account-menu" @click.stop>
-      <button
+      <div
         v-for="a in accounts"
         :key="a.id"
         class="account-opt"
+        role="button"
+        tabindex="0"
         :data-test="`account-opt-${a.id}`"
         @click="pick(a)"
+        @keydown.enter.prevent="pick(a)"
+        @keydown.space.prevent="pick(a)"
       >
         <span class="tick">{{ a.active ? '✓' : '' }}</span>
         <span class="opt-ident">
           <span class="primary">{{ primary(a) }}</span>
           <span class="secondary">{{ a.email }}</span>
         </span>
-      </button>
+      </div>
       <div class="account-hint">＋ {{ t('account.addInGame') }}</div>
     </div>
 
@@ -116,6 +120,7 @@ onUnmounted(() => {
 .account-opt { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none;
   color: inherit; text-align: left; padding: 8px; border-radius: 6px; cursor: pointer; }
 .account-opt:hover { background: rgba(255,255,255,0.06); }
+.account-opt:focus-visible { outline: 2px solid rgba(255,255,255,0.5); outline-offset: -2px; }
 .tick { width: 12px; }
 .opt-ident { display: flex; flex-direction: column; line-height: 1.15; }
 .opt-ident .primary { font-size: 13px; }
