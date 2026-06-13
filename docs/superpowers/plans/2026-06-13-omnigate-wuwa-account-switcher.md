@@ -281,7 +281,7 @@ git commit -m "feat(wuwa-switcher): parse KRSDK account cache (no token in memor
 - Modify: `internal/providers/kurogames/account.go`
 - Test: `internal/providers/kurogames/account_test.go`
 
-- [ ] **Step 1: Write the failing test** — append to `account_test.go` (imports per the consolidated block)
+- [ ] **Step 1: Write the failing test** — append to `account_test.go` (this step adds `strings` to the Task-2 `testing` — only import what each step uses to keep the red/green build clean)
 
 ```go
 func TestRewriteLastLoginCuid(t *testing.T) {
@@ -364,7 +364,7 @@ git commit -m "feat(wuwa-switcher): token-safe last_login_cuid rewrite"
 - Modify: `internal/providers/kurogames/account.go`
 - Test: `internal/providers/kurogames/account_test.go`
 
-- [ ] **Step 1: Write the failing test** — append to `account_test.go` (imports per the consolidated block)
+- [ ] **Step 1: Write the failing test** — append to `account_test.go` (this step adds `database/sql`, `os`, `path/filepath`, `time`, and blank `_ "modernc.org/sqlite"`)
 
 ```go
 func writeLocalStorageDB(t *testing.T, path, uid string) {
@@ -534,8 +534,8 @@ if a stub already defines it elsewhere, keep just `anyProcessRunning`.)
 - [ ] **Step 3: Write the failing test** — append to `account_test.go`
 
 ```go
-// (account_test.go imports are the consolidated block above; wuwaProcNames is
-// defined in account.go — do NOT redeclare it here.)
+// (account_test.go imports: this step adds `context` and `omnigate/internal/core`.
+// wuwaProcNames is defined in account.go — do NOT redeclare it here.)
 
 func newTestProvider() *Provider { return New(Settings{}, nil) }
 
