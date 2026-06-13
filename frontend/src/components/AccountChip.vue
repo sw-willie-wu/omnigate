@@ -13,15 +13,30 @@ const rootEl = ref<HTMLElement | null>(null);
 const accounts = ref<Account[]>([]);
 const supported = ref(false);
 const open = ref(false);
+const menuEl = ref<HTMLElement | null>(null);
+const menuStyle = ref<Record<string, string>>({});
 const editingId = ref<string | null>(null);
 const draft = ref('');
 
 const active = computed(() => accounts.value.find((a) => a.active));
-// Primary = the account identity: custom label if set, else the KRSDK account
-// name (Uxxx), with email as a last-resort fallback. UID lives in the secondary
-// line; when it isn't known yet it shows a login-pending hint.
-function primary(a: Account): string { return a.label || a.username || a.email; }
+// Primary = the account identity: custom label if set, else the account email,
+// with the KRSDK name (Uxxx) as a last-resort fallback. Long values ellipsize
+// (fixed-width column + title tooltip). UID is the secondary line; a
+// login-pending hint shows when it isn't known yet.
+function primary(a: Account): string { return a.label || a.email || a.username; }
 function secondary(a: Account): string { return a.uid || t('account.uidPending'); }
+
+// Toggle the dropdown. The menu is teleported to <body> to escape the chip's
+// backdrop-filter root (so its own frosted blur actually works); position it as
+// a fixed box aligned to the chip's current rect.
+function openMenu() {
+  open.value = !open.value;
+  if (!open.value) return;
+  const r = rootEl.value?.getBoundingClientRect();
+  if (r) {
+    menuStyle.value = { top: `${r.bottom + 6}px`, left: `${r.left}px`, width: `${r.width}px` };
+  }
+}
 
 async function load() {
   try {
@@ -52,7 +67,7 @@ async function startRename(a: Account) {
   editingId.value = a.id;
   draft.value = a.label;
   await nextTick();
-  const el = rootEl.value?.querySelector(
+  const el = menuEl.value?.querySelector(
     `[data-test="account-rename-input-${a.id}"]`,
   ) as HTMLInputElement | null;
   el?.focus();
@@ -83,9 +98,10 @@ function onWindowFocus() { load(); }
 // Close the dropdown when clicking anywhere outside the chip. Inside clicks are
 // handled by the chip's own toggle / option pick, so this only fires for outside.
 function onDocClick(e: MouseEvent) {
-  if (open.value && rootEl.value && !rootEl.value.contains(e.target as Node)) {
-    open.value = false;
-  }
+  if (!open.value) return;
+  const target = e.target as Node;
+  if (rootEl.value?.contains(target) || menuEl.value?.contains(target)) return;
+  open.value = false;
 }
 onMounted(() => {
   load();
@@ -100,15 +116,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="supported" ref="rootEl" class="account-chip" data-test="account-chip" :title="t('account.switchHint')" @click="open = !open">
+  <div v-if="supported" ref="rootEl" class="account-chip" data-test="account-chip" :title="t('account.switchHint')" @click="openMenu">
     <span class="avatar">{{ (active ? primary(active) : '?').slice(0, 1) }}</span>
     <span class="ident">
       <span class="primary" :title="active ? primary(active) : ''">{{ active ? primary(active) : '' }}</span>
       <span class="secondary">{{ active ? secondary(active) : '' }}</span>
     </span>
     <span class="chev">▾</span>
-
-    <div v-if="open" class="account-menu" @click.stop>
+  </div>
+  <Teleport to="body">
+    <div v-if="open && supported" ref="menuEl" class="account-menu" :style="menuStyle" @click.stop>
       <div
         v-for="a in accounts"
         :key="a.id"
@@ -148,27 +165,25 @@ onUnmounted(() => {
           >✎</button>
         </template>
       </div>
-      <div class="account-hint">＋ {{ t('account.addInGame') }}</div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .account-chip { display: flex; align-items: center; gap: 8px; margin-left: auto; margin-right: 15px; cursor: pointer;
   padding: 9px 10px; border-radius: 999px; position: relative; z-index: 50;
-  background: rgba(255,255,255,0.06); border: 1px solid var(--line-2);
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  background: var(--glass-2); border: 1px solid var(--line-2);
+  backdrop-filter: blur(var(--glass-2-blur)); -webkit-backdrop-filter: blur(var(--glass-2-blur)); }
 .avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
   background: #1f6f4a; color: #d8ffe9; font-size: 12px; }
 .ident { display: flex; flex-direction: column; line-height: 1.1; text-shadow: 0 1px 3px rgba(0,0,0,0.75);
-  width: 12ch; }
+  width: 20ch; }
 .ident .primary { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ident .secondary { font-size: 10px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chev { opacity: 0.7; text-shadow: 0 1px 3px rgba(0,0,0,0.75); }
-.account-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 220px; max-width: 300px; z-index: 20;
-  background: rgba(16,18,26,0.62); backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 4px;
+.account-menu { position: fixed; z-index: 1000;
+  background: var(--glass-3); backdrop-filter: blur(var(--glass-3-blur)); -webkit-backdrop-filter: blur(var(--glass-3-blur));
+  border: 1px solid var(--border-strong); border-radius: 12px; padding: 4px;
   box-shadow: 0 18px 44px -12px rgba(0,0,0,0.75); }
 .account-opt { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none;
   color: inherit; text-align: left; padding: 8px; border-radius: 6px; cursor: pointer; }
@@ -185,5 +200,4 @@ onUnmounted(() => {
 .opt-ident { display: flex; flex-direction: column; line-height: 1.15; flex: 1; min-width: 0; }
 .opt-ident .primary { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .opt-ident .secondary { font-size: 11px; opacity: 0.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-hint { padding: 8px; font-size: 12px; opacity: 0.6; }
 </style>

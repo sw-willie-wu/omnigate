@@ -231,8 +231,8 @@ watch(() => props.gid, (g) => gacha.load(g));
 /* §2.1 cards */
 .gacha-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .panel, .card {
-  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 10px;
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  background: var(--glass-2); border: 1px solid var(--border-strong); border-radius: 10px;
+  backdrop-filter: blur(var(--glass-2-blur)); -webkit-backdrop-filter: blur(var(--glass-2-blur));
 }
 .card { padding: 14px; }
 .card .num { font-weight: 800; font-size: 1.6rem; line-height: 1.1; }

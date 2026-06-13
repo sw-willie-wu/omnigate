@@ -28,20 +28,20 @@ const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {
   } } } });
 
 function mountChip() {
-  return mount(AccountChip, { props: { gameId: 'kurogames/wutheringwaves' }, global: { plugins: [i18n] } });
+  return mount(AccountChip, { props: { gameId: 'kurogames/wutheringwaves' }, global: { plugins: [i18n], stubs: { teleport: true } } });
 }
 
 describe('AccountChip', () => {
   beforeEach(() => { list.mockReset(); switchAcc.mockReset(); setLabel.mockReset(); pushToast.mockReset(); });
 
-  it('renders the account name as primary and the UID as secondary', async () => {
+  it('renders the email as primary and the UID as secondary', async () => {
     list.mockResolvedValue([
       { id: '537195734', uid: '700727240', label: '', email: 'a@example.com', username: 'U547195734A', active: true },
       { id: '535788351', uid: '', label: '', email: 'b@example.com', username: 'U545788351A', active: false },
     ]);
     const w = mountChip();
     await flushPromises();
-    expect(w.find('.ident .primary').text()).toBe('U547195734A');
+    expect(w.find('.ident .primary').text()).toBe('a@example.com');
     expect(w.find('.ident .secondary').text()).toBe('700727240');
   });
 

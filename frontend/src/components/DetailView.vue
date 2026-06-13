@@ -19,7 +19,8 @@ const gid = computed(() => games.selected?.id ?? '');
       <GachaBoard :gid="gid" class="gacha-slot" />
     </template>
     <template v-else>
-      <NewsPanel v-if="gid" :gid="gid" class="news-slot" />
+      <!-- 公告暫時隱藏（要恢復把 v-if 改回 gid） -->
+      <NewsPanel v-if="false" :gid="gid" class="news-slot" />
     </template>
   </div>
 </template>

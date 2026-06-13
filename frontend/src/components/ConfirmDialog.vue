@@ -51,8 +51,9 @@ function onClose() { settle('close'); }
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 1000;
-  background: rgba(15, 15, 25, 0.95);
-  backdrop-filter: blur(12px);
+  background: var(--glass-modal);
+  backdrop-filter: blur(var(--glass-modal-blur));
+  -webkit-backdrop-filter: blur(var(--glass-modal-blur));
   border: 1px solid rgba(214, 176, 75, 0.4);
   border-radius: 12px;
   padding: 24px;

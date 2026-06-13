@@ -13,6 +13,11 @@
     --tx-dim: #4a5060;
     --line-1: rgba(255,255,255,0.06);
     --line-2: rgba(255,255,255,0.10);
+    /* layered glass: elevation → opacity + blur. higher layer = more opaque + more blur */
+    --glass-1: rgba(15,15,25,0.45); --glass-1-blur: 8px;
+    --glass-2: rgba(15,15,25,0.62); --glass-2-blur: 12px;
+    --glass-3: rgba(20,20,30,0.80); --glass-3-blur: 16px;
+    --glass-modal: rgba(15,15,25,0.95); --glass-modal-blur: 16px;
     --warn: #e8b865; --info: #6fa8ff; --crit: #d66666; --ok: #74d68a;
     /* CJK font: switches to Simplified for zh-CN so glyphs render with correct
        forms. Every CJK-bearing font stack references var(--cjk). */
@@ -147,8 +152,9 @@
     min-width: 320px;
     max-width: 420px;
     max-height: 60vh;
-    background: rgba(15, 15, 25, 0.96);
-    backdrop-filter: blur(12px);
+    background: var(--glass-modal);
+    backdrop-filter: blur(var(--glass-modal-blur));
+    -webkit-backdrop-filter: blur(var(--glass-modal-blur));
     border: 1px solid rgba(214, 176, 75, 0.4);
     border-radius: 10px;
     color: var(--text);
@@ -233,9 +239,9 @@
 
   /* ━━━ SIDEBAR (glass) ━━━ */
   .sidebar {
-    background: rgba(8,8,14,0.7);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
+    background: var(--glass-1);
+    backdrop-filter: blur(var(--glass-1-blur));
+    -webkit-backdrop-filter: blur(var(--glass-1-blur));
     overflow-y: auto; min-height: 0;
   }
   .sidebar-header {
@@ -433,8 +439,9 @@
     right: 0;
     z-index: 991;
     width: 480px;
-    background: rgba(15, 15, 25, 0.96);
-    backdrop-filter: blur(12px);
+    background: var(--glass-modal);
+    backdrop-filter: blur(var(--glass-modal-blur));
+    -webkit-backdrop-filter: blur(var(--glass-modal-blur));
     border: 1px solid rgba(214, 176, 75, 0.4);
     border-radius: 10px;
     color: var(--text);

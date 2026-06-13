@@ -60,10 +60,10 @@ function retry(t: Toast) {
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(40px); }
 .toast-move { transition: transform 0.3s ease; }
 .toast {
-  background: rgba(16, 18, 26, 0.62);
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--glass-3);
+  backdrop-filter: blur(var(--glass-3-blur));
+  -webkit-backdrop-filter: blur(var(--glass-3-blur));
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 12px 16px;
   color: var(--text);
