@@ -28,6 +28,7 @@ downloads/
 logs/
 state.toml
 *.log
+*.log.1
 
 # editor / OS
 .vscode/
