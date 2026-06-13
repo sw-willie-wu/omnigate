@@ -34,3 +34,15 @@ func TestErrorCode(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorCode_AccountSwitcherSentinels(t *testing.T) {
+	cases := map[error]string{
+		ErrGameRunning:              "game_running",
+		ErrAccountSwitchUnsupported: "account_switch_unsupported",
+	}
+	for sentinel, want := range cases {
+		if got := ErrorCode(fmt.Errorf("wrap: %w", sentinel)); got != want {
+			t.Errorf("ErrorCode(%v) = %q, want %q", sentinel, got, want)
+		}
+	}
+}
