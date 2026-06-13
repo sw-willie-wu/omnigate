@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ListGameAccounts, SwitchGameAccount } from '../../wailsjs/go/app/App';
+import { ListGameAccounts, SwitchGameAccount, SetAccountLabel } from '../../wailsjs/go/app/App';
 
 type Account = { id: string; uid: string; label: string; email: string; username: string; active: boolean };
 
@@ -13,6 +13,8 @@ const accounts = ref<Account[]>([]);
 const supported = ref(false);
 const open = ref(false);
 const toast = ref('');
+const editingId = ref<string | null>(null);
+const draft = ref('');
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 const active = computed(() => accounts.value.find((a) => a.active));
@@ -34,6 +36,7 @@ async function load() {
 }
 
 async function pick(a: Account) {
+  if (editingId.value === a.id) return; // ignore row activation while editing
   open.value = false;
   if (a.active) return;
   try {
@@ -44,6 +47,39 @@ async function pick(a: Account) {
     const msg = String((e as Error)?.message ?? e);
     showToast(msg.includes('game is running') ? t('account.gameRunning') : t('account.switchFailed'));
   }
+}
+
+// Enter edit mode for one row and focus its input (the input is v-if-inserted,
+// so the native autofocus attribute won't fire — focus after the DOM updates).
+async function startRename(a: Account) {
+  editingId.value = a.id;
+  draft.value = a.label;
+  await nextTick();
+  const el = rootEl.value?.querySelector(
+    `[data-test="account-rename-input-${a.id}"]`,
+  ) as HTMLInputElement | null;
+  el?.focus();
+}
+
+// Commit the label. Commit-once guard: Enter clears editingId synchronously, so
+// the blur that fires when the input is removed re-enters here and no-ops
+// instead of re-committing an emptied draft.
+async function commit(a: Account) {
+  if (editingId.value !== a.id) return;
+  const value = draft.value;
+  editingId.value = null;
+  draft.value = '';
+  try {
+    await SetAccountLabel(props.gameId, a.id, value);
+    await load();
+  } catch {
+    /* label is local + best-effort; nothing actionable to surface */
+  }
+}
+
+function cancel() {
+  editingId.value = null;
+  draft.value = '';
 }
 
 function onWindowFocus() { load(); }
@@ -85,14 +121,36 @@ onUnmounted(() => {
         tabindex="0"
         :data-test="`account-opt-${a.id}`"
         @click="pick(a)"
-        @keydown.enter.prevent="pick(a)"
-        @keydown.space.prevent="pick(a)"
+        @keydown.enter.prevent="editingId !== a.id && pick(a)"
+        @keydown.space.prevent="editingId !== a.id && pick(a)"
       >
         <span class="tick">{{ a.active ? '✓' : '' }}</span>
-        <span class="opt-ident">
-          <span class="primary">{{ primary(a) }}</span>
-          <span class="secondary">{{ a.email }}</span>
-        </span>
+        <input
+          v-if="editingId === a.id"
+          class="rename-input"
+          :data-test="`account-rename-input-${a.id}`"
+          v-model="draft"
+          :maxlength="24"
+          :placeholder="t('account.namePlaceholder')"
+          @click.stop
+          @keydown.stop
+          @keydown.enter.stop.prevent="commit(a)"
+          @keydown.esc.stop.prevent="cancel"
+          @blur="commit(a)"
+        />
+        <template v-else>
+          <span class="opt-ident">
+            <span class="primary">{{ primary(a) }}</span>
+            <span class="secondary">{{ a.email }}</span>
+          </span>
+          <button
+            class="rename-btn"
+            :data-test="`account-rename-${a.id}`"
+            :title="t('account.rename')"
+            :aria-label="t('account.rename')"
+            @click.stop="startRename(a)"
+          >✎</button>
+        </template>
       </div>
       <div class="account-hint">＋ {{ t('account.addInGame') }}</div>
     </div>
@@ -122,6 +180,13 @@ onUnmounted(() => {
 .account-opt:hover { background: rgba(255,255,255,0.06); }
 .account-opt:focus-visible { outline: 2px solid rgba(255,255,255,0.5); outline-offset: -2px; }
 .tick { width: 12px; }
+.rename-btn { margin-left: auto; background: none; border: none; color: inherit;
+  opacity: 0.5; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
+.rename-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+.rename-input { flex: 1; min-width: 0; background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; color: inherit;
+  font-size: 13px; padding: 4px 6px; }
+.rename-input:focus { outline: none; border-color: rgba(255,255,255,0.55); }
 .opt-ident { display: flex; flex-direction: column; line-height: 1.15; }
 .opt-ident .primary { font-size: 13px; }
 .opt-ident .secondary { font-size: 11px; opacity: 0.6; }

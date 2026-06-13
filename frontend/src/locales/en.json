@@ -235,6 +235,8 @@
     "addInGame": "Log in a new account in-game",
     "switchedToast": "Switched to {name}; takes effect on next launch",
     "gameRunning": "Close the game before switching accounts",
-    "switchFailed": "Account switch failed"
+    "switchFailed": "Account switch failed",
+    "rename": "Rename",
+    "namePlaceholder": "Custom name"
   }
 }

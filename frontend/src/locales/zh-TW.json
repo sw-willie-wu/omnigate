@@ -235,6 +235,8 @@
     "addInGame": "在遊戲登入新帳號",
     "switchedToast": "已切到 {name}，啟動遊戲生效",
     "gameRunning": "請先關閉遊戲再切換",
-    "switchFailed": "帳號切換失敗"
+    "switchFailed": "帳號切換失敗",
+    "rename": "重新命名",
+    "namePlaceholder": "自訂名稱"
   }
 }
