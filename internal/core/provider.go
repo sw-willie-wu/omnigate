@@ -201,6 +201,7 @@ type NewsProvider interface {
 type GameAccount struct {
 	ID       string `json:"id"`
 	UID      string `json:"uid"`
+	Label    string `json:"label"` // App-owned user label; providers leave this empty
 	Email    string `json:"email"`
 	Username string `json:"username"`
 	Active   bool   `json:"active"`
