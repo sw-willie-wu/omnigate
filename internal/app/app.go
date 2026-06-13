@@ -39,6 +39,7 @@ type App struct {
 	updateRegistry *UpdateStateRegistry
 	playState      *playState
 	gachaStore     store.GachaStore
+	uidCache       *uidCache
 }
 
 // New returns an App. settingsPath may be "" → default to alongside the binary.
@@ -62,6 +63,7 @@ func New(settingsPath string, logger *slog.Logger) *App {
 		logger:    logger,
 	}
 	a.playState = loadPlayState(playStatePathFor(settingsPath))
+	a.uidCache = loadUIDCache(uidCachePathFor(settingsPath))
 	if gs, gerr := store.OpenSQLite(gachaDBPathFor(settingsPath)); gerr == nil {
 		a.gachaStore = gs
 	} else {
