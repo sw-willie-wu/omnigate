@@ -1,6 +1,7 @@
 package kurogames
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+	"omnigate/internal/core"
 )
 
 const krsdkCacheFixture = `{"account_list":[` +
@@ -119,5 +121,82 @@ func TestActiveUIDTrustable_MtimeGuard(t *testing.T) {
 	os.Chtimes(db, base, base)
 	if activeUIDTrustable(cache, db) {
 		t.Error("cache newer than db must NOT be trustable")
+	}
+}
+
+func wuwaGID() core.GameID { return core.GameID("kurogames/wutheringwaves") }
+
+func newTestProvider() *Provider { return New(Settings{}, nil) }
+
+func TestListAccounts_FromFixtures(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "KRSDKUserCache.json")
+	os.WriteFile(cache, []byte(krsdkCacheFixture), 0o644)
+	install := t.TempDir()
+	dbDir := filepath.Join(install, "Client", "Saved", "LocalStorage")
+	os.MkdirAll(dbDir, 0o755)
+	db := filepath.Join(dbDir, "LocalStorage.db")
+	writeLocalStorageDB(t, db, "700001181")
+	base := time.Now()
+	os.Chtimes(cache, base, base)
+	os.Chtimes(db, base.Add(time.Minute), base.Add(time.Minute))
+
+	p := newTestProvider()
+	p.krsdkCachePathFn = func() (string, error) { return cache, nil }
+	p.SetResolvedPaths(map[core.GameID]string{wuwaGID(): install})
+
+	got, err := p.ListAccounts(context.Background(), wuwaGID())
+	if err != nil {
+		t.Fatalf("ListAccounts: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 accounts, got %d", len(got))
+	}
+	var active core.GameAccount
+	for _, a := range got {
+		if a.Active {
+			active = a
+		}
+	}
+	if active.ID != "535788351" || active.UID != "700001181" {
+		t.Errorf("active = %+v, want ID 535788351 UID 700001181", active)
+	}
+}
+
+func TestSwitchAccount_GameRunningBlocks(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "KRSDKUserCache.json")
+	os.WriteFile(cache, []byte(krsdkCacheFixture), 0o644)
+	p := newTestProvider()
+	p.krsdkCachePathFn = func() (string, error) { return cache, nil }
+	p.procRunningFn = func([]string) bool { return true }
+
+	err := p.SwitchAccount(context.Background(), wuwaGID(), "537195734")
+	if err == nil || err != core.ErrGameRunning {
+		t.Fatalf("want ErrGameRunning, got %v", err)
+	}
+	b, _ := os.ReadFile(cache)
+	if !strings.Contains(string(b), `"last_login_cuid":"535788351"`) {
+		t.Errorf("cache was modified despite running game")
+	}
+}
+
+func TestSwitchAccount_FlipsAndBacksUp(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "KRSDKUserCache.json")
+	os.WriteFile(cache, []byte(krsdkCacheFixture), 0o644)
+	p := newTestProvider()
+	p.krsdkCachePathFn = func() (string, error) { return cache, nil }
+	p.procRunningFn = func([]string) bool { return false }
+
+	if err := p.SwitchAccount(context.Background(), wuwaGID(), "537195734"); err != nil {
+		t.Fatalf("SwitchAccount: %v", err)
+	}
+	b, _ := os.ReadFile(cache)
+	if !strings.Contains(string(b), `"last_login_cuid":"537195734"`) {
+		t.Errorf("not flipped: %s", b)
+	}
+	if _, err := os.Stat(cache + ".omnigate-bak"); err != nil {
+		t.Errorf("backup not created: %v", err)
 	}
 }
