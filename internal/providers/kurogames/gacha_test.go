@@ -32,6 +32,36 @@ func TestExtractConveneParams_LatestWins(t *testing.T) {
 	}
 }
 
+// Recent WuWa builds XOR-obfuscate Client.log (low-nibble-odd byte ^ 0xA5, else
+// ^ 0xEF). The plaintext regex finds nothing; extract must decrypt and retry.
+func TestExtractConveneParams_EncryptedClientLog(t *testing.T) {
+	dir := t.TempDir()
+	logs := filepath.Join(dir, "Client", "Saved", "Logs")
+	os.MkdirAll(logs, 0o755)
+	u := "https://aki-gm-resources-oversea.aki-game.net/aki/gacha/index.html#/record?svr_id=9&player_id=ENC&lang=zh-Hant&gacha_id=1&gacha_type=1&svr_area=global&record_id=RX&resources_id=RSX&platform=PC"
+	plain := []byte("LogTemp: opening convene record\n" + u + "\ntrailing line\n")
+	enc := make([]byte, len(plain))
+	for i, c := range plain {
+		// inverse of the decrypt rule: even plaintext byte -> ^0xA5 (cipher
+		// becomes low-nibble-odd), odd plaintext byte -> ^0xEF.
+		if c%2 == 0 {
+			enc[i] = c ^ 0xA5
+		} else {
+			enc[i] = c ^ 0xEF
+		}
+	}
+	os.WriteFile(filepath.Join(logs, "Client.log"), enc, 0o644)
+
+	p := New(Settings{}, nil)
+	f, err := p.extractConveneParams(dir)
+	if err != nil {
+		t.Fatalf("extract from encrypted log: %v", err)
+	}
+	if f.Get("player_id") != "ENC" || f.Get("record_id") != "RX" {
+		t.Fatalf("did not decode encrypted convene url: %v", f)
+	}
+}
+
 func TestExtractConveneParams_DebugLogUrlForm(t *testing.T) {
 	dir := t.TempDir()
 	dbg := filepath.Join(dir, "Client", "Binaries", "Win64", "ThirdParty", "KrPcSdk_Global", "KRSDKRes", "KRSDKWebView")

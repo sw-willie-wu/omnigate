@@ -38,7 +38,12 @@ func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 		if err != nil {
 			continue
 		}
-		if m := conveneURLRe.FindAll(b, -1); len(m) > 0 {
+		m := conveneURLRe.FindAll(b, -1)
+		if len(m) == 0 {
+			// recent builds XOR-obfuscate Client.log; decrypt and retry.
+			m = conveneURLRe.FindAll(xorDecryptClientLog(b), -1)
+		}
+		if len(m) > 0 {
 			last = string(m[len(m)-1]) // most recent in this file
 		}
 	}
@@ -55,6 +60,23 @@ func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 		return nil, core.ErrGachaURLUnavailable
 	}
 	return q, nil
+}
+
+// xorDecryptClientLog de-obfuscates a WuWa Client.log. Recent builds XOR each
+// byte: low-nibble-odd bytes with 0xA5, the rest with 0xEF. Plaintext logs
+// (older builds, debug.log) are matched on the raw bytes first; this is only
+// applied as a fallback when the raw regex finds nothing. The op is symmetric,
+// so decrypting already-plaintext bytes just yields garbage that won't match.
+func xorDecryptClientLog(b []byte) []byte {
+	out := make([]byte, len(b))
+	for i, c := range b {
+		if (c&0x0F)%2 == 1 {
+			out[i] = c ^ 0xA5
+		} else {
+			out[i] = c ^ 0xEF
+		}
+	}
+	return out
 }
 
 // wuwaPity: every pull counts, reset on a headline; WuWa has no 50/50.
