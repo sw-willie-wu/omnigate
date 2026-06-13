@@ -120,6 +120,48 @@ git commit -m "feat(wuwa-switcher): core AccountSwitcher capability + sentinel e
 
 ---
 
+## Imports note (Tasks 2–5 build two files incrementally)
+
+Each task below shows `import (...)` snippets, but `account.go` and
+`account_test.go` each keep **one** import block that grows across tasks. Treat
+every snippet's imports as "ensure these are present" (merge, never duplicate).
+The complete final import sets are:
+
+**`account.go`:**
+```go
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"time"
+
+	_ "modernc.org/sqlite"
+	"omnigate/internal/core"
+)
+```
+
+**`account_test.go`:**
+```go
+import (
+	"context"
+	"database/sql"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	_ "modernc.org/sqlite"
+	"omnigate/internal/core"
+)
+```
+
+---
+
 ## Task 2: kurogames — parse KRSDK account cache (pure)
 
 **Files:**
@@ -239,15 +281,9 @@ git commit -m "feat(wuwa-switcher): parse KRSDK account cache (no token in memor
 - Modify: `internal/providers/kurogames/account.go`
 - Test: `internal/providers/kurogames/account_test.go`
 
-- [ ] **Step 1: Write the failing test** — append to `account_test.go`
+- [ ] **Step 1: Write the failing test** — append to `account_test.go` (imports per the consolidated block)
 
 ```go
-import (
-	"regexp"
-	"strings"
-	"testing"
-)
-
 func TestRewriteLastLoginCuid(t *testing.T) {
 	out, err := rewriteLastLoginCuid([]byte(krsdkCacheFixture), "537195734")
 	if err != nil {
@@ -278,8 +314,6 @@ func TestRewriteLastLoginCuid_FieldMissing(t *testing.T) {
 		t.Fatal("expected error when last_login_cuid is absent")
 	}
 }
-
-var _ = regexp.MustCompile
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -330,18 +364,9 @@ git commit -m "feat(wuwa-switcher): token-safe last_login_cuid rewrite"
 - Modify: `internal/providers/kurogames/account.go`
 - Test: `internal/providers/kurogames/account_test.go`
 
-- [ ] **Step 1: Write the failing test** — append to `account_test.go`
+- [ ] **Step 1: Write the failing test** — append to `account_test.go` (imports per the consolidated block)
 
 ```go
-import (
-	"database/sql"
-	"os"
-	"path/filepath"
-	"time"
-
-	_ "modernc.org/sqlite"
-)
-
 func writeLocalStorageDB(t *testing.T, path, uid string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
@@ -398,16 +423,9 @@ func TestActiveUIDTrustable_MtimeGuard(t *testing.T) {
 Run: `go test ./internal/providers/kurogames/ -run 'TestReadRecentlyLoginUID|TestActiveUIDTrustable'`
 Expected: FAIL — `undefined: readRecentlyLoginUID` / `activeUIDTrustable`.
 
-- [ ] **Step 3: Implement** — append to `account.go`
+- [ ] **Step 3: Implement** — append to `account.go` (imports per the consolidated `account.go` block)
 
 ```go
-import (
-	"database/sql"
-	"os"
-
-	_ "modernc.org/sqlite"
-)
-
 // readRecentlyLoginUID returns the active in-game UID from a WuWa LocalStorage.db
 // (read-only). "" with nil error when the key is absent.
 func readRecentlyLoginUID(dbPath string) (string, error) {
@@ -437,9 +455,8 @@ func activeUIDTrustable(cachePath, dbPath string) bool {
 }
 ```
 
-Merge the new `import` block into the file's existing single import block (don't
-add a second `import (...)`); `os` and `database/sql` + the blank
-`modernc.org/sqlite` import are the additions.
+(`database/sql`, `os`, and the blank `modernc.org/sqlite` are now present via the
+consolidated `account.go` import block.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -517,9 +534,8 @@ if a stub already defines it elsewhere, keep just `anyProcessRunning`.)
 - [ ] **Step 3: Write the failing test** — append to `account_test.go`
 
 ```go
-import "context"
-
-var wuwaProcNames = []string{"Wuthering Waves.exe", "Client-Win64-Shipping.exe", "KRSDKExternal.exe"}
+// (account_test.go imports are the consolidated block above; wuwaProcNames is
+// defined in account.go — do NOT redeclare it here.)
 
 func newTestProvider() *Provider { return New(Settings{}, nil) }
 
@@ -608,11 +624,9 @@ func TestSwitchAccount_FlipsAndBacksUp(t *testing.T) {
 Run: `go test ./internal/providers/kurogames/ -run 'TestListAccounts_FromFixtures|TestSwitchAccount'`
 Expected: FAIL — `undefined: ListAccounts` / `SwitchAccount` / `wuwaGID` / `defaultKRSDKCachePath` / `defaultLocalStorageDBPath`.
 
-- [ ] **Step 5: Implement** — append to `account.go`
+- [ ] **Step 5: Implement** — append to `account.go` (imports per the consolidated `account.go` block — `context`, `path/filepath`, `time` are all in it)
 
 ```go
-import "path/filepath"
-
 // wuwaProcNames are the WuWa processes whose presence blocks a switch.
 var wuwaProcNames = []string{"Wuthering Waves.exe", "Client-Win64-Shipping.exe", "KRSDKExternal.exe"}
 
@@ -713,8 +727,7 @@ func (p *Provider) SwitchAccount(ctx context.Context, gid core.GameID, accountID
 }
 ```
 
-Merge `"path/filepath"` into the existing import block. Then add the test helper
-to `account_test.go`:
+Then add the test helper to `account_test.go`:
 
 ```go
 func wuwaGID() core.GameID { return core.GameID("kurogames/wutheringwaves") }
@@ -940,6 +953,14 @@ In `New`, after the `a.playState = loadPlayState(...)` line:
 	a.uidCache = loadUIDCache(uidCachePathFor(settingsPath))
 ```
 
+> **Intentionally NOT extended:** `App.ErrorCode`/`App.ErrorMessage` are left as-is.
+> Nothing in `frontend/src` consumes them (verified: no callers), and the chip
+> owns its own error detection (matching the Go error text "game is running") and
+> its own localized toast. Adding the two sentinels to the `App.ErrorCode` loop
+> would be dead code, so per spec §5's reality-check we skip it. (The core-level
+> `core.ErrorCode` cases from Task 1 stay, for consistency with the other
+> sentinels.)
+
 - [ ] **Step 5: Run tests + build**
 
 Run: `go test ./internal/app/ -run 'TestUIDCache_RecordBackfill|TestListGameAccounts_Unsupported'`
@@ -993,7 +1014,12 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
 import AccountChip from '../AccountChip.vue';
 
 const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {
-  account: { switchHint: 'Switch account', addInGame: 'Log in a new account in-game' } } } });
+  account: {
+    switchHint: 'Switch account', addInGame: 'Log in a new account in-game',
+    switchedToast: 'Switched to {name}; takes effect on next launch',
+    gameRunning: 'Close the game before switching accounts',
+    switchFailed: 'Account switch failed',
+  } } } });
 
 function mountChip() {
   return mount(AccountChip, { props: { gameId: 'kurogames/wutheringwaves' }, global: { plugins: [i18n] } });
@@ -1031,6 +1057,22 @@ describe('AccountChip', () => {
     await w.find('[data-test="account-chip"]').trigger('click'); // open dropdown
     await w.find('[data-test="account-opt-535788351"]').trigger('click');
     expect(switchAcc).toHaveBeenCalledWith('kurogames/wutheringwaves', '535788351');
+    await flushPromises();
+    expect(w.find('[data-test="account-toast"]').text()).toContain('Switched to');
+  });
+
+  it('shows the game-running toast when the switch is blocked', async () => {
+    list.mockResolvedValue([
+      { id: '537195734', uid: '700727240', email: 'a@example.com', username: 'U547195734A', active: true },
+      { id: '535788351', uid: '', email: 'b@example.com', username: 'U545788351A', active: false },
+    ]);
+    switchAcc.mockRejectedValue(new Error('game is running'));
+    const w = mountChip();
+    await flushPromises();
+    await w.find('[data-test="account-chip"]').trigger('click');
+    await w.find('[data-test="account-opt-535788351"]').trigger('click');
+    await flushPromises();
+    expect(w.find('[data-test="account-toast"]').text()).toContain('Close the game');
   });
 });
 ```
@@ -1056,9 +1098,17 @@ const { t } = useI18n();
 const accounts = ref<Account[]>([]);
 const supported = ref(false);
 const open = ref(false);
+const toast = ref('');
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 const active = computed(() => accounts.value.find((a) => a.active));
 function primary(a: Account): string { return a.uid || a.email || a.username; }
+
+function showToast(msg: string) {
+  toast.value = msg;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toast.value = ''; }, 4000);
+}
 
 async function load() {
   try {
@@ -1075,10 +1125,12 @@ async function pick(a: Account) {
   try {
     await SwitchGameAccount(props.gameId, a.id);
     await load();
-    // toast is owned here (no global error→toast pipeline exists); see locale keys
-    // emit or call the project toast composable if/when one is wired.
+    // chip owns its own localized toast (no global error→toast pipeline exists)
+    showToast(t('account.switchedToast', { name: primary(a) }));
   } catch (e) {
-    console.warn('switch failed', e);
+    // core.ErrGameRunning surfaces as the Go error text "game is running"
+    const msg = String((e as Error)?.message ?? e);
+    showToast(msg.includes('game is running') ? t('account.gameRunning') : t('account.switchFailed'));
   }
 }
 
@@ -1111,6 +1163,8 @@ watch(() => props.gameId, load);
       </button>
       <div class="account-hint">＋ {{ t('account.addInGame') }}</div>
     </div>
+
+    <div v-if="toast" class="account-toast" data-test="account-toast" @click.stop>{{ toast }}</div>
   </div>
 </template>
 
@@ -1133,6 +1187,9 @@ watch(() => props.gameId, load);
 .opt-ident .primary { font-size: 13px; }
 .opt-ident .secondary { font-size: 11px; opacity: 0.6; }
 .account-hint { padding: 8px; font-size: 12px; opacity: 0.6; }
+.account-toast { position: absolute; top: calc(100% + 6px); right: 0; max-width: 280px; z-index: 21;
+  background: #14161c; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+  padding: 8px 12px; font-size: 12px; }
 </style>
 ```
 
@@ -1159,8 +1216,10 @@ In the template, inside `<div class="nav-strip">`, after the gacha `<button>`:
     <AccountChip v-if="games.selectedID" :key="games.selectedID" :game-id="games.selectedID" />
 ```
 
-Add `display:flex; align-items:center;` to `.nav-strip` in its `<style>` if not
-already a flex row (the chip's `margin-left:auto` needs a flex parent).
+No style change needed for the strip: `.nav-strip` lives in
+`frontend/src/styles/theme.css` (not a `<style>` block in `NavStrip.vue`) and is
+already `display:flex; align-items:center`, so the chip's `margin-left:auto`
+pushes it to the right as-is. (Verify this is still true before relying on it.)
 
 Add to each locale file (`en.json` shown; translate for zh-TW / zh-CN) under a
 new `"account"` key:
@@ -1170,12 +1229,13 @@ new `"account"` key:
   "switchHint": "Switch account",
   "addInGame": "Log in a new account in-game",
   "switchedToast": "Switched to {name}; takes effect on next launch",
-  "gameRunning": "Close the game before switching accounts"
+  "gameRunning": "Close the game before switching accounts",
+  "switchFailed": "Account switch failed"
 }
 ```
 
-zh-TW: `"切換帳號"`, `"在遊戲登入新帳號"`, `"已切到 {name}，啟動遊戲生效"`, `"請先關閉遊戲再切換"`.
-zh-CN: `"切换账号"`, `"在游戏登录新账号"`, `"已切到 {name}，启动游戏生效"`, `"请先关闭游戏再切换"`.
+zh-TW: `"切換帳號"`, `"在遊戲登入新帳號"`, `"已切到 {name}，啟動遊戲生效"`, `"請先關閉遊戲再切換"`, `"帳號切換失敗"`.
+zh-CN: `"切换账号"`, `"在游戏登录新账号"`, `"已切到 {name}，启动游戏生效"`, `"请先关闭游戏再切换"`, `"账号切换失败"`.
 
 - [ ] **Step 6: Run tests to verify they pass**
 
