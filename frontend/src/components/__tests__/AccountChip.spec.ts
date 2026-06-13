@@ -11,6 +11,11 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
   SetAccountLabel: (...a: unknown[]) => setLabel(...a),
 }));
 
+const pushToast = vi.fn();
+vi.mock('../../composables/useToast', () => ({
+  pushToast: (...a: unknown[]) => pushToast(...a),
+}));
+
 import AccountChip from '../AccountChip.vue';
 
 const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {
@@ -19,7 +24,7 @@ const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {
     switchedToast: 'Switched to {name}; takes effect on next launch',
     gameRunning: 'Close the game before switching accounts',
     switchFailed: 'Account switch failed',
-    rename: 'Rename', namePlaceholder: 'Custom name',
+    rename: 'Rename', namePlaceholder: 'Custom name', uidPending: 'Available after login',
   } } } });
 
 function mountChip() {
@@ -27,27 +32,36 @@ function mountChip() {
 }
 
 describe('AccountChip', () => {
-  beforeEach(() => { list.mockReset(); switchAcc.mockReset(); setLabel.mockReset(); });
+  beforeEach(() => { list.mockReset(); switchAcc.mockReset(); setLabel.mockReset(); pushToast.mockReset(); });
 
-  it('renders UID primary + email secondary for the active account', async () => {
+  it('renders the account name as primary and the UID as secondary', async () => {
     list.mockResolvedValue([
-      { id: '537195734', uid: '700727240', email: 'a@example.com', username: 'U547195734A', active: true },
-      { id: '535788351', uid: '', email: 'b@example.com', username: 'U545788351A', active: false },
+      { id: '537195734', uid: '700727240', label: '', email: 'a@example.com', username: 'U547195734A', active: true },
+      { id: '535788351', uid: '', label: '', email: 'b@example.com', username: 'U545788351A', active: false },
     ]);
     const w = mountChip();
     await flushPromises();
-    expect(w.text()).toContain('700727240');
-    expect(w.text()).toContain('a@example.com');
+    expect(w.find('.ident .primary').text()).toBe('U547195734A');
+    expect(w.find('.ident .secondary').text()).toBe('700727240');
   });
 
-  it('shows the user label as primary, above the uid', async () => {
+  it('shows the user label as primary, above the account name', async () => {
     list.mockResolvedValue([
       { id: '537195734', uid: '700727240', label: '主帳', email: 'a@example.com', username: 'U547195734A', active: true },
       { id: '535788351', uid: '', label: '', email: 'b@example.com', username: 'U545788351A', active: false },
     ]);
     const w = mountChip();
     await flushPromises();
-    expect(w.text()).toContain('主帳');
+    expect(w.find('.ident .primary').text()).toBe('主帳');
+  });
+
+  it('shows the login-pending hint as secondary when the UID is unknown', async () => {
+    list.mockResolvedValue([
+      { id: '537195734', uid: '', label: '', email: 'a@example.com', username: 'U547195734A', active: true },
+    ]);
+    const w = mountChip();
+    await flushPromises();
+    expect(w.find('.ident .secondary').text()).toContain('Available after login');
   });
 
   it('hides itself when the backend lacks the capability', async () => {
@@ -69,7 +83,7 @@ describe('AccountChip', () => {
     await w.find('[data-test="account-opt-535788351"]').trigger('click');
     expect(switchAcc).toHaveBeenCalledWith('kurogames/wutheringwaves', '535788351');
     await flushPromises();
-    expect(w.find('[data-test="account-toast"]').text()).toContain('Switched to');
+    expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('Switched to'));
   });
 
   it('shows the game-running toast when the switch is blocked', async () => {
@@ -83,7 +97,7 @@ describe('AccountChip', () => {
     await w.find('[data-test="account-chip"]').trigger('click');
     await w.find('[data-test="account-opt-535788351"]').trigger('click');
     await flushPromises();
-    expect(w.find('[data-test="account-toast"]').text()).toContain('Close the game');
+    expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('Close the game'));
   });
 
   // Test 7: inline rename — clicking ✎ reveals an input; typing + Enter saves.

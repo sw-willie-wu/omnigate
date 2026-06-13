@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ListGameAccounts, SwitchGameAccount, SetAccountLabel } from '../../wailsjs/go/app/App';
+import { pushToast } from '../composables/useToast';
 
 type Account = { id: string; uid: string; label: string; email: string; username: string; active: boolean };
 
@@ -12,19 +13,15 @@ const rootEl = ref<HTMLElement | null>(null);
 const accounts = ref<Account[]>([]);
 const supported = ref(false);
 const open = ref(false);
-const toast = ref('');
 const editingId = ref<string | null>(null);
 const draft = ref('');
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 const active = computed(() => accounts.value.find((a) => a.active));
-function primary(a: Account): string { return a.label || a.uid || a.email || a.username; }
-
-function showToast(msg: string) {
-  toast.value = msg;
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { toast.value = ''; }, 4000);
-}
+// Primary = the account identity: custom label if set, else the KRSDK account
+// name (Uxxx), with email as a last-resort fallback. UID lives in the secondary
+// line; when it isn't known yet it shows a login-pending hint.
+function primary(a: Account): string { return a.label || a.username || a.email; }
+function secondary(a: Account): string { return a.uid || t('account.uidPending'); }
 
 async function load() {
   try {
@@ -42,10 +39,10 @@ async function pick(a: Account) {
   try {
     await SwitchGameAccount(props.gameId, a.id);
     await load();
-    showToast(t('account.switchedToast', { name: primary(a) }));
+    pushToast(t('account.switchedToast', { name: primary(a) }));
   } catch (e) {
     const msg = String((e as Error)?.message ?? e);
-    showToast(msg.includes('game is running') ? t('account.gameRunning') : t('account.switchFailed'));
+    pushToast(msg.includes('game is running') ? t('account.gameRunning') : t('account.switchFailed'));
   }
 }
 
@@ -97,7 +94,6 @@ onMounted(() => {
 });
 watch(() => props.gameId, load);
 onUnmounted(() => {
-  if (toastTimer) clearTimeout(toastTimer);
   window.removeEventListener('focus', onWindowFocus);
   document.removeEventListener('click', onDocClick);
 });
@@ -105,10 +101,10 @@ onUnmounted(() => {
 
 <template>
   <div v-if="supported" ref="rootEl" class="account-chip" data-test="account-chip" :title="t('account.switchHint')" @click="open = !open">
-    <span class="avatar">{{ (active?.label || active?.username || '?').slice(0, 1) }}</span>
+    <span class="avatar">{{ (active ? primary(active) : '?').slice(0, 1) }}</span>
     <span class="ident">
-      <span class="primary">{{ active ? primary(active) : '' }}</span>
-      <span class="secondary">{{ active?.email }}</span>
+      <span class="primary" :title="active ? primary(active) : ''">{{ active ? primary(active) : '' }}</span>
+      <span class="secondary">{{ active ? secondary(active) : '' }}</span>
     </span>
     <span class="chev">▾</span>
 
@@ -141,7 +137,7 @@ onUnmounted(() => {
         <template v-else>
           <span class="opt-ident">
             <span class="primary">{{ primary(a) }}</span>
-            <span class="secondary">{{ a.email }}</span>
+            <span class="secondary">{{ secondary(a) }}</span>
           </span>
           <button
             class="rename-btn"
@@ -154,8 +150,6 @@ onUnmounted(() => {
       </div>
       <div class="account-hint">＋ {{ t('account.addInGame') }}</div>
     </div>
-
-    <div v-if="toast" class="account-toast" data-test="account-toast" @click.stop>{{ toast }}</div>
   </div>
 </template>
 
@@ -166,11 +160,12 @@ onUnmounted(() => {
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
   background: #1f6f4a; color: #d8ffe9; font-size: 12px; }
-.ident { display: flex; flex-direction: column; line-height: 1.1; text-shadow: 0 1px 3px rgba(0,0,0,0.75); }
-.ident .primary { font-size: 13px; }
-.ident .secondary { font-size: 10px; opacity: 0.7; }
+.ident { display: flex; flex-direction: column; line-height: 1.1; text-shadow: 0 1px 3px rgba(0,0,0,0.75);
+  width: 12ch; }
+.ident .primary { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ident .secondary { font-size: 10px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chev { opacity: 0.7; text-shadow: 0 1px 3px rgba(0,0,0,0.75); }
-.account-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 220px; z-index: 20;
+.account-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 220px; max-width: 300px; z-index: 20;
   background: rgba(16,18,26,0.62); backdrop-filter: blur(18px) saturate(1.4);
   -webkit-backdrop-filter: blur(18px) saturate(1.4);
   border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 4px;
@@ -187,13 +182,8 @@ onUnmounted(() => {
   border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; color: inherit;
   font-size: 13px; padding: 4px 6px; }
 .rename-input:focus { outline: none; border-color: rgba(255,255,255,0.55); }
-.opt-ident { display: flex; flex-direction: column; line-height: 1.15; }
-.opt-ident .primary { font-size: 13px; }
-.opt-ident .secondary { font-size: 11px; opacity: 0.6; }
+.opt-ident { display: flex; flex-direction: column; line-height: 1.15; flex: 1; min-width: 0; }
+.opt-ident .primary { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opt-ident .secondary { font-size: 11px; opacity: 0.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-hint { padding: 8px; font-size: 12px; opacity: 0.6; }
-.account-toast { position: absolute; top: calc(100% + 6px); right: 0; max-width: 280px; z-index: 21;
-  background: rgba(16,18,26,0.62); backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  border: 1px solid rgba(255,255,255,0.16); border-radius: 8px;
-  box-shadow: 0 12px 32px -10px rgba(0,0,0,0.7); padding: 8px 12px; font-size: 12px; }
 </style>

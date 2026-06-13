@@ -237,6 +237,7 @@
     "gameRunning": "請先關閉遊戲再切換",
     "switchFailed": "帳號切換失敗",
     "rename": "重新命名",
-    "namePlaceholder": "自訂名稱"
+    "namePlaceholder": "自訂名稱",
+    "uidPending": "登入後取得"
   }
 }
