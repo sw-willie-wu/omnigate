@@ -51,6 +51,17 @@ func TestListGameAccounts_Unsupported(t *testing.T) {
 	}
 }
 
+// Test 5: SetAccountLabel is capability-gated like SwitchGameAccount.
+func TestSetAccountLabel_Unsupported(t *testing.T) {
+	a := &App{}
+	if err := a.registerProvider(noSwitchProvider{}); err != nil {
+		t.Fatalf("registerProvider: %v", err)
+	}
+	if err := a.SetAccountLabel("fake/g", "id", "x"); err != core.ErrAccountSwitchUnsupported {
+		t.Fatalf("want ErrAccountSwitchUnsupported, got %v", err)
+	}
+}
+
 // Test 1: legacy {cuid:"uid"} string-form caches must still load and backfill.
 func TestUIDCache_LoadsLegacyStringFormat(t *testing.T) {
 	dir := t.TempDir()

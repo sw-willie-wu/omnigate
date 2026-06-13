@@ -176,3 +176,21 @@ func (a *App) SwitchGameAccount(gameID, accountID string) error {
 	}
 	return sw.SwitchAccount(ctx, gid, accountID)
 }
+
+// SetAccountLabel sets the user-defined display label for one account (cuid).
+// Capability-gated like SwitchGameAccount so it rejects games that can't switch.
+// The label lives in the App-owned uid cache; no provider call, no credentials.
+func (a *App) SetAccountLabel(gameID, accountID, label string) error {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return err
+	}
+	if _, ok := p.(core.AccountSwitcher); !ok {
+		return core.ErrAccountSwitchUnsupported
+	}
+	if a.uidCache != nil {
+		a.uidCache.SetLabel(accountID, label)
+	}
+	return nil
+}
