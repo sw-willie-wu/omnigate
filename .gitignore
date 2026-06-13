@@ -28,6 +28,7 @@ downloads/
 logs/
 state.toml
 *.log
+wuwa_uid_cache.json
 
 # editor / OS
 .vscode/
