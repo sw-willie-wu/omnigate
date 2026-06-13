@@ -1,10 +1,13 @@
 package kurogames
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 
+	_ "modernc.org/sqlite"
 	"omnigate/internal/core"
 )
 
@@ -36,6 +39,34 @@ func rewriteLastLoginCuid(data []byte, cuid string) ([]byte, error) {
 		return nil, fmt.Errorf("last_login_cuid not found in KRSDK cache")
 	}
 	return lastLoginRe.ReplaceAll(data, []byte("${1}"+cuid+"${2}")), nil
+}
+
+// readRecentlyLoginUID returns the active in-game UID from a WuWa LocalStorage.db
+// (read-only). "" with nil error when the key is absent.
+func readRecentlyLoginUID(dbPath string) (string, error) {
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	var uid string
+	err = db.QueryRow(`SELECT value FROM LocalStorage WHERE key='RecentlyLoginUID'`).Scan(&uid)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return uid, err
+}
+
+// activeUIDTrustable reports whether LocalStorage.db's RecentlyLoginUID provably
+// belongs to the current last_login_cuid: true only when the game wrote the DB
+// AFTER the last login-pointer change (db mtime newer than cache mtime).
+func activeUIDTrustable(cachePath, dbPath string) bool {
+	cs, err1 := os.Stat(cachePath)
+	ds, err2 := os.Stat(dbPath)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return ds.ModTime().After(cs.ModTime())
 }
 
 // parseKRSDKAccounts maps the KRSDK cache JSON to []core.GameAccount. The active

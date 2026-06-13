@@ -1,8 +1,14 @@
 package kurogames
 
 import (
+	"database/sql"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 const krsdkCacheFixture = `{"account_list":[` +
@@ -65,5 +71,53 @@ func TestRewriteLastLoginCuid_RejectsNonDigit(t *testing.T) {
 func TestRewriteLastLoginCuid_FieldMissing(t *testing.T) {
 	if _, err := rewriteLastLoginCuid([]byte(`{"account_list":[]}`), "1"); err == nil {
 		t.Fatal("expected error when last_login_cuid is absent")
+	}
+}
+
+func writeLocalStorageDB(t *testing.T, path, uid string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE LocalStorage(key TEXT, value TEXT)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO LocalStorage(key,value) VALUES('RecentlyLoginUID',?)`, uid); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+}
+
+func TestReadRecentlyLoginUID(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "LocalStorage.db")
+	writeLocalStorageDB(t, db, "700001181")
+	got, err := readRecentlyLoginUID(db)
+	if err != nil {
+		t.Fatalf("readRecentlyLoginUID: %v", err)
+	}
+	if got != "700001181" {
+		t.Errorf("got %q, want 700001181", got)
+	}
+}
+
+func TestActiveUIDTrustable_MtimeGuard(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "KRSDKUserCache.json")
+	db := filepath.Join(dir, "LocalStorage.db")
+	os.WriteFile(cache, []byte("{}"), 0o644)
+	os.WriteFile(db, []byte("x"), 0o644)
+
+	base := time.Now()
+	os.Chtimes(cache, base, base)
+	os.Chtimes(db, base.Add(time.Minute), base.Add(time.Minute))
+	if !activeUIDTrustable(cache, db) {
+		t.Error("db newer than cache should be trustable")
+	}
+	os.Chtimes(cache, base.Add(time.Minute), base.Add(time.Minute))
+	os.Chtimes(db, base, base)
+	if activeUIDTrustable(cache, db) {
+		t.Error("cache newer than db must NOT be trustable")
 	}
 }
