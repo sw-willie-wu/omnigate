@@ -1,6 +1,9 @@
 package kurogames
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const krsdkCacheFixture = `{"account_list":[` +
 	`{"cuid":537195734,"email":"a@example.com","username":"U547195734A","token":"TOKEN_A_aaaaaaaa","loginType":13,"thirdNickName":""},` +
@@ -32,5 +35,35 @@ func TestParseKRSDKAccounts(t *testing.T) {
 func TestParseKRSDKAccounts_Malformed(t *testing.T) {
 	if _, err := parseKRSDKAccounts([]byte("not json")); err == nil {
 		t.Fatal("expected error on malformed json")
+	}
+}
+
+func TestRewriteLastLoginCuid(t *testing.T) {
+	out, err := rewriteLastLoginCuid([]byte(krsdkCacheFixture), "537195734")
+	if err != nil {
+		t.Fatalf("rewriteLastLoginCuid: %v", err)
+	}
+	if !strings.Contains(string(out), `"last_login_cuid":"537195734"`) {
+		t.Errorf("pointer not flipped: %s", out)
+	}
+	for _, must := range []string{"TOKEN_A_aaaaaaaa", "TOKEN_B_bbbbbbbb", `"cuid":537195734`, `"cuid":535788351`} {
+		if !strings.Contains(string(out), must) {
+			t.Errorf("missing %q after rewrite", must)
+		}
+	}
+	if len(out) > 0 && out[0] == 0xEF {
+		t.Errorf("output has a UTF-8 BOM")
+	}
+}
+
+func TestRewriteLastLoginCuid_RejectsNonDigit(t *testing.T) {
+	if _, err := rewriteLastLoginCuid([]byte(krsdkCacheFixture), "abc"); err == nil {
+		t.Fatal("expected error on non-digit accountID")
+	}
+}
+
+func TestRewriteLastLoginCuid_FieldMissing(t *testing.T) {
+	if _, err := rewriteLastLoginCuid([]byte(`{"account_list":[]}`), "1"); err == nil {
+		t.Fatal("expected error when last_login_cuid is absent")
 	}
 }
