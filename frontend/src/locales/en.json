@@ -77,6 +77,9 @@
   "buttons": {
     "play": "PLAY",
     "play_short": "PLAY",
+    "play_as": "Launch as {name}",
+    "launching": "Game running",
+    "launch_failed": "Launch failed",
     "update": "UPDATE",
     "pause": "PAUSE",
     "confirm": "Confirm",
@@ -241,6 +244,7 @@
     "switchFailed": "Account switch failed",
     "rename": "Rename",
     "namePlaceholder": "Custom name",
-    "uidPending": "Available after login"
+    "uidPending": "Available after login",
+    "currentlyLoggedIn": "Logged in"
   }
 }

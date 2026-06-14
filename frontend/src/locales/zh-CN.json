@@ -77,6 +77,9 @@
   "buttons": {
     "play": "开始游戏",
     "play_short": "开始",
+    "play_as": "以 {name} 启动",
+    "launching": "游戏运行中",
+    "launch_failed": "启动失败",
     "update": "更新",
     "pause": "暂停",
     "confirm": "确认",
@@ -241,6 +244,7 @@
     "switchFailed": "账号切换失败",
     "rename": "重命名",
     "namePlaceholder": "自定义名称",
-    "uidPending": "登录后获取"
+    "uidPending": "登录后获取",
+    "currentlyLoggedIn": "当前登录"
   }
 }
