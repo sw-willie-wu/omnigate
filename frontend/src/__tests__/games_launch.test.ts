@@ -5,7 +5,8 @@ const LaunchMock = vi.fn();
 vi.mock('../../wailsjs/go/app/App', () => ({
   ListGames: vi.fn(), RefreshVersion: vi.fn(), GetIcon: vi.fn(),
   GetBackgrounds: vi.fn(), SetGameOverride: vi.fn(), ClearGameOverride: vi.fn(),
-  RefreshGame: vi.fn(), Launch: (...a: unknown[]) => LaunchMock(...a),
+  RefreshGame: vi.fn(), GetCustomBackground: vi.fn(),
+  Launch: (...a: unknown[]) => LaunchMock(...a),
 }));
 
 import { useGamesStore } from '../stores/games';
@@ -19,17 +20,16 @@ describe('games.launchGame', () => {
     games.games = [{
       id: 'fake/g', backend: 'fake', display_name: { en: 'G' },
       installed: true, has_predownload: false,
-      icon_url: 'icon://x', background_url: 'bg://y',
+      icon_url: 'icon://x',
     }];
     games.selectedID = 'fake/g';
 
     await games.launchGame('fake/g');
 
-    expect(LaunchMock).toHaveBeenCalledWith('fake/g');
+    expect(LaunchMock).toHaveBeenCalledWith('fake/g', '');
     const row = games.games[0];
     expect(row.last_played).toBeTruthy();
     expect(row.icon_url).toBe('icon://x');
-    expect(row.background_url).toBe('bg://y');
   });
 
   it('does not stamp last_played when Launch rejects', async () => {

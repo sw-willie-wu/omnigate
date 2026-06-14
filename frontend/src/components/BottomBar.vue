@@ -1,16 +1,46 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useGamesStore } from '../stores/games';
 import { useUpdatesStore } from '../stores/updates';
+import { useAccountStore, accountPrimary } from '../stores/account';
 import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
+import { pushToast } from '../composables/useToast';
+import { IsGameRunning } from '../../wailsjs/go/app/App';
 import { formatSize } from '../utils/format';
 import { formatRelativeTime } from '../utils/lastPlayed';
 import GameConfigPopover from './GameConfigPopover.vue';
 
 const games = useGamesStore();
 const updates = useUpdatesStore();
+const account = useAccountStore();
 const { t, te } = useI18n();
+
+// Poll whether the selected game is running so the Play CTA can show 遊戲啟動中.
+const isRunning = ref(false);
+async function pollRunning() {
+  const gid = games.selected?.id;
+  if (!gid) { isRunning.value = false; return; }
+  try { isRunning.value = await IsGameRunning(gid); } catch { isRunning.value = false; }
+}
+let runTimer: ReturnType<typeof setInterval> | null = null;
+onMounted(() => { pollRunning(); runTimer = setInterval(pollRunning, 3000); window.addEventListener('focus', pollRunning); });
+onUnmounted(() => { if (runTimer) clearInterval(runTimer); window.removeEventListener('focus', pollRunning); });
+watch(() => games.selected?.id, pollRunning);
+
+// Shared Play-button state for both CTAs (idle + predl-in-flight). The selected
+// account (switcher games) is committed to disk on launch; when it differs from
+// the written-active account the button reads "以 <name> 啟動".
+const selectedAcct = computed(() => (games.selected ? account.selectedFor(games.selected.id) : undefined));
+const activeAcct = computed(() => (games.selected ? account.activeFor(games.selected.id) : undefined));
+const playDisabled = computed(() => isRunning.value || !games.selected?.installed);
+const playLabel = computed(() => {
+  if (isRunning.value) return t('buttons.launching');
+  if (selectedAcct.value && activeAcct.value && selectedAcct.value.id !== activeAcct.value.id) {
+    return t('buttons.play_as', { name: accountPrimary(selectedAcct.value) });
+  }
+  return t('buttons.play');
+});
 
 // Re-entrancy guard for [更新遊戲]: prevents double-clicks during the
 // short gap between RPC dispatch and the snapshot's InFlight propagation.
@@ -79,11 +109,11 @@ const predlSizeLabel = computed<string>(() => {
   return t('update.predl_available');
 });
 
-// Pill state — priority: update > predl > ready. has_predownload is set by
-// providers (e.g. hoyoverse) directly via CheckVersion; availablePredl is only
-// populated for Updater providers (kurogames in M3.A) — read both to cover
-// non-Updater backends that still surface predl info.
-const hasAnyPredl = computed(() => availablePredl.value !== null || (games.selected?.has_predownload ?? false));
+// Pill + predl button both derive from available_predl — the App's single
+// actionable predl signal, populated only when the provider supports predl for
+// this game (per-game capability gate). The legacy has_predownload bypass is
+// dropped so the pill never lights for a game whose predl we can't start.
+const hasAnyPredl = computed(() => availablePredl.value !== null);
 const pillLabel = computed(() => {
   if (availableUpdate.value) {
     const cur = games.selected?.current_version ?? '?';
@@ -106,6 +136,11 @@ const lastPlayedLabel = computed<string>(() => {
   return `${t('labels.last_played')} · ${rel}`;
 });
 
+const bgDots = computed(() => games.selected?.backgrounds?.length ?? 0);
+function setBg(i: number) {
+  if (games.selected) games.selected.bgIndex = i;
+}
+
 // Progress percentage (Download phase by bytes; Apply phase by file count)
 const progressPct = computed(() => {
   const ifl = inFlight.value;
@@ -123,7 +158,14 @@ const verifyLabel = computed(() => {
 });
 
 async function onLaunch() {
-  if (games.selected) try { await games.launchGame(games.selected.id); } catch (e) { console.error(e); }
+  if (!games.selected) return;
+  try {
+    await games.launchGame(games.selected.id, selectedAcct.value?.id ?? '');
+    isRunning.value = true; // optimistic; the poll keeps it accurate
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    pushToast(msg.includes('game is running') ? t('account.gameRunning') : t('buttons.launch_failed'));
+  }
 }
 async function onUpdate() {
   if (isStarting.value || !games.selected) return;
@@ -171,6 +213,19 @@ async function onCancel() {
       </div>
     </div>
 
+    <div v-if="bgDots > 1" class="bg-dots">
+      <button
+        v-for="i in bgDots"
+        :key="i"
+        data-test="bg-dot"
+        class="bg-dot"
+        :class="{ active: (games.selected!.bgIndex ?? 0) === i - 1 }"
+        :aria-pressed="(games.selected!.bgIndex ?? 0) === i - 1"
+        :aria-label="`background ${i}`"
+        @click="setBg(i - 1)"
+      ></button>
+    </div>
+
     <!-- right cluster: predl + per-game config gear + Play/Update, kept together
          so space-between only spreads the version pill (left) vs this group (right). -->
     <div class="bottombar-right">
@@ -194,14 +249,19 @@ async function onCancel() {
 
     <!-- right: Launch / Update / Update-in-flight / Apply Predl -->
     <div class="launch-area">
-      <button v-if="!inFlight && !availableUpdate && !predlReady" class="launch-btn" @click="onLaunch" :disabled="!games.selected.installed">
-        <span class="play-tri"></span>{{ t('buttons.play') }}
+      <button v-if="!inFlight && !availableUpdate && !predlReady" class="launch-btn" @click="onLaunch" :disabled="playDisabled">
+        <span v-if="!isRunning" class="play-tri"></span>{{ playLabel }}
       </button>
       <button v-else-if="!inFlight && availableUpdate" class="launch-btn update-btn" @click="onUpdate" :disabled="isStarting" :title="planReasonTooltip || undefined">
         {{ t('update.available') }} ↓
       </button>
       <button v-else-if="!inFlight && predlReady" class="launch-btn" @click="onApplyPredl">
         {{ t('update.predl_ready') }}
+      </button>
+      <!-- During predownload the current version stays playable (predl stages the
+           NEXT version to a temp dir) — keep the Play button available. -->
+      <button v-else-if="inFlight && inFlight.kind === 'predownload'" class="launch-btn" @click="onLaunch" :disabled="playDisabled">
+        <span v-if="!isRunning" class="play-tri"></span>{{ playLabel }}
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'download'" class="progress-btn update">
         <span class="fill" :style="{width: progressPct + '%'}"></span>

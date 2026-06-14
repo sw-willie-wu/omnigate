@@ -20,7 +20,7 @@ import (
 )
 
 // AppCred is the hardcoded `appId_appKey` for WuWa Global / live channel.
-// Verified per docs/superpowers/research/m3a-kuro-update-protocol.md (2026-05-05);
+// Verified per .claude/research/m3a-kuro-update-protocol.md (2026-05-05);
 // identical on every install (NOT per-machine, NOT extracted from cache).
 const AppCred = "50004_obOHXFrFanqsaIEOmuKroCcbZkQRBC7c"
 
@@ -41,7 +41,8 @@ func sanitizeURL(s string) string {
 
 // indexJSONURL is the entrypoint for kurogames update protocol — the catalog
 // of CDNs + the per-version indexFile.json pointer. WuWa Global / live channel.
-func indexJSONURL() string {
+// A var (not func) so tests can point the manifest fetch at an httptest server.
+var indexJSONURL = func() string {
 	return "https://prod-alicdn-gamestarter.kurogame.com/launcher/game/G153/" + AppCred + "/index.json"
 }
 
@@ -217,6 +218,21 @@ func pickIndexFileForVersion(idx *indexRaw, currentVersion string) (indexConfigR
 		}
 	}
 	return idx.Default.Config, false
+}
+
+// pickPredownloadIndexFile returns the predl indexConfig matching the current
+// install version (patch path), or the predl default config (full) if no
+// patchConfig entry matches. Predl mirror of pickIndexFileForVersion; takes the
+// predl config directly (idx.Predownload.Config).
+func pickPredownloadIndexFile(predlCfg indexConfigRaw, currentVersion string) indexConfigRaw {
+	if predlCfg.PatchType == "patch" && currentVersion != "" {
+		for _, p := range predlCfg.PatchConfig {
+			if p.Version == currentVersion {
+				return p
+			}
+		}
+	}
+	return predlCfg
 }
 
 // fileURL constructs the download URL for an entry. Per-entry FromFolder

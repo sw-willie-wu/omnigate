@@ -6,9 +6,12 @@ import en from '../../locales/en.json';
 
 const getSummary = vi.fn();
 const refreshGacha = vi.fn();
+const listAccounts = vi.fn();
 vi.mock('../../../wailsjs/go/app/App', () => ({
   GetGachaSummary: (...a: unknown[]) => getSummary(...a),
   RefreshGacha: (...a: unknown[]) => refreshGacha(...a),
+  ListGameAccounts: (...a: unknown[]) => listAccounts(...a),
+  SetAccountLabel: vi.fn(),
 }));
 vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 
@@ -27,7 +30,7 @@ const base = {
 };
 
 describe('GachaBoard', () => {
-  beforeEach(() => { setActivePinia(createPinia()); getSummary.mockReset(); refreshGacha.mockReset(); });
+  beforeEach(() => { setActivePinia(createPinia()); getSummary.mockReset(); refreshGacha.mockReset(); listAccounts.mockReset(); listAccounts.mockResolvedValue([]); });
 
   it('renders the dashboard sections from summary', async () => {
     getSummary.mockResolvedValue(base);
@@ -150,5 +153,58 @@ describe('GachaBoard', () => {
     const w = mountBoard(); await flushPromises();
     await w.find('.gacha-refresh').trigger('click'); await flushPromises();
     expect(w.find('.gacha-url-hint').exists()).toBe(true);
+  });
+
+  it('shows the play-first prompt (no refresh button) when active uid is unknown', async () => {
+    getSummary.mockResolvedValue({ ...base, totalPulls: 0, headlineCnt: 0, recentHeadline: [], activeUnknown: true });
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('.gacha-play-first').exists()).toBe(true);
+    expect(w.find('.gacha-refresh').exists()).toBe(false);
+  });
+
+  it('shows wrong-account guidance when refresh reports a mismatch', async () => {
+    getSummary.mockResolvedValue(base);
+    refreshGacha.mockRejectedValue(new Error('gacha record belongs to a different account'));
+    const w = mountBoard(); await flushPromises();
+    await w.find('.gacha-refresh').trigger('click'); await flushPromises();
+    expect(w.find('.gacha-wrong-account').exists()).toBe(true);
+  });
+
+  it('shows url-reopen guidance with the url-expired copy on a url_expired error', async () => {
+    getSummary.mockResolvedValue(base);
+    refreshGacha.mockRejectedValue(new Error('gacha convene url expired'));
+    const w = mountBoard(); await flushPromises();
+    await w.find('.gacha-refresh').trigger('click'); await flushPromises();
+    expect(w.find('.gacha-url-hint').exists()).toBe(true);
+    // distinct from the legacy url_hint copy: url_expired text mentions "convene".
+    expect(w.find('.gacha-url-hint').text()).toContain('convene');
+  });
+
+  it('reloads with the newly selected account id', async () => {
+    listAccounts.mockResolvedValue([
+      { id: 'A', uid: 'uA', label: '', email: 'a', username: 'UA', active: true },
+      { id: 'B', uid: 'uB', label: '', email: 'b', username: 'UB', active: false },
+    ]);
+    getSummary.mockResolvedValue(base);
+    const { useAccountStore } = await import('../../stores/account');
+    const w = mountBoard(); await flushPromises();
+    const acct = useAccountStore();
+    await acct.load('hypergryph/endfield'); // populate; selected defaults to A
+    getSummary.mockClear();
+    acct.select('hypergryph/endfield', 'B');
+    await flushPromises();
+    expect(getSummary).toHaveBeenCalledWith('hypergryph/endfield', 'B');
+    w.unmount();
+  });
+
+  it('has the 3 new gacha keys non-empty in every locale (i18n parity)', async () => {
+    const en = (await import('../../locales/en.json')).default as Record<string, any>;
+    const tw = (await import('../../locales/zh-TW.json')).default as Record<string, any>;
+    const cn = (await import('../../locales/zh-CN.json')).default as Record<string, any>;
+    for (const loc of [en, tw, cn]) {
+      for (const k of ['play_first', 'wrong_account', 'url_expired']) {
+        expect(((loc.gacha?.[k] ?? '') as string).length).toBeGreaterThan(0);
+      }
+    }
   });
 });

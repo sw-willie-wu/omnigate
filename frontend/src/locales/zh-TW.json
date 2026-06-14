@@ -23,6 +23,9 @@
     "unsupported": "此遊戲尚未支援抽卡分析。",
     "empty": "尚無紀錄。請先在遊戲內開啟一次抽卡紀錄，再重新整理。",
     "url_hint": "紀錄連結已失效。請在遊戲內重新開啟抽卡紀錄後再重新整理。",
+    "play_first": "請先用此帳號進遊戲並開啟一次喚取紀錄，再回來查看。",
+    "wrong_account": "最近一次的喚取紀錄屬於其他帳號。請在遊戲內以此帳號開啟喚取紀錄頁後再重整。",
+    "url_expired": "喚取連結已過期。請在遊戲內重新開啟喚取紀錄頁後再重整。",
     "refresh": "重新整理紀錄",
     "total_pulls": "總抽數",
     "spend_est": "消耗",
@@ -74,6 +77,9 @@
   "buttons": {
     "play": "開始遊戲",
     "play_short": "開始",
+    "play_as": "以 {name} 啟動",
+    "launching": "遊戲啟動中",
+    "launch_failed": "啟動失敗",
     "update": "更新",
     "pause": "暫停",
     "confirm": "確認",
@@ -196,15 +202,17 @@
   },
   "settings": {
     "title": "設定",
-    "save": "儲存",
-    "cancel": "取消",
     "browse": "瀏覽…",
     "clear": "清除",
     "path_label": "安裝路徑",
-    "tempdir_label": "暫存資料夾覆寫",
-    "tempdir_hint": "留空 = 使用預設暫存資料夾",
+    "general": "一般",
+    "language_label": "語言",
+    "tempdir_label": "暫存資料夾",
+    "tempdir_hint": "留空 = 使用預設暫存資料夾（所有遊戲共用）",
+    "tempdir_effective": "目前位置：{path}",
     "save_error": "儲存失敗:{detail}",
-    "save_disabled_inflight": "更新進行中無法儲存",
+    "custom_bg": "背景圖",
+    "custom_bg_label": "自訂背景圖",
     "backend": {
       "hoyoverse": "米哈遊",
       "kurogames": "庫洛遊戲",
@@ -227,5 +235,16 @@
     "overview": "總覽",
     "gacha": "抽卡分析",
     "coming_soon": "即將推出"
+  },
+  "account": {
+    "switchHint": "切換帳號",
+    "addInGame": "在遊戲登入新帳號",
+    "switchedToast": "已切到 {name}，啟動遊戲生效",
+    "gameRunning": "請先關閉遊戲再切換",
+    "switchFailed": "帳號切換失敗",
+    "rename": "重新命名",
+    "namePlaceholder": "自訂名稱",
+    "uidPending": "登入後取得",
+    "currentlyLoggedIn": "目前登入"
   }
 }

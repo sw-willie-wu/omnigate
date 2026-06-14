@@ -78,9 +78,10 @@ onMounted(reload);
   gap: 10px;
   padding: 14px;
   border-radius: 14px;
-  background: rgba(17, 19, 25, 0.62);
+  background: var(--glass-2);
   border: 1px solid var(--line-2);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--glass-2-blur));
+  -webkit-backdrop-filter: blur(var(--glass-2-blur));
   max-height: 100%;
   overflow: hidden;
 }

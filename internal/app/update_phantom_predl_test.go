@@ -28,7 +28,7 @@ func TestRefresh_PhantomPredlSilentInvalidate(t *testing.T) {
 
 	a := &App{
 		updateRegistry: NewUpdateStateRegistry(emit, realClock{}),
-		settings:       Settings{Backends: BackendSettings{Kurogames: KurogamesSettings{TempDir: tempRoot}}},
+		settings:       Settings{App: AppSettings{TempDir: tempRoot}, Backends: BackendSettings{}},
 		detect:         map[core.BackendID]detectEntry{},
 	}
 	defer a.updateRegistry.emitter.Stop()

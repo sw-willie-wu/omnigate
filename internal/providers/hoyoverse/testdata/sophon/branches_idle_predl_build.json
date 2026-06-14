@@ -1,0 +1,31 @@
+{
+  "data": {
+    "game_branches": [
+      {
+        "game": { "biz": "hk4e_global", "id": "gopR6Cufr3" },
+        "main": {
+          "branch": "main",
+          "categories": [
+            { "category_id": "10016", "matching_field": "game", "type": "CATEGORY_TYPE_RESOURCE" }
+          ],
+          "diff_tags": ["6.5.0"],
+          "package_id": "pkg-main",
+          "password": "",
+          "tag": "6.6.0"
+        },
+        "pre_download": {
+          "branch": "predownload",
+          "categories": [
+            { "category_id": "10016", "matching_field": "game", "type": "CATEGORY_TYPE_RESOURCE" }
+          ],
+          "diff_tags": ["6.5.0"],
+          "package_id": "pkg-predl",
+          "password": "",
+          "tag": "6.7.0"
+        }
+      }
+    ]
+  },
+  "message": "",
+  "retcode": 0
+}

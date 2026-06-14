@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/appicon.png" width="128" alt="Omnigate" />
+  <img src="docs/assets/appicon.png" width="128" alt="Omnigate" />
 </p>
 
 <h1 align="center">Omnigate · 萬象之門</h1>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="版本" src="https://img.shields.io/badge/版本-v0.1.0-2ea043?style=flat-square" />
+  <img alt="版本" src="https://img.shields.io/badge/版本-v0.2.0-2ea043?style=flat-square" />
   <img alt="平台" src="https://img.shields.io/badge/平台-Windows-0a7bbd?style=flat-square" />
   <img alt="技術" src="https://img.shields.io/badge/Wails-Go%20＋%20Vue%203-00b8a9?style=flat-square" />
   <img alt="授權" src="https://img.shields.io/badge/授權-AGPL--3.0-4c8eda?style=flat-square" />
@@ -36,10 +36,10 @@
 ## 📸 介面預覽
 
 #### 首頁總覽 — 遊戲庫、主視覺、最新情報
-![總覽](docs/screenshots/overview.png)
+![總覽](docs/assets/overview.png)
 
 #### 抽卡分析 — 每帳號儀表板
-![抽卡分析](docs/screenshots/gacha.png)
+![抽卡分析](docs/assets/gacha.png)
 
 ## 🕹️ 支援遊戲
 

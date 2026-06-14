@@ -13,7 +13,7 @@ import (
 )
 
 type Settings struct {
-	TempDir string // optional override; empty → app layer's kurogamesTempDir() default
+	TempDir string // test-only temp-root fallback; production always injects via SetTempRootFn
 }
 
 type Provider struct {
@@ -25,6 +25,11 @@ type Provider struct {
 	recordAPIBase  string
 	convLogPathsFn func(installDir string) []string
 	recordDelay    time.Duration
+	tempRootFn     func(core.GameID) string
+
+	krsdkCachePathFn     func() (string, error)         // locate KRSDKUserCache.json (injectable)
+	localStorageDBPathFn func(installDir string) string // locate LocalStorage.db (injectable)
+	procRunningFn        func(names []string) bool      // process gate (injectable)
 }
 
 func New(settings Settings, logger *slog.Logger) *Provider {
@@ -40,8 +45,27 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 	p.recordAPIBase = "https://gmserver-api.aki-game2.net"
 	p.convLogPathsFn = defaultConvLogPaths
 	p.recordDelay = 400 * time.Millisecond
+	p.krsdkCachePathFn = defaultKRSDKCachePath
+	p.localStorageDBPathFn = defaultLocalStorageDBPath
+	p.procRunningFn = anyProcessRunning
 	return p
 }
+
+// tempRoot resolves the temp/sidecar root. Production injects tempRootFn via
+// SetTempRootFn (App.tempDirFor); the settings.TempDir and os-default rungs are
+// test-only fallbacks for when SetTempRootFn was not called.
+func (p *Provider) tempRoot(gid core.GameID) string {
+	if p.tempRootFn != nil {
+		return p.tempRootFn(gid)
+	}
+	if p.settings.TempDir != "" {
+		return p.settings.TempDir
+	}
+	return filepath.Join(os.TempDir(), "omnigate")
+}
+
+// SetTempRootFn wires the app-provided temp resolver. Called by App.constructProviders.
+func (p *Provider) SetTempRootFn(fn func(core.GameID) string) { p.tempRootFn = fn }
 
 func (p *Provider) ID() core.BackendID { return BackendID }
 
@@ -273,6 +297,65 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 	return plan, nil
 }
 
+// SupportsPredownload implements core.PredownloadChecker. kurogames serves only
+// WuWa; predl is supported whenever the game id is known. Whether an active
+// predl is currently published is decided in CheckForPredownload.
+func (p *Provider) SupportsPredownload(gid core.GameID) bool {
+	return findByID(gid) != nil
+}
+
+// CheckForPredownload implements core.PredownloadChecker. Mirrors
+// CheckForUpdateWithProgress but sources the manifest from idx.Predownload
+// instead of idx.Default. Returns core.ErrPredownloadUnsupported when no active
+// predownload is published. Download/stage/apply reuse the M3.A path: RunUpdate
+// sees Kind=PlanPredownload and stops after RenameToPredlReady.
+func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
+	g := findByID(gid)
+	if g == nil {
+		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+	}
+	installPath, err := p.gameDir(ctx, gid)
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	localVersion, _ := readLauncherDownloadConfigVersion(filepath.Join(installPath, "launcherDownloadConfig.json"))
+
+	idx, idxETag, err := fetchIndex(ctx, p.httpClient, indexJSONURL())
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	if idx.Predownload == nil || idx.Predownload.Version == "" {
+		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
+	}
+
+	cfg := pickPredownloadIndexFile(idx.Predownload.Config, localVersion)
+	cdn := pickCDN(idx.Predownload.CDNList)
+	idxFile, _, err := fetchIndexFile(ctx, p.httpClient, cdn+cfg.IndexFile)
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+
+	files := filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
+	if ctx.Err() != nil {
+		return core.UpdatePlan{}, ctx.Err()
+	}
+	var totalBytes int64
+	for _, f := range files {
+		totalBytes += f.Size
+	}
+	plan := core.UpdatePlan{
+		GameID:       gid,
+		Kind:         core.PlanPredownload,
+		ManifestETag: idxETag,
+		Version:      idx.Predownload.Version,
+		Files:        files,
+		TotalBytes:   totalBytes,
+		Reason:       core.ReasonPredownload,
+	}
+	p.logger.Info("CheckForPredownload complete", "game", gid, "predl_version", idx.Predownload.Version, "files", len(files), "bytes", totalBytes)
+	return plan, nil
+}
+
 // RunUpdate executes a previously-checked plan. Re-verifies ETag at entry,
 // dispatches download phase, then apply phase (skipped for PlanPredownload).
 // Panic recovery + structured error per spec §6.4.
@@ -323,10 +406,7 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	}
 
 	// Determine TempDir — root only; newProgressStore.dir() appends gameID/version.
-	tempDir := p.settings.TempDir
-	if tempDir == "" {
-		tempDir = filepath.Join(os.TempDir(), "omnigate")
-	}
+	tempDir := p.tempRoot(plan.GameID)
 
 	progress := newProgressStore(tempDir, string(plan.GameID), plan.Version)
 	if err := progress.Init(plan.ManifestETag); err != nil {
@@ -399,4 +479,5 @@ var (
 	_ core.Updater                = (*Provider)(nil) // M3.A: implements update interface
 	_ core.CheckForUpdateProgress = (*Provider)(nil) // verify-local progress for BottomBar
 	_ core.ProcessChecker         = (*Provider)(nil)
+	_ core.PredownloadChecker     = (*Provider)(nil) // predl: targets idx.Predownload
 )

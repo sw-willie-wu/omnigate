@@ -11,7 +11,7 @@ import (
 // documented manifest URL pattern matches what the Go code produces.
 // Detects drift between m3a-kuro-update-protocol.md and update_manifest.go.
 func TestProtocolDocMatchesCode(t *testing.T) {
-	docPath := "../../../docs/superpowers/research/m3a-kuro-update-protocol.md"
+	docPath := "../../../.claude/research/m3a-kuro-update-protocol.md"
 	body, err := os.ReadFile(docPath)
 	if err != nil {
 		t.Skipf("research markdown missing: %v", err)

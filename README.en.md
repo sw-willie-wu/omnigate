@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/appicon.png" width="120" alt="Omnigate icon" />
+  <img src="docs/assets/appicon.png" width="120" alt="Omnigate icon" />
 </p>
 
 <h1 align="center">Omnigate</h1>
@@ -12,17 +12,17 @@ One library for every launcher: per-game install detection, updates & pre-downlo
 
 (Originally `launcher-collection`; rebranded to Omnigate. First public release: **v0.1.0**.)
 
-**Status:** v0.1.0 — work in progress.
+**Status:** v0.2.0 — work in progress.
 
 ## Screenshots
 
 **Home — game library, key-art & latest news**
 
-![Omnigate overview screen](docs/screenshots/overview.png)
+![Omnigate overview screen](docs/assets/overview.png)
 
 **Gacha analysis — per-account dashboard**
 
-![Omnigate gacha analysis dashboard](docs/screenshots/gacha.png)
+![Omnigate gacha analysis dashboard](docs/assets/gacha.png)
 
 ## Tech
 
@@ -33,7 +33,6 @@ Go + [Wails v2](https://wails.io) (Windows / WebView2), Vue 3 + Pinia frontend, 
 - **License:** [AGPL-3.0](LICENSE).
 - Protocol behavior referenced from [Collapse Launcher](https://github.com/CollapseLauncher/Collapse) (AGPL-3.0).
 - HDiff patches via bundled [`hpatchz`](https://github.com/sisong/HDiffPatch).
-- **Design spec:** `docs/superpowers/specs/2026-05-03-launcher-collection-design.md`.
 
 ### Sophon protobuf regeneration
 

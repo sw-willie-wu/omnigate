@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"time"
 
@@ -16,6 +17,33 @@ func gachaDBPathFor(settingsPath string) string {
 		return "gacha.db"
 	}
 	return filepath.Join(dir, "gacha.db")
+}
+
+// gachaUIDFor resolves the gacha uid for a specific account. For switcher
+// providers (WuWa): accountID=="" → the written-active account's uid; else the
+// named account's uid (may be "" when unknown). For non-switcher providers it
+// returns ("", false) so callers fall back to LatestUID (HoYoverse/Endfield
+// unchanged). A switcher whose listing fails, or that has no matching account,
+// returns ("", true) — unknown, never the LatestUID path (so we don't leak
+// another account's records).
+func (a *App) gachaUIDFor(gid core.GameID, accountID string) (uid string, isSwitcher bool) {
+	accts, err := a.ListGameAccounts(string(gid))
+	if err != nil {
+		if errors.Is(err, core.ErrAccountSwitchUnsupported) {
+			return "", false // non-switcher → LatestUID path
+		}
+		return "", true // switcher game but listing failed → unknown, never LatestUID
+	}
+	for _, ac := range accts {
+		if accountID == "" {
+			if ac.Active {
+				return ac.UID, true
+			}
+		} else if ac.ID == accountID {
+			return ac.UID, true
+		}
+	}
+	return "", true
 }
 
 // gachaProgressPayload builds the Wails event payload for one progress tick:
@@ -40,7 +68,7 @@ func gachaProgressPayload(cfg core.GachaConfig, p core.GachaProgress) map[string
 
 // RefreshGacha extracts the local history URL, fetches the record API, upserts
 // into the store (dedup), and returns the recomputed summary. Network-touching.
-func (a *App) RefreshGacha(gameID string) (core.GachaSummary, error) {
+func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) {
 	gid := core.GameID(gameID)
 	p, err := a.provider(gid)
 	if err != nil {
@@ -59,10 +87,20 @@ func (a *App) RefreshGacha(gameID string) (core.GachaSummary, error) {
 	a.settingsMu.RUnlock()
 
 	game := string(gid)
-	latestUID, _ := a.gachaStore.LatestUID(game)
+
+	uid, isSwitcher := a.gachaUIDFor(gid, accountID)
+	if isSwitcher && uid == "" {
+		return core.GachaSummary{}, core.ErrGachaActiveUnknown
+	}
+	// Cached URL comes from the EXPECTED account's partition (switcher) or the
+	// latest uid (non-switcher, unchanged).
+	cacheUID := uid
+	if !isSwitcher {
+		cacheUID, _ = a.gachaStore.LatestUID(game)
+	}
 	cachedURL := ""
-	if latestUID != "" {
-		cachedURL, _, _ = a.gachaStore.GetURLCache(game, latestUID)
+	if cacheUID != "" {
+		cachedURL, _, _ = a.gachaStore.GetURLCache(game, cacheUID)
 	}
 
 	ctx := a.ctx
@@ -82,7 +120,15 @@ func (a *App) RefreshGacha(gameID string) (core.GachaSummary, error) {
 	if err != nil {
 		// Do NOT log res.URL anywhere — it carries a live token.
 		a.logger.Warn("RefreshGacha fetch failed", "gid", gameID, "code", core.ErrorCode(err))
+		if isSwitcher && errors.Is(err, core.ErrGachaURLUnavailable) {
+			return core.GachaSummary{}, core.ErrGachaURLExpired
+		}
 		return core.GachaSummary{}, err
+	}
+	if isSwitcher && res.UID != uid {
+		// The convene URL in the log belongs to a different account than the
+		// active one — guide the user, do not attribute pulls to the wrong uid.
+		return core.GachaSummary{}, core.ErrGachaWrongAccount
 	}
 	if _, err := a.gachaStore.UpsertPulls(game, res.UID, res.Pulls); err != nil {
 		return core.GachaSummary{}, err
@@ -99,9 +145,13 @@ func (a *App) RefreshGacha(gameID string) (core.GachaSummary, error) {
 	return core.ComputeSummary(res.UID, all, gp.GachaConfig(gid)), nil
 }
 
-// GetGachaSummary reads the store only (no network) and computes the summary for
-// the latest known uid. Empty store → supported-but-empty summary.
-func (a *App) GetGachaSummary(gameID string) (core.GachaSummary, error) {
+// GetGachaSummary reads the store (no network) and computes the summary for the
+// game's relevant uid: the ACTIVE account's uid for switcher providers (WuWa),
+// or LatestUID for everyone else (HoYoverse/Endfield). For switcher games it
+// also reads the local account state (LocalStorage.db + KRSDK cache) and may
+// persist the uid cache as a side effect of ListGameAccounts. Empty active uid
+// on a switcher → supported summary with ActiveUnknown=true (play-first).
+func (a *App) GetGachaSummary(gameID, accountID string) (core.GachaSummary, error) {
 	gid := core.GameID(gameID)
 	p, err := a.provider(gid)
 	if err != nil {
@@ -112,10 +162,15 @@ func (a *App) GetGachaSummary(gameID string) (core.GachaSummary, error) {
 		return core.GachaSummary{Supported: false}, nil
 	}
 	game := string(gid)
-	uid, _ := a.gachaStore.LatestUID(game)
+	uid, isSwitcher := a.gachaUIDFor(gid, accountID)
+	if !isSwitcher {
+		uid, _ = a.gachaStore.LatestUID(game)
+	}
 	if uid == "" {
-		return core.GachaSummary{Supported: true, PerBanner: map[string]int{}, HeadlineByType: map[string]int{},
-			Pity: []core.BannerPity{}, Distribution: make([]int, 9), RecentHeadline: []core.HeadlineEntry{}}, nil
+		empty := core.GachaSummary{Supported: true, PerBanner: map[string]int{}, HeadlineByType: map[string]int{},
+			Pity: []core.BannerPity{}, Distribution: make([]int, 9), RecentHeadline: []core.HeadlineEntry{}}
+		empty.ActiveUnknown = isSwitcher // play-first only for switcher games
+		return empty, nil
 	}
 	all, err := a.gachaStore.AllPulls(game, uid)
 	if err != nil {

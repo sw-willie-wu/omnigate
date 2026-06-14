@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/providers/hoyoverse/sophon"
 )
 
 type Settings struct {
-	Region  string // "global" or "cn" — only "global" supported in M2
-	TempDir string // override for temp/sidecar root (tests + settings.toml)
+	Region string // "global" or "cn" — only "global" supported in M2
 }
 
 type Provider struct {
@@ -153,13 +153,21 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	// the correct number. The actual update flow is gated separately in
 	// CheckForUpdate (returns sophon_not_supported until M3.B v2 lands).
 	if g.UsesSophon {
-		tag, err := p.fetchBranchTag(ctx, g.APIGameID)
+		branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
 		if err != nil {
 			return core.VersionInfo{}, err
 		}
-		info := core.VersionInfo{Current: currentLocal, Latest: tag}
+		if branch.Main.IsEmpty() {
+			return core.VersionInfo{}, fmt.Errorf("getGameBranches: game id %q has empty main branch", g.APIGameID)
+		}
+		info := core.VersionInfo{Current: currentLocal, Latest: branch.Main.Tag}
 		if info.Current == "" {
 			info.Current = info.Latest
+		}
+		// Surface predl so App.CheckForUpdate (probe) can light the predl button
+		// for Genshin. Phase-1 probe additionally gates on SupportsPredownload.
+		if !branch.PreDownload.IsEmpty() && branch.PreDownload.Tag != info.Current {
+			info.Predownload = &core.PredownloadInfo{TargetVersion: branch.PreDownload.Tag}
 		}
 		return info, nil
 	}
@@ -264,6 +272,122 @@ func (p *Provider) GetPredownloadAvailable(gid core.GameID) bool {
 	return gp.predlAvailable
 }
 
+// SupportsPredownload implements core.PredownloadChecker. PER-GAME: only Sophon
+// games (Genshin) in Phase 2; HSR/ZZZ legacy predl lands in Phase 3. This is what
+// keeps the Phase-1 App probe from lighting HSR/ZZZ buttons while one hoyoverse
+// type satisfies the interface for all three games.
+func (p *Provider) SupportsPredownload(gid core.GameID) bool {
+	return findByID(gid) != nil
+}
+
+// CheckForPredownload implements core.PredownloadChecker. Routes Sophon (Genshin)
+// to checkForPredownloadSophon and legacy (HSR/ZZZ) to checkForPredownloadLegacy.
+func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
+	g := findByID(gid)
+	if g == nil {
+		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
+	}
+	if g.UsesSophon {
+		return p.checkForPredownloadSophon(ctx, gid, onProgress)
+	}
+	return p.checkForPredownloadLegacy(ctx, gid)
+}
+
+// checkForPredownloadLegacy builds a predl plan for HSR/ZZZ via getGamePackages
+// (entry.PreDownload) and caches it so RunUpdate(PlanPredownload) can stage it.
+// Returns ErrPredownloadUnsupported when no predownload is published.
+func (p *Provider) checkForPredownloadLegacy(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
+	resp, err := p.fetchGetGamePackages(ctx, gid)
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	gameDir, err := p.gameDir(gid)
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	tempRoot := p.tempRoot(gid)
+	currentVer, _ := ReadGameVersion(gameDir)
+
+	gp, err := buildPredlPlan(ctx, resp, gid, currentVer, tempRoot, gameDir, p.freeSpaceProbe())
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	if gp == nil {
+		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
+	}
+	gp.predlAvailable = true
+	p.manifestCache.put(gid, gp)
+	return gp.UpdatePlan, nil
+}
+
+// checkForPredownloadSophon builds the Sophon predl plan by calling
+// buildSophonPredlPlan DIRECTLY, NOT via checkForUpdateSophon. The latter's idle
+// short-circuit returns flavorNone with gp.predlPlan==nil exactly when up-to-date
+// — the case predl is offered (spec §2.3 B1). It caches gp so
+// RunUpdate(PlanPredownload) → runSophonPredownload consumes gp.predlPlan.
+func (p *Provider) checkForPredownloadSophon(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
+	g := findByID(gid)
+	gameDir, err := p.gameDir(gid)
+	if err != nil {
+		return core.UpdatePlan{}, err
+	}
+	tempRoot := p.tempRoot(gid)
+
+	branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
+	if err != nil {
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
+		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
+	}
+	if branch.PreDownload.IsEmpty() {
+		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
+	}
+
+	currentLocal, _ := ReadGameVersion(gameDir)
+	if currentLocal == "" {
+		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_no_install", Retryable: false}
+	}
+
+	audioFolders, _ := DetectInstalledLanguages(gameDir)
+	audioLangs := mapFoldersToMatchingFields(audioFolders)
+
+	prev := LoadAppliedManifests(tempRoot, gid)
+	oldMainManifest := prev.MatchByVersion(currentLocal, "game")
+
+	gp := &genshinPlan{
+		UpdatePlan: core.UpdatePlan{
+			GameID:  gid,
+			Kind:    core.PlanPredownload,
+			Version: branch.PreDownload.Tag,
+			Reason:  core.ReasonPredownload,
+		},
+		sophonBranch:              branch,
+		sophonPatchAssetsFromMain: map[string][]sophon.ChunkSource{},
+		sophonAssetMD5:            map[string]string{},
+		sophonRawManifests:        map[string][]byte{},
+		sourceVersion:             currentLocal,
+		audioLanguages:            audioLangs,
+	}
+
+	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, g.PlatApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
+	if err != nil {
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
+		return core.UpdatePlan{}, err
+	}
+	if !predlAvail || gp.predlPlan == nil {
+		// No chunk reuse possible (full-flavor predl is never offered, §0) → treat
+		// as no actionable predl.
+		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
+	}
+	gp.predlAvailable = true
+	gp.TotalBytes = sumPredlPlanBytes(gp.predlPlan)
+	p.manifestCache.put(gid, gp)
+	return gp.UpdatePlan, nil
+}
+
 // LastApplyTarget is the App-exposed view of the persistent sidecar.
 type LastApplyTarget struct {
 	TargetVersion     string
@@ -345,6 +469,23 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 		}
 	}
 
+	// Legacy predl-consume: applying a version that has a staged predl_ready.json
+	// means the package blobs are already downloaded. Restore progress.json +
+	// rebuild gp from the snapshot so the normal apply path reuses the staged
+	// zips. Runs regardless of manifestCache warmth (RenameToPredlReady removed
+	// progress.json, so even a warm gp would otherwise re-download).
+	if plan.Kind == core.PlanUpdate {
+		consumed, cerr := loadLegacyPredlConsume(versionDir, plan.Version)
+		if cerr != nil {
+			return cerr
+		}
+		if consumed != nil {
+			gp = consumed
+			plan.Files = consumed.UpdatePlan.Files
+			plan.ManifestETag = consumed.manifestETag
+		}
+	}
+
 	if gp == nil {
 		return fmt.Errorf("RunUpdate called without prior CheckForUpdate; manifestCache miss")
 	}
@@ -369,12 +510,13 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 			Files:          plan.Files,
 			AudioLanguages: gp.audioLanguages,
 			ManifestETag:   plan.ManifestETag,
+			Flavor:         gp.flavor.String(),
 		}
 		return ps.RenameToPredlReady(snap)
 	}
 
 	switch gp.flavor {
-	case flavorPatch, flavorAudioOnly:
+	case flavorPatch, flavorAudioOnly, flavorPredlPatch:
 		stagingDir := filepath.Join(versionDir, "staging")
 		_ = os.RemoveAll(stagingDir)
 		for _, blob := range plan.Files {
@@ -384,11 +526,62 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 			}
 		}
 		return runApplyPlanPatch(ctx, tempRoot, gameDir, gid, plan.Version, false, plan.ManifestETag, emit)
-	case flavorFull:
+	case flavorFull, flavorPredlFull:
 		return runApplyPlanFull(ctx, tempRoot, gameDir, gid, plan.Version, plan.ManifestETag, plan.Files, emit)
 	default:
 		return fmt.Errorf("unsupported flavor: %v", gp.flavor)
 	}
+}
+
+// loadLegacyPredlConsume detects a staged legacy predl for `version`. When the
+// staged predl_ready.json targets `version`, it rebuilds the apply plan from the
+// snapshot, restores progress.json from the embedded ProgressFile (so downloadAll
+// skips the already-staged zips), and removes predl_ready.json (the inverse of
+// RenameToPredlReady). Returns (nil, nil) when nothing consumable is staged.
+func loadLegacyPredlConsume(versionDir, version string) (*genshinPlan, error) {
+	prf, err := loadJSONSidecar[predlReadyFile](filepath.Join(versionDir, "predl_ready.json"))
+	if err != nil || prf == nil {
+		return nil, nil
+	}
+	if prf.PlanSnapshot.TargetVersion != version {
+		return nil, nil
+	}
+	flavor := flavorPredlFull
+	if prf.PlanSnapshot.Flavor == flavorPredlPatch.String() {
+		flavor = flavorPredlPatch
+	}
+
+	// Restore progress.json from the embedded ProgressFile, then drop predl_ready.json.
+	pf := prf.ProgressFile
+	data, err := json.MarshalIndent(&pf, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	progPath := filepath.Join(versionDir, "progress.json")
+	tmp := progPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tmp, progPath); err != nil {
+		_ = os.Remove(tmp)
+		return nil, err
+	}
+	_ = os.Remove(filepath.Join(versionDir, "predl_ready.json"))
+
+	return &genshinPlan{
+		UpdatePlan: core.UpdatePlan{
+			GameID:       core.GameID(pf.GameID),
+			Kind:         core.PlanUpdate,
+			Version:      version,
+			ManifestETag: prf.PlanSnapshot.ManifestETag,
+			Files:        prf.PlanSnapshot.Files,
+			Reason:       core.ReasonResumeInterrupted,
+		},
+		flavor:         flavor,
+		manifestETag:   prf.PlanSnapshot.ManifestETag,
+		sourceVersion:  prf.PlanSnapshot.SourceVersion,
+		audioLanguages: prf.PlanSnapshot.AudioLanguages,
+	}, nil
 }
 
 func resolvePhase(stage string) core.Phase {
@@ -875,7 +1068,8 @@ func (defaultFreeSpaceProbe) FreeBytes(path string) (uint64, error) {
 
 // compile-time check
 var (
-	_ core.Provider       = (*Provider)(nil)
-	_ core.Updater        = (*Provider)(nil)
-	_ core.ProcessChecker = (*Provider)(nil)
+	_ core.Provider           = (*Provider)(nil)
+	_ core.Updater            = (*Provider)(nil)
+	_ core.ProcessChecker     = (*Provider)(nil)
+	_ core.PredownloadChecker = (*Provider)(nil)
 )

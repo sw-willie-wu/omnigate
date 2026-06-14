@@ -13,7 +13,7 @@ import (
 )
 
 type Settings struct {
-	TempDir string // optional override; empty → app layer's hypergryph temp default
+	TempDir string // test-only temp-root fallback; production always injects via SetTempRootFn
 }
 
 type Provider struct {
@@ -25,6 +25,7 @@ type Provider struct {
 	recordAPIBase string
 	pageDelay     time.Duration
 	logPathFn     func() string
+	tempRootFn    func(core.GameID) string
 }
 
 func New(settings Settings, logger *slog.Logger) *Provider {
@@ -42,6 +43,22 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 	p.logPathFn = defaultEndfieldLogPath
 	return p
 }
+
+// tempRoot resolves the temp/sidecar root. Production injects tempRootFn via
+// SetTempRootFn (App.tempDirFor); the settings.TempDir and os-default rungs are
+// test-only fallbacks for when SetTempRootFn was not called.
+func (p *Provider) tempRoot(gid core.GameID) string {
+	if p.tempRootFn != nil {
+		return p.tempRootFn(gid)
+	}
+	if p.settings.TempDir != "" {
+		return p.settings.TempDir
+	}
+	return filepath.Join(os.TempDir(), "omnigate", "hypergryph")
+}
+
+// SetTempRootFn wires the app-provided temp resolver. Called by App.constructProviders.
+func (p *Provider) SetTempRootFn(fn func(core.GameID) string) { p.tempRootFn = fn }
 
 func (p *Provider) ID() core.BackendID { return BackendID }
 
@@ -248,10 +265,7 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	}
 
 	// Resolve temp root (matches app.tempDirFor hypergryph default).
-	tempDir := p.settings.TempDir
-	if tempDir == "" {
-		tempDir = filepath.Join(os.TempDir(), "omnigate", "hypergryph")
-	}
+	tempDir := p.tempRoot(plan.GameID)
 
 	// Preflight: same-volume + disk space.
 	if perr := preflightSameVolume(tempDir, installPath); perr != nil {

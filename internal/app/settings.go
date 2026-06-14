@@ -24,6 +24,7 @@ type Settings struct {
 
 type AppSettings struct {
 	Language            string `toml:"language"`
+	TempDir             string `toml:"temp_dir,omitempty"` // single temp-root source; empty → <os.TempDir>/omnigate
 	BannerAnimationPref string `toml:"banner_animation_pref"`
 	ShowTechnicalInfo   bool   `toml:"show_technical_info"`
 }
@@ -35,22 +36,21 @@ type BackendSettings struct {
 }
 
 type HoyoverseSettings struct {
-	Path    string `toml:"path"`
-	Region  string `toml:"region"`
-	TempDir string `toml:"temp_dir,omitempty"` // M3.B: empty → runtime default <TEMP>/omnigate/hoyoverse/
+	Path   string `toml:"path"`
+	Region string `toml:"region"`
 }
 
 type KurogamesSettings struct {
-	Path    string `toml:"path"`
-	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/<gameID>
+	Path string `toml:"path"`
 }
+
 type HypergryphSettings struct {
-	Path    string `toml:"path"`
-	TempDir string `toml:"temp_dir,omitempty"` // empty → runtime default os.TempDir()/omnigate/hypergryph
+	Path string `toml:"path"`
 }
 
 type GameSettings struct {
-	Path string `toml:"path,omitempty"`
+	Path           string `toml:"path,omitempty"`
+	BackgroundPath string `toml:"background_path,omitempty"`
 }
 
 // hoyoverseRawTOML is used for the M1 → M2 migration: M1 wrote
@@ -60,22 +60,36 @@ type hoyoverseRawTOML struct {
 	Path         string `toml:"path"`
 	HoYoplayPath string `toml:"hoyoplay_path"`
 	Region       string `toml:"region"`
+	TempDir      string `toml:"temp_dir"`
+}
+
+// kurogamesRawTOML retains TempDir for the v2→v3 migration that collapses
+// per-backend temp_dir into a single global App.TempDir.
+type kurogamesRawTOML struct {
+	Path    string `toml:"path"`
+	TempDir string `toml:"temp_dir"`
+}
+
+// hypergryphRawTOML retains TempDir for the same v2→v3 migration.
+type hypergryphRawTOML struct {
+	Path    string `toml:"path"`
+	TempDir string `toml:"temp_dir"`
 }
 
 type rawTOML struct {
 	Version  int         `toml:"version"`
 	App      AppSettings `toml:"app"`
 	Backends struct {
-		Hoyoverse  hoyoverseRawTOML   `toml:"hoyoverse"`
-		Kurogames  KurogamesSettings  `toml:"kurogames"`
-		Hypergryph HypergryphSettings `toml:"hypergryph"`
+		Hoyoverse  hoyoverseRawTOML  `toml:"hoyoverse"`
+		Kurogames  kurogamesRawTOML  `toml:"kurogames"`
+		Hypergryph hypergryphRawTOML `toml:"hypergryph"`
 	} `toml:"backends"`
 	Games map[string]GameSettings `toml:"games"`
 }
 
 func defaultSettings() Settings {
 	return Settings{
-		Version: 2,
+		Version: 3,
 		App: AppSettings{
 			Language:            "zh-TW",
 			BannerAnimationPref: "video-when-available",
@@ -116,6 +130,9 @@ func LoadSettings(path string) (Settings, error) {
 	if raw.App.Language != "" {
 		out.App.Language = raw.App.Language
 	}
+	if raw.App.TempDir != "" {
+		out.App.TempDir = raw.App.TempDir
+	}
 	if raw.App.BannerAnimationPref != "" {
 		out.App.BannerAnimationPref = raw.App.BannerAnimationPref
 	}
@@ -139,14 +156,8 @@ func LoadSettings(path string) (Settings, error) {
 	if raw.Backends.Kurogames.Path != "" {
 		out.Backends.Kurogames.Path = raw.Backends.Kurogames.Path
 	}
-	if raw.Backends.Kurogames.TempDir != "" {
-		out.Backends.Kurogames.TempDir = raw.Backends.Kurogames.TempDir
-	}
 	if raw.Backends.Hypergryph.Path != "" {
 		out.Backends.Hypergryph.Path = raw.Backends.Hypergryph.Path
-	}
-	if raw.Backends.Hypergryph.TempDir != "" {
-		out.Backends.Hypergryph.TempDir = raw.Backends.Hypergryph.TempDir
 	}
 
 	// games (per-game overrides)
@@ -165,8 +176,25 @@ func LoadSettings(path string) (Settings, error) {
 		migrateV1ToV2(&out)
 	}
 
-	// On any successful load (including post-migration), bump version to 2.
-	out.Version = 2
+	// v2→v3: collapse per-backend temp_dir into a single global App.TempDir.
+	// First non-empty wins, fixed order hoyoverse → kurogames → hypergryph
+	// (cannot merge differing dirs into one). Only when not already set.
+	if raw.Version < 3 && out.App.TempDir == "" {
+		for _, td := range []string{
+			raw.Backends.Hoyoverse.TempDir,
+			raw.Backends.Kurogames.TempDir,
+			raw.Backends.Hypergryph.TempDir,
+		} {
+			if td != "" {
+				out.App.TempDir = td
+				slog.Default().Warn("settings: migrated per-backend temp_dir → app.temp_dir", "value", td)
+				break
+			}
+		}
+	}
+
+	// On any successful load (including post-migration), bump version to 3.
+	out.Version = 3
 
 	return out, nil
 }
@@ -207,10 +235,10 @@ func migrateV1ToV2(out *Settings) {
 	}
 }
 
-// SaveSettings writes the canonical schema. Always includes version = 2; never
+// SaveSettings writes the canonical schema. Always includes version = 3; never
 // emits hoyoplay_path.
 func SaveSettings(path string, s Settings) error {
-	s.Version = 2 // canonicalize
+	s.Version = 3 // canonicalize
 	b, err := toml.Marshal(s)
 	if err != nil {
 		return err

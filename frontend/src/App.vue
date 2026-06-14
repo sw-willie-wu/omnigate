@@ -10,7 +10,6 @@ import BgLayer from './components/BgLayer.vue';
 import Topbar from './components/Topbar.vue';
 import Sidebar from './components/Sidebar.vue';
 import DetailView from './components/DetailView.vue';
-import GridView from './components/GridView.vue';
 import BottomBar from './components/BottomBar.vue';
 import NavStrip from './components/NavStrip.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
@@ -30,7 +29,6 @@ const toastRef = ref(null);
 
 const appClass = computed(() => ({
   collapsed: view.sidebarCollapsed,
-  'grid-mode': view.viewMode === 'grid',
   'settings-mode': view.viewMode === 'settings',
 }));
 
@@ -71,11 +69,10 @@ onMounted(async () => {
       <Topbar />
       <main class="main">
         <SettingsPanel v-if="view.viewMode === 'settings'" />
-        <template v-else-if="view.viewMode === 'detail'">
+        <template v-else>
           <NavStrip />
           <DetailView />
         </template>
-        <GridView v-else />
         <BottomBar v-if="view.viewMode === 'detail' && view.homeTab === 'overview'" />
       </main>
       <Footbar />

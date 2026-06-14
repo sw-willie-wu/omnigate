@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"omnigate/internal/core"
@@ -13,16 +16,28 @@ import (
 // CheckForUpdate plan and the CheckVersion result independently.
 type checkUpdaterFake struct {
 	gid                core.GameID
+	backendID          core.BackendID
 	checkVersionResult core.VersionInfo
 	checkVersionErr    error
 	checkForUpdatePlan core.UpdatePlan
 	checkForUpdateErr  error
+
+	supportsPredl           bool
+	checkForPredownloadPlan core.UpdatePlan
+	checkForPredownloadErr  error
+	predlCalled             bool
+	checkForUpdateCalled    bool
 }
 
-func (f *checkUpdaterFake) ID() core.BackendID                  { return "kurogames" }
-func (f *checkUpdaterFake) DisplayName() core.LocalizedString    { return core.LocalizedString{} }
-func (f *checkUpdaterFake) Games() []core.GameDescriptor         { return []core.GameDescriptor{{ID: f.gid}} }
-func (f *checkUpdaterFake) SettingsSchema() []core.SettingField  { return nil }
+func (f *checkUpdaterFake) ID() core.BackendID {
+	if f.backendID != "" {
+		return f.backendID
+	}
+	return "kurogames"
+}
+func (f *checkUpdaterFake) DisplayName() core.LocalizedString   { return core.LocalizedString{} }
+func (f *checkUpdaterFake) Games() []core.GameDescriptor        { return []core.GameDescriptor{{ID: f.gid}} }
+func (f *checkUpdaterFake) SettingsSchema() []core.SettingField { return nil }
 func (f *checkUpdaterFake) DetectInstall(_ context.Context) ([]core.InstalledGame, error) {
 	return []core.InstalledGame{{GameID: f.gid, InstallPath: ""}}, nil
 }
@@ -37,10 +52,16 @@ func (f *checkUpdaterFake) Launch(_ context.Context, _ core.GameID, _ core.Launc
 	return 0, nil
 }
 func (f *checkUpdaterFake) CheckForUpdate(_ context.Context, _ core.GameID) (core.UpdatePlan, error) {
+	f.checkForUpdateCalled = true
 	return f.checkForUpdatePlan, f.checkForUpdateErr
 }
 func (f *checkUpdaterFake) RunUpdate(_ context.Context, _ core.UpdatePlan, _ func(core.UpdateEvent)) error {
 	return nil
+}
+func (f *checkUpdaterFake) SupportsPredownload(_ core.GameID) bool { return f.supportsPredl }
+func (f *checkUpdaterFake) CheckForPredownload(_ context.Context, _ core.GameID, _ func(int, int)) (core.UpdatePlan, error) {
+	f.predlCalled = true
+	return f.checkForPredownloadPlan, f.checkForPredownloadErr
 }
 
 // nonUpdaterFake satisfies core.Provider but NOT core.Updater (no CheckForUpdate
@@ -51,9 +72,9 @@ type nonUpdaterFake struct {
 }
 
 func (p *nonUpdaterFake) ID() core.BackendID                  { return "hoyoverse" }
-func (p *nonUpdaterFake) DisplayName() core.LocalizedString    { return core.LocalizedString{} }
-func (p *nonUpdaterFake) Games() []core.GameDescriptor         { return []core.GameDescriptor{{ID: p.gid}} }
-func (p *nonUpdaterFake) SettingsSchema() []core.SettingField  { return nil }
+func (p *nonUpdaterFake) DisplayName() core.LocalizedString   { return core.LocalizedString{} }
+func (p *nonUpdaterFake) Games() []core.GameDescriptor        { return []core.GameDescriptor{{ID: p.gid}} }
+func (p *nonUpdaterFake) SettingsSchema() []core.SettingField { return nil }
 func (p *nonUpdaterFake) DetectInstall(_ context.Context) ([]core.InstalledGame, error) {
 	return []core.InstalledGame{{GameID: p.gid, InstallPath: ""}}, nil
 }
@@ -195,8 +216,8 @@ func TestCheckForUpdate_NoOpForNonUpdater(t *testing.T) {
 func TestCheckForUpdate_SwallowsCheckVersionError(t *testing.T) {
 	gid := core.GameID("kurogames/wuwa")
 	fake := &checkUpdaterFake{
-		gid:               gid,
-		checkVersionErr:   errors.New("transient detect failure"),
+		gid:             gid,
+		checkVersionErr: errors.New("transient detect failure"),
 	}
 	a := newAppWithProvider(fake)
 	defer a.updateRegistry.emitter.Stop()
@@ -210,5 +231,153 @@ func TestCheckForUpdate_SwallowsCheckVersionError(t *testing.T) {
 	defer state.mu.RUnlock()
 	if state.LastError != nil {
 		t.Errorf("LastError = %+v; Refresh probes must not surface errors", state.LastError)
+	}
+}
+
+// --- Predownload wiring (Phase 1) ---
+
+func TestCheckForUpdate_SetsAvailablePredlWhenUpToDateAndSupported(t *testing.T) {
+	gid := core.GameID("kurogames/wutheringwaves")
+	fake := &checkUpdaterFake{
+		gid:           gid,
+		supportsPredl: true,
+		checkVersionResult: core.VersionInfo{
+			Current: "3.3.0", Latest: "3.3.0",
+			Predownload: &core.PredownloadInfo{TargetVersion: "3.4.0"},
+		},
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+	if err := a.CheckForUpdate(string(gid)); err != nil {
+		t.Fatalf("CheckForUpdate: %v", err)
+	}
+	st := a.updateRegistry.Get(gid)
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if st.AvailablePredl == nil || st.AvailablePredl.Version != "3.4.0" {
+		t.Fatalf("AvailablePredl = %+v, want version 3.4.0", st.AvailablePredl)
+	}
+	if st.AvailableUpdate != nil {
+		t.Errorf("AvailableUpdate must be nil when up-to-date")
+	}
+}
+
+func TestCheckForUpdate_NoPredlWhenProviderUnsupportedForGame(t *testing.T) {
+	gid := core.GameID("kurogames/wutheringwaves")
+	fake := &checkUpdaterFake{
+		gid:           gid,
+		supportsPredl: false, // provider doesn't support predl for this game yet
+		checkVersionResult: core.VersionInfo{
+			Current: "3.3.0", Latest: "3.3.0",
+			Predownload: &core.PredownloadInfo{TargetVersion: "3.4.0"},
+		},
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+	_ = a.CheckForUpdate(string(gid))
+	st := a.updateRegistry.Get(gid)
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if st.AvailablePredl != nil {
+		t.Fatalf("AvailablePredl must be nil when SupportsPredownload(gid) is false")
+	}
+}
+
+func TestCheckForUpdate_NoPredlWhenUpdatePending(t *testing.T) {
+	gid := core.GameID("kurogames/wutheringwaves")
+	fake := &checkUpdaterFake{
+		gid:           gid,
+		supportsPredl: true,
+		checkVersionResult: core.VersionInfo{
+			Current: "3.3.0", Latest: "3.4.0", // behind -> update pending
+			Predownload: &core.PredownloadInfo{TargetVersion: "3.5.0"},
+		},
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+	_ = a.CheckForUpdate(string(gid))
+	st := a.updateRegistry.Get(gid)
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if st.AvailablePredl != nil {
+		t.Fatalf("predl and update are mutually exclusive; AvailablePredl must be nil when behind")
+	}
+	if st.AvailableUpdate == nil {
+		t.Errorf("AvailableUpdate must be set when behind")
+	}
+}
+
+func TestRunStartUpdateAsync_RoutesPredlThroughChecker(t *testing.T) {
+	gid := core.GameID("kurogames/wutheringwaves")
+	fake := &checkUpdaterFake{gid: gid, supportsPredl: true}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+	a.runStartUpdateAsync(context.Background(), gid, core.PlanPredownload, fake, fake)
+	if !fake.predlCalled {
+		t.Fatal("expected CheckForPredownload to be called for PlanPredownload")
+	}
+	if fake.checkForUpdateCalled {
+		t.Fatal("CheckForUpdate must NOT be called on the predl path")
+	}
+}
+
+func TestRunStartUpdateAsync_PredlUnsupportedIdlesQuietly(t *testing.T) {
+	gid := core.GameID("kurogames/wutheringwaves")
+	fake := &checkUpdaterFake{gid: gid, supportsPredl: false}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+	st := a.updateRegistry.Get(gid)
+	st.mu.Lock()
+	st.AvailablePredl = &core.UpdatePlan{Version: "x"}
+	st.InFlight = &InFlightOp{Plan: core.UpdatePlan{GameID: gid, Kind: core.PlanPredownload}}
+	st.mu.Unlock()
+	a.runStartUpdateAsync(context.Background(), gid, core.PlanPredownload, fake, fake)
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if st.AvailablePredl != nil {
+		t.Error("AvailablePredl should be cleared on unsupported predl")
+	}
+	if st.LastError != nil {
+		t.Errorf("graceful idle must not set LastError, got %+v", st.LastError)
+	}
+	if st.InFlight != nil {
+		t.Error("InFlight should be cleared")
+	}
+}
+
+func TestRefreshVersion_PhantomPredlSelfHealUsesOwningBackend(t *testing.T) {
+	gid := core.GameID("hoyoverse/genshin")
+	fake := &checkUpdaterFake{
+		gid:                gid,
+		backendID:          "hoyoverse",
+		checkVersionResult: core.VersionInfo{Current: "6.6.0", Latest: "6.6.0"},
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+
+	root := t.TempDir()
+	a.settings.App.TempDir = root
+
+	st := a.updateRegistry.Get(gid)
+	st.mu.Lock()
+	st.PredlReady = &core.UpdatePlan{GameID: gid, Kind: core.PlanPredownload, Version: "6.6.0"}
+	st.mu.Unlock()
+	flat := strings.ReplaceAll(string(gid), "/", "-")
+	versionDir := filepath.Join(root, "hoyoverse", flat, "6.6.0")
+	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.RefreshVersion(string(gid)); err != nil {
+		t.Fatalf("RefreshVersion: %v", err)
+	}
+
+	if _, err := os.Stat(versionDir); !os.IsNotExist(err) {
+		t.Errorf("hoyoverse predl staging dir should be removed by self-heal; stat err = %v", err)
+	}
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if st.PredlReady != nil {
+		t.Error("PredlReady should be cleared by self-heal")
 	}
 }
