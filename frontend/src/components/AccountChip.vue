@@ -1,30 +1,28 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ListGameAccounts, SwitchGameAccount, SetAccountLabel } from '../../wailsjs/go/app/App';
-import { pushToast } from '../composables/useToast';
-import { useGachaStore } from '../stores/gacha';
-
-type Account = { id: string; uid: string; label: string; email: string; username: string; active: boolean };
+import { useAccountStore, accountPrimary, type Account } from '../stores/account';
 
 const props = defineProps<{ gameId: string }>();
 const { t } = useI18n();
+const account = useAccountStore();
 
 const rootEl = ref<HTMLElement | null>(null);
-const accounts = ref<Account[]>([]);
-const supported = ref(false);
-const open = ref(false);
 const menuEl = ref<HTMLElement | null>(null);
+const open = ref(false);
 const menuStyle = ref<Record<string, string>>({});
 const editingId = ref<string | null>(null);
 const draft = ref('');
 
-const active = computed(() => accounts.value.find((a) => a.active));
-// Primary = the account identity: custom label if set, else the account email,
-// with the KRSDK name (Uxxx) as a last-resort fallback. Long values ellipsize
-// (fixed-width column + title tooltip). UID is the secondary line; a
+const accounts = computed<Account[]>(() => account.accountsFor(props.gameId));
+const supported = computed(() => account.supportedFor(props.gameId));
+// The chip displays the SELECTED account (the user's intent); the dropdown marks
+// the currently-logged-in (active/written) account separately. Identity = custom
+// label, else email, else KRSDK name (Uxxx). UID is the secondary line; a
 // login-pending hint shows when it isn't known yet.
-function primary(a: Account): string { return a.label || a.email || a.username; }
+const selected = computed(() => account.selectedFor(props.gameId));
+
+function primary(a: Account): string { return accountPrimary(a); }
 function secondary(a: Account): string { return a.uid || t('account.uidPending'); }
 
 // Toggle the dropdown. The menu is teleported to <body> to escape the chip's
@@ -39,28 +37,15 @@ function openMenu() {
   }
 }
 
-async function load() {
-  try {
-    accounts.value = await ListGameAccounts(props.gameId);
-    supported.value = accounts.value.length > 0;
-  } catch {
-    accounts.value = []; supported.value = false;
-  }
-}
+function load() { account.load(props.gameId); }
 
-async function pick(a: Account) {
+// pick is pure selection — no disk write, no game-running gate (the write moves
+// to Launch). It drives the chip identity + the gacha board (which watches the
+// shared selection).
+function pick(a: Account) {
   if (editingId.value === a.id) return; // ignore row activation while editing
   open.value = false;
-  if (a.active) return;
-  try {
-    await SwitchGameAccount(props.gameId, a.id);
-    await load();
-    useGachaStore().reload(props.gameId); // re-resolve the gacha board for the new active account
-    pushToast(t('account.switchedToast', { name: primary(a) }));
-  } catch (e) {
-    const msg = String((e as Error)?.message ?? e);
-    pushToast(msg.includes('game is running') ? t('account.gameRunning') : t('account.switchFailed'));
-  }
+  account.select(props.gameId, a.id);
 }
 
 // Enter edit mode for one row and focus its input (the input is v-if-inserted,
@@ -83,12 +68,7 @@ async function commit(a: Account) {
   const value = draft.value;
   editingId.value = null;
   draft.value = '';
-  try {
-    await SetAccountLabel(props.gameId, a.id, value);
-    await load();
-  } catch {
-    /* label is local + best-effort; nothing actionable to surface */
-  }
+  await account.setLabel(props.gameId, a.id, value);
 }
 
 function cancel() {
@@ -119,10 +99,10 @@ onUnmounted(() => {
 
 <template>
   <div v-if="supported" ref="rootEl" class="account-chip" data-test="account-chip" :title="t('account.switchHint')" @click="openMenu">
-    <span class="avatar">{{ (active ? primary(active) : '?').slice(0, 1) }}</span>
+    <span class="avatar">{{ (selected ? primary(selected) : '?').slice(0, 1) }}</span>
     <span class="ident">
-      <span class="primary" :title="active ? primary(active) : ''">{{ active ? primary(active) : '' }}</span>
-      <span class="secondary">{{ active ? secondary(active) : '' }}</span>
+      <span class="primary" :title="selected ? primary(selected) : ''">{{ selected ? primary(selected) : '' }}</span>
+      <span class="secondary">{{ selected ? secondary(selected) : '' }}</span>
     </span>
     <span class="chev">▾</span>
   </div>
@@ -139,7 +119,7 @@ onUnmounted(() => {
         @keydown.enter.prevent="editingId !== a.id && pick(a)"
         @keydown.space.prevent="editingId !== a.id && pick(a)"
       >
-        <span class="tick">{{ a.active ? '✓' : '' }}</span>
+        <span class="tick">{{ a.id === selected?.id ? '✓' : '' }}</span>
         <input
           v-if="editingId === a.id"
           class="rename-input"
@@ -158,6 +138,7 @@ onUnmounted(() => {
             <span class="primary">{{ primary(a) }}</span>
             <span class="secondary">{{ secondary(a) }}</span>
           </span>
+          <span v-if="a.active" class="logged-in" :data-test="`account-active-${a.id}`">{{ t('account.currentlyLoggedIn') }}</span>
           <button
             class="rename-btn"
             :data-test="`account-rename-${a.id}`"
@@ -192,6 +173,9 @@ onUnmounted(() => {
 .account-opt:hover { background: rgba(255,255,255,0.06); }
 .account-opt:focus-visible { outline: 2px solid rgba(255,255,255,0.5); outline-offset: -2px; }
 .tick { width: 12px; }
+.logged-in { margin-left: auto; font-size: 10px; opacity: 0.65; padding: 1px 6px;
+  border: 1px solid var(--line-2); border-radius: 999px; white-space: nowrap; }
+.logged-in + .rename-btn { margin-left: 6px; }
 .rename-btn { margin-left: auto; background: none; border: none; color: inherit;
   opacity: 0.5; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
 .rename-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
