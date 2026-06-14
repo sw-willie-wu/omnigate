@@ -12,7 +12,7 @@ One library for every launcher: per-game install detection, updates & pre-downlo
 
 (Originally `launcher-collection`; rebranded to Omnigate. First public release: **v0.1.0**.)
 
-**Status:** v0.1.0 — work in progress.
+**Status:** v0.2.0 — work in progress.
 
 ## Screenshots
 
