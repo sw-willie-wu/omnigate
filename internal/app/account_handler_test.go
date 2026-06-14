@@ -51,7 +51,7 @@ func TestListGameAccounts_Unsupported(t *testing.T) {
 	}
 }
 
-// Test 5: SetAccountLabel is capability-gated like SwitchGameAccount.
+// Test 5: SetAccountLabel is capability-gated (requires AccountSwitcher).
 func TestSetAccountLabel_Unsupported(t *testing.T) {
 	a := &App{}
 	if err := a.registerProvider(noSwitchProvider{}); err != nil {

@@ -159,27 +159,10 @@ func (a *App) ListGameAccounts(gameID string) ([]core.GameAccount, error) {
 	return accts, nil
 }
 
-// SwitchGameAccount switches the active account for a game (game must be closed).
-func (a *App) SwitchGameAccount(gameID, accountID string) error {
-	gid := core.GameID(gameID)
-	p, err := a.provider(gid)
-	if err != nil {
-		return err
-	}
-	sw, ok := p.(core.AccountSwitcher)
-	if !ok {
-		return core.ErrAccountSwitchUnsupported
-	}
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return sw.SwitchAccount(ctx, gid, accountID)
-}
-
 // SetAccountLabel sets the user-defined display label for one account (cuid).
-// Capability-gated like SwitchGameAccount so it rejects games that can't switch.
-// The label lives in the App-owned uid cache; no provider call, no credentials.
+// Capability-gated (requires core.AccountSwitcher) so it rejects games that
+// can't switch accounts. The label lives in the App-owned uid cache; no provider
+// call, no credentials.
 func (a *App) SetAccountLabel(gameID, accountID, label string) error {
 	gid := core.GameID(gameID)
 	p, err := a.provider(gid)

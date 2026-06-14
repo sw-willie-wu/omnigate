@@ -581,7 +581,17 @@ func (a *App) GetBackgrounds(gameID string) ([]core.Background, error) {
 	return p.GetBackgrounds(a.ctx, core.GameID(gameID))
 }
 
-func (a *App) Launch(gameID string) (int, error) {
+// accountIsActive reports whether accountID is the currently-written active one.
+func accountIsActive(accts []core.GameAccount, accountID string) bool {
+	for _, ac := range accts {
+		if ac.ID == accountID {
+			return ac.Active
+		}
+	}
+	return false
+}
+
+func (a *App) Launch(gameID, accountID string) (int, error) {
 	gid := core.GameID(gameID)
 
 	// M3.A: refuse if apply phase is in flight (spec §2.7)
@@ -599,11 +609,42 @@ func (a *App) Launch(gameID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
+	// Commit the selected account before launching (switcher games only). "" or
+	// the already-active account → no write. SwitchAccount's own game-running
+	// gate is the safety net against a stale click.
+	if sw, ok := p.(core.AccountSwitcher); ok && accountID != "" {
+		accts, lerr := sw.ListAccounts(a.ctx, gid)
+		if lerr != nil {
+			return 0, lerr // can't verify the target → don't silently launch the wrong account
+		}
+		if !accountIsActive(accts, accountID) {
+			if serr := sw.SwitchAccount(a.ctx, gid, accountID); serr != nil {
+				return 0, serr // e.g. core.ErrGameRunning
+			}
+		}
+	}
+
 	pid, err := p.Launch(a.ctx, gid, core.LaunchOptions{})
 	if err == nil && a.playState != nil {
 		a.playState.Record(string(gid))
 	}
 	return pid, err
+}
+
+// IsGameRunning reports whether the game's process is currently running, via the
+// provider's optional ProcessChecker. Providers without the capability → false.
+func (a *App) IsGameRunning(gameID string) (bool, error) {
+	gid := core.GameID(gameID)
+	p, err := a.provider(gid)
+	if err != nil {
+		return false, err
+	}
+	pc, ok := p.(core.ProcessChecker)
+	if !ok {
+		return false, nil
+	}
+	return pc.IsGameRunning(gid)
 }
 
 func (a *App) GetSettings() Settings {

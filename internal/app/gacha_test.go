@@ -70,11 +70,11 @@ func TestRefreshThenGetSummary(t *testing.T) {
 		UID: "u1", URL: "https://x/page/gacha_y?token=z",
 		Pulls: []core.GachaPull{{ID: "1", BannerKey: "special", Rank: 6, Name: "A"}},
 	}})
-	sum, err := a.RefreshGacha("hypergryph/endfield")
+	sum, err := a.RefreshGacha("hypergryph/endfield", "")
 	if err != nil || !sum.Supported || sum.TotalPulls != 1 {
 		t.Fatalf("refresh sum=%+v err=%v", sum, err)
 	}
-	got, err := a.GetGachaSummary("hypergryph/endfield")
+	got, err := a.GetGachaSummary("hypergryph/endfield", "")
 	if err != nil || got.TotalPulls != 1 || got.UID != "u1" {
 		t.Fatalf("get sum=%+v err=%v", got, err)
 	}
@@ -82,7 +82,7 @@ func TestRefreshThenGetSummary(t *testing.T) {
 
 func TestRefreshURLUnavailableSurfacesCode(t *testing.T) {
 	a := newTestAppWithGacha(t, &fakeGachaProvider{err: core.ErrGachaURLUnavailable})
-	_, err := a.RefreshGacha("hypergryph/endfield")
+	_, err := a.RefreshGacha("hypergryph/endfield", "")
 	if core.ErrorCode(err) != "gacha_url" {
 		t.Fatalf("code=%q want gacha_url", core.ErrorCode(err))
 	}
@@ -90,7 +90,7 @@ func TestRefreshURLUnavailableSurfacesCode(t *testing.T) {
 
 func TestGachaUnsupportedProvider(t *testing.T) {
 	a := newTestAppWithGacha(t, nil)
-	sum, err := a.GetGachaSummary("hypergryph/endfield")
+	sum, err := a.GetGachaSummary("hypergryph/endfield", "")
 	if err != nil || sum.Supported {
 		t.Fatalf("want unsupported summary, got %+v err=%v", sum, err)
 	}
@@ -103,6 +103,9 @@ type fakeSwitcherGachaProvider struct {
 	err        error
 	accounts   []core.GameAccount
 	fetchCalls int
+	swCalls    int
+	swErr      error
+	listErr    error
 }
 
 func (f *fakeSwitcherGachaProvider) FetchGacha(_ context.Context, _ core.GameID, _, _ string) (core.GachaFetchResult, error) {
@@ -113,10 +116,11 @@ func (f *fakeSwitcherGachaProvider) GachaConfig(_ core.GameID) core.GachaConfig 
 	return core.GachaConfig{HeadlineRank: 5, Banners: []core.BannerConfig{}, Currency: "astrite", ExpectedPity: 62.5}
 }
 func (f *fakeSwitcherGachaProvider) ListAccounts(_ context.Context, _ core.GameID) ([]core.GameAccount, error) {
-	return f.accounts, nil
+	return f.accounts, f.listErr
 }
 func (f *fakeSwitcherGachaProvider) SwitchAccount(_ context.Context, _ core.GameID, _ string) error {
-	return nil
+	f.swCalls++
+	return f.swErr
 }
 
 func newTestAppWithSwitcherGacha(t *testing.T, gp *fakeSwitcherGachaProvider) *App {
@@ -150,7 +154,7 @@ func TestGetSummary_UsesActiveAccountUID(t *testing.T) {
 		{ID: "1", BannerKey: "character", Rank: 5, Name: "Y1"},
 		{ID: "2", BannerKey: "character", Rank: 5, Name: "Y2"},
 	})
-	sum, err := a.GetGachaSummary(game)
+	sum, err := a.GetGachaSummary(game, "")
 	if err != nil || sum.UID != "uidX" || sum.TotalPulls != 1 {
 		t.Fatalf("sum=%+v err=%v (want active uidX, 1 pull)", sum, err)
 	}
@@ -159,7 +163,7 @@ func TestGetSummary_UsesActiveAccountUID(t *testing.T) {
 func TestGetSummary_ActiveUnknown(t *testing.T) {
 	gp := &fakeSwitcherGachaProvider{accounts: []core.GameAccount{{ID: "cuidX", UID: "", Active: true}}}
 	a := newTestAppWithSwitcherGacha(t, gp)
-	sum, err := a.GetGachaSummary("kurogames/wutheringwaves")
+	sum, err := a.GetGachaSummary("kurogames/wutheringwaves", "")
 	if err != nil || !sum.Supported || !sum.ActiveUnknown || sum.TotalPulls != 0 {
 		t.Fatalf("sum=%+v err=%v (want Supported+ActiveUnknown, 0 pulls)", sum, err)
 	}
@@ -169,7 +173,7 @@ func TestGetSummary_NonSwitcherUsesLatestUID(t *testing.T) {
 	a := newTestAppWithGacha(t, &fakeGachaProvider{})
 	game := "hypergryph/endfield"
 	a.gachaStore.UpsertPulls(game, "uidLatest", []core.GachaPull{{ID: "1", Rank: 6}})
-	sum, err := a.GetGachaSummary(game)
+	sum, err := a.GetGachaSummary(game, "")
 	if err != nil || sum.UID != "uidLatest" || sum.ActiveUnknown {
 		t.Fatalf("non-switcher should use LatestUID without ActiveUnknown, got %+v err=%v", sum, err)
 	}
@@ -182,7 +186,7 @@ func TestRefresh_WrongAccount(t *testing.T) {
 	}
 	a := newTestAppWithSwitcherGacha(t, gp)
 	game := "kurogames/wutheringwaves"
-	_, err := a.RefreshGacha(game)
+	_, err := a.RefreshGacha(game, "")
 	if !errors.Is(err, core.ErrGachaWrongAccount) {
 		t.Fatalf("want ErrGachaWrongAccount, got %v", err)
 	}
@@ -201,7 +205,7 @@ func TestRefresh_MatchUpserts(t *testing.T) {
 		},
 	}
 	a := newTestAppWithSwitcherGacha(t, gp)
-	sum, err := a.RefreshGacha("kurogames/wutheringwaves")
+	sum, err := a.RefreshGacha("kurogames/wutheringwaves", "")
 	if err != nil || sum.UID != "uidX" || sum.TotalPulls != 1 {
 		t.Fatalf("sum=%+v err=%v (want uidX, 1 pull)", sum, err)
 	}
@@ -210,11 +214,30 @@ func TestRefresh_MatchUpserts(t *testing.T) {
 func TestRefresh_ActiveUnknownNoFetch(t *testing.T) {
 	gp := &fakeSwitcherGachaProvider{accounts: []core.GameAccount{{ID: "cuidX", UID: "", Active: true}}}
 	a := newTestAppWithSwitcherGacha(t, gp)
-	_, err := a.RefreshGacha("kurogames/wutheringwaves")
+	_, err := a.RefreshGacha("kurogames/wutheringwaves", "")
 	if !errors.Is(err, core.ErrGachaActiveUnknown) {
 		t.Fatalf("want ErrGachaActiveUnknown, got %v", err)
 	}
 	if gp.fetchCalls != 0 {
 		t.Fatalf("must not fetch when active uid unknown, fetchCalls=%d", gp.fetchCalls)
+	}
+}
+
+func TestGetSummary_ExplicitNonActiveAccount(t *testing.T) {
+	gp := &fakeSwitcherGachaProvider{accounts: []core.GameAccount{
+		{ID: "cuidX", UID: "uidX", Active: true},
+		{ID: "cuidY", UID: "uidY", Active: false},
+	}}
+	a := newTestAppWithSwitcherGacha(t, gp)
+	game := "kurogames/wutheringwaves"
+	a.gachaStore.UpsertPulls(game, "uidX", []core.GachaPull{{ID: "1", BannerKey: "character", Rank: 5, Name: "X1"}})
+	a.gachaStore.UpsertPulls(game, "uidY", []core.GachaPull{
+		{ID: "1", BannerKey: "character", Rank: 5, Name: "Y1"},
+		{ID: "2", BannerKey: "character", Rank: 5, Name: "Y2"},
+	})
+	// Explicitly select the NON-active account Y → its uid + 2 pulls.
+	sum, err := a.GetGachaSummary(game, "cuidY")
+	if err != nil || sum.UID != "uidY" || sum.TotalPulls != 2 {
+		t.Fatalf("sum=%+v err=%v (want uidY, 2 pulls)", sum, err)
 	}
 }
