@@ -151,4 +151,40 @@ describe('GachaBoard', () => {
     await w.find('.gacha-refresh').trigger('click'); await flushPromises();
     expect(w.find('.gacha-url-hint').exists()).toBe(true);
   });
+
+  it('shows the play-first prompt (no refresh button) when active uid is unknown', async () => {
+    getSummary.mockResolvedValue({ ...base, totalPulls: 0, headlineCnt: 0, recentHeadline: [], activeUnknown: true });
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('.gacha-play-first').exists()).toBe(true);
+    expect(w.find('.gacha-refresh').exists()).toBe(false);
+  });
+
+  it('shows wrong-account guidance when refresh reports a mismatch', async () => {
+    getSummary.mockResolvedValue(base);
+    refreshGacha.mockRejectedValue(new Error('gacha record belongs to a different account'));
+    const w = mountBoard(); await flushPromises();
+    await w.find('.gacha-refresh').trigger('click'); await flushPromises();
+    expect(w.find('.gacha-wrong-account').exists()).toBe(true);
+  });
+
+  it('shows url-reopen guidance with the url-expired copy on a url_expired error', async () => {
+    getSummary.mockResolvedValue(base);
+    refreshGacha.mockRejectedValue(new Error('gacha convene url expired'));
+    const w = mountBoard(); await flushPromises();
+    await w.find('.gacha-refresh').trigger('click'); await flushPromises();
+    expect(w.find('.gacha-url-hint').exists()).toBe(true);
+    // distinct from the legacy url_hint copy: url_expired text mentions "convene".
+    expect(w.find('.gacha-url-hint').text()).toContain('convene');
+  });
+
+  it('has the 3 new gacha keys non-empty in every locale (i18n parity)', async () => {
+    const en = (await import('../../locales/en.json')).default as Record<string, any>;
+    const tw = (await import('../../locales/zh-TW.json')).default as Record<string, any>;
+    const cn = (await import('../../locales/zh-CN.json')).default as Record<string, any>;
+    for (const loc of [en, tw, cn]) {
+      for (const k of ['play_first', 'wrong_account', 'url_expired']) {
+        expect(((loc.gacha?.[k] ?? '') as string).length).toBeGreaterThan(0);
+      }
+    }
+  });
 });

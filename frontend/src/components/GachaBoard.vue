@@ -9,7 +9,8 @@ const gacha = useGachaStore();
 
 const st = computed(() => gacha.stateFor(props.gid));
 const sum = computed(() => st.value.summary);
-const isEmpty = computed(() => !!sum.value && sum.value.supported && sum.value.totalPulls === 0);
+const isEmpty = computed(() => !!sum.value && sum.value.supported && sum.value.totalPulls === 0 && !sum.value.activeUnknown);
+const isActiveUnknown = computed(() => !!sum.value && !!sum.value.activeUnknown);
 const isUnsupported = computed(() => !!sum.value && !sum.value.supported);
 const isErrorOther = computed(() => st.value.errKind === 'other' && !sum.value);
 
@@ -111,8 +112,19 @@ watch(() => props.gid, (g) => gacha.load(g));
 
     <div v-else-if="isUnsupported" class="gacha-unsupported">{{ t('gacha.unsupported') }}</div>
 
-    <div v-else-if="st.errKind === 'url' || isEmpty" class="gacha-empty">
-      <p class="gacha-url-hint" v-if="st.errKind === 'url'">{{ t('gacha.url_hint') }}</p>
+    <div v-else-if="isActiveUnknown" class="gacha-empty gacha-play-first">
+      <p>{{ t('gacha.play_first') }}</p>
+    </div>
+
+    <div v-else-if="st.errKind === 'wrong_account'" class="gacha-empty gacha-wrong-account">
+      <p>{{ t('gacha.wrong_account') }}</p>
+      <button class="gacha-refresh" @click="gacha.refresh(props.gid)">{{ t('gacha.refresh') }}</button>
+    </div>
+
+    <div v-else-if="st.errKind === 'url' || st.errKind === 'url_expired' || isEmpty" class="gacha-empty">
+      <p class="gacha-url-hint" v-if="st.errKind === 'url' || st.errKind === 'url_expired'">
+        {{ st.errKind === 'url_expired' ? t('gacha.url_expired') : t('gacha.url_hint') }}
+      </p>
       <p v-else>{{ t('gacha.empty') }}</p>
       <button class="gacha-refresh" @click="gacha.refresh(props.gid)">{{ t('gacha.refresh') }}</button>
     </div>
