@@ -1,8 +1,0 @@
-?   	launcher-collection-tmp	[no test files]
-ok  	launcher-collection-tmp/internal/app	0.840s
-ok  	launcher-collection-tmp/internal/core	0.437s
-ok  	launcher-collection-tmp/internal/providers/hoyoverse	1.124s
-ok  	launcher-collection-tmp/internal/providers/hypergryph	1.154s
-ok  	launcher-collection-tmp/internal/providers/iconext	(cached)
-ok  	launcher-collection-tmp/internal/providers/kurogames	1.590s
-ok  	launcher-collection-tmp/internal/util/dirver	(cached)

@@ -93,7 +93,7 @@ type UpdatePlan struct {
 //
 // `Hash` is hex-encoded; the algorithm is provider-defined. Kurogames
 // (the only Updater impl in M3.A) uses MD5 — see
-// docs/superpowers/research/m3a-kuro-update-protocol.md. M3.B+ providers
+// .claude/research/m3a-kuro-update-protocol.md. M3.B+ providers
 // may use a different algorithm; verifiers MUST be paired with their
 // provider's manifest source.
 type FileTask struct {

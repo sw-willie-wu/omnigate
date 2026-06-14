@@ -11,7 +11,7 @@ import (
 // doc compiles and matches a representative pack URL — detects drift between
 // the documented protocol and the code's expectations.
 func TestProtocolDocPackURLRegex(t *testing.T) {
-	docPath := "../../../docs/superpowers/research/m3c-endfield-update-protocol.md"
+	docPath := "../../../.claude/research/m3c-endfield-update-protocol.md"
 	body, err := os.ReadFile(docPath)
 	if err != nil {
 		t.Skipf("research markdown missing: %v", err)

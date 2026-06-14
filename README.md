@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/appicon.png" width="128" alt="Omnigate" />
+  <img src="docs/assets/appicon.png" width="128" alt="Omnigate" />
 </p>
 
 <h1 align="center">Omnigate · 萬象之門</h1>
@@ -36,10 +36,10 @@
 ## 📸 介面預覽
 
 #### 首頁總覽 — 遊戲庫、主視覺、最新情報
-![總覽](docs/screenshots/overview.png)
+![總覽](docs/assets/overview.png)
 
 #### 抽卡分析 — 每帳號儀表板
-![抽卡分析](docs/screenshots/gacha.png)
+![抽卡分析](docs/assets/gacha.png)
 
 ## 🕹️ 支援遊戲
 
