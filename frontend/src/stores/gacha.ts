@@ -46,23 +46,23 @@ export const useGachaStore = defineStore('gacha', {
         if (s) s.progress = p;
       });
     },
-    async load(gid: string) {
+    async load(gid: string, accountID = '') {
       if (!gid) return;
       const cur = this.byGid[gid];
       if (cur && (cur.loaded || cur.loading)) return;
       this.byGid[gid] = { ...blank(), loading: true };
       try {
-        const summary = (await GetGachaSummary(gid)) as unknown as GachaSummary;
+        const summary = (await GetGachaSummary(gid, accountID)) as unknown as GachaSummary;
         this.byGid[gid] = { summary, loading: false, errKind: null, loaded: true, progress: null };
       } catch {
         this.byGid[gid] = { summary: null, loading: false, errKind: 'other', loaded: true, progress: null };
       }
     },
-    async refresh(gid: string) {
+    async refresh(gid: string, accountID = '') {
       if (!gid) return;
       this.byGid[gid] = { ...(this.byGid[gid] ?? blank()), loading: true, errKind: null, progress: null };
       try {
-        const summary = (await RefreshGacha(gid)) as unknown as GachaSummary;
+        const summary = (await RefreshGacha(gid, accountID)) as unknown as GachaSummary;
         this.byGid[gid] = { summary, loading: false, errKind: null, loaded: true, progress: null };
       } catch (e) {
         const msg = (e instanceof Error ? e.message : String(e)) || '';
@@ -71,12 +71,12 @@ export const useGachaStore = defineStore('gacha', {
       }
     },
     // reload forces a fresh GetGachaSummary read, bypassing the `loaded` guard
-    // (used after an account switch so the board re-resolves the active uid).
-    async reload(gid: string) {
+    // (used after an account selection so the board re-resolves the chosen uid).
+    async reload(gid: string, accountID = '') {
       if (!gid) return;
       this.byGid[gid] = { ...blank(), loading: true };
       try {
-        const summary = (await GetGachaSummary(gid)) as unknown as GachaSummary;
+        const summary = (await GetGachaSummary(gid, accountID)) as unknown as GachaSummary;
         this.byGid[gid] = { summary, loading: false, errKind: null, loaded: true, progress: null };
       } catch {
         this.byGid[gid] = { summary: null, loading: false, errKind: 'other', loaded: true, progress: null };

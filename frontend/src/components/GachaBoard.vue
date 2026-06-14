@@ -2,10 +2,14 @@
 import { computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
+import { useAccountStore } from '../stores/account';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
 const gacha = useGachaStore();
+const account = useAccountStore();
+// The board reflects the SELECTED account (switcher games); '' = active/LatestUID.
+const accountID = computed(() => account.selectedFor(props.gid)?.id ?? '');
 
 const st = computed(() => gacha.stateFor(props.gid));
 const sum = computed(() => st.value.summary);
@@ -89,8 +93,15 @@ const progressText = computed(() => {
     : t('gacha.loading');
 });
 
-onMounted(() => gacha.load(props.gid));
-watch(() => props.gid, (g) => gacha.load(g));
+onMounted(() => gacha.load(props.gid, accountID.value));
+watch(() => props.gid, (g) => gacha.load(g, accountID.value));
+// Re-resolve when the user selects another account in the chip. Skip the
+// initial undefined→defined transition (the account store populating after
+// mount) — onMounted's load already covers the first read; reloading there
+// would flash the summary→spinner and fire a redundant RPC for the same uid.
+watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
+  if (old !== undefined) gacha.reload(props.gid, accountID.value);
+});
 </script>
 
 <template>
@@ -118,7 +129,7 @@ watch(() => props.gid, (g) => gacha.load(g));
 
     <div v-else-if="st.errKind === 'wrong_account'" class="gacha-empty gacha-wrong-account">
       <p>{{ t('gacha.wrong_account') }}</p>
-      <button class="gacha-refresh" @click="gacha.refresh(props.gid)">{{ t('gacha.refresh') }}</button>
+      <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
     </div>
 
     <div v-else-if="st.errKind === 'url' || st.errKind === 'url_expired' || isEmpty" class="gacha-empty">
@@ -126,18 +137,18 @@ watch(() => props.gid, (g) => gacha.load(g));
         {{ st.errKind === 'url_expired' ? t('gacha.url_expired') : t('gacha.url_hint') }}
       </p>
       <p v-else>{{ t('gacha.empty') }}</p>
-      <button class="gacha-refresh" @click="gacha.refresh(props.gid)">{{ t('gacha.refresh') }}</button>
+      <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
     </div>
 
     <div v-else-if="isErrorOther" class="gacha-error">
       <p>{{ t('gacha.error_other') }}</p>
-      <button class="gacha-refresh" @click="gacha.refresh(props.gid)">{{ t('gacha.refresh') }}</button>
+      <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
     </div>
 
     <template v-else-if="sum">
       <div class="gacha-actions">
         <span class="gacha-sub mono">UID {{ sum.uid }}</span>
-        <button class="gacha-refresh" @click="gacha.refresh(props.gid)">{{ t('gacha.refresh') }}</button>
+        <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
       </div>
 
       <!-- §2.1 four stat cards -->
