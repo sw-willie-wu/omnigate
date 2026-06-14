@@ -23,6 +23,9 @@
     "unsupported": "Gacha analysis isn't supported for this game yet.",
     "empty": "No records yet. Open the gacha history in-game once, then refresh.",
     "url_hint": "Records link expired. Open the gacha history in-game again, then refresh.",
+    "play_first": "Log into this account in-game once to load its convene history, then come back.",
+    "wrong_account": "The latest convene page belongs to a different account. Open the convene history in-game while logged into this account, then refresh.",
+    "url_expired": "The convene link expired. Re-open the convene history page in-game, then refresh.",
     "refresh": "Refresh records",
     "total_pulls": "Total pulls",
     "spend_est": "Consumed",
@@ -74,6 +77,9 @@
   "buttons": {
     "play": "PLAY",
     "play_short": "PLAY",
+    "play_as": "Launch as {name}",
+    "launching": "Game running",
+    "launch_failed": "Launch failed",
     "update": "UPDATE",
     "pause": "PAUSE",
     "confirm": "Confirm",
@@ -229,5 +235,16 @@
     "overview": "Overview",
     "gacha": "Gacha Analytics",
     "coming_soon": "Coming soon"
+  },
+  "account": {
+    "switchHint": "Switch account",
+    "addInGame": "Log in a new account in-game",
+    "switchedToast": "Switched to {name}; takes effect on next launch",
+    "gameRunning": "Close the game before switching accounts",
+    "switchFailed": "Account switch failed",
+    "rename": "Rename",
+    "namePlaceholder": "Custom name",
+    "uidPending": "Available after login",
+    "currentlyLoggedIn": "Logged in"
   }
 }

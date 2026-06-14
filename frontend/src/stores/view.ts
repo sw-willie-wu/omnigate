@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 
-type ContentView = 'detail' | 'grid';
+type ContentView = 'detail';
 type ViewMode = ContentView | 'settings';
 
 // 'detail' is the home view the app boots into; toggling settings off returns
@@ -14,7 +14,7 @@ export const useViewStore = defineStore('view', {
     homeTab: 'overview' as 'overview' | 'gacha',
   }),
   getters: {
-    // Settings is a peer view, mutually exclusive with grid/detail (it no
+    // Settings is a peer view, mutually exclusive with the detail view (it no
     // longer floats over everything). Exposed as a boolean for components that
     // think in open/closed terms.
     settingsOpen: (s): boolean => s.viewMode === 'settings',

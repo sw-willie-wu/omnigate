@@ -29,6 +29,7 @@ logs/
 state.toml
 *.log
 *.log.1
+wuwa_uid_cache.json
 
 # editor / OS
 .vscode/

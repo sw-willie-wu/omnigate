@@ -26,7 +26,7 @@ describe('games.launchGame', () => {
 
     await games.launchGame('fake/g');
 
-    expect(LaunchMock).toHaveBeenCalledWith('fake/g');
+    expect(LaunchMock).toHaveBeenCalledWith('fake/g', '');
     const row = games.games[0];
     expect(row.last_played).toBeTruthy();
     expect(row.icon_url).toBe('icon://x');

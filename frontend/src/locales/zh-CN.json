@@ -23,6 +23,9 @@
     "unsupported": "此游戏尚未支持抽卡分析。",
     "empty": "尚无记录。请先在游戏内打开一次抽卡记录，再刷新。",
     "url_hint": "记录链接已失效。请在游戏内重新打开抽卡记录后再刷新。",
+    "play_first": "请先用此账号进游戏并打开一次唤取记录，再回来查看。",
+    "wrong_account": "最近一次的唤取记录属于其他账号。请在游戏内以此账号打开唤取记录页后再刷新。",
+    "url_expired": "唤取链接已过期。请在游戏内重新打开唤取记录页后再刷新。",
     "refresh": "刷新记录",
     "total_pulls": "总抽数",
     "spend_est": "消耗",
@@ -74,6 +77,9 @@
   "buttons": {
     "play": "开始游戏",
     "play_short": "开始",
+    "play_as": "以 {name} 启动",
+    "launching": "游戏运行中",
+    "launch_failed": "启动失败",
     "update": "更新",
     "pause": "暂停",
     "confirm": "确认",
@@ -229,5 +235,16 @@
     "overview": "总览",
     "gacha": "抽卡分析",
     "coming_soon": "即将推出"
+  },
+  "account": {
+    "switchHint": "切换账号",
+    "addInGame": "在游戏登录新账号",
+    "switchedToast": "已切到 {name}，启动游戏生效",
+    "gameRunning": "请先关闭游戏再切换",
+    "switchFailed": "账号切换失败",
+    "rename": "重命名",
+    "namePlaceholder": "自定义名称",
+    "uidPending": "登录后获取",
+    "currentlyLoggedIn": "当前登录"
   }
 }

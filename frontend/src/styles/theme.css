@@ -13,6 +13,11 @@
     --tx-dim: #4a5060;
     --line-1: rgba(255,255,255,0.06);
     --line-2: rgba(255,255,255,0.10);
+    /* layered glass: elevation → opacity + blur. higher layer = more opaque + more blur */
+    --glass-1: rgba(15,15,25,0.45); --glass-1-blur: 8px;
+    --glass-2: rgba(15,15,25,0.62); --glass-2-blur: 12px;
+    --glass-3: rgba(20,20,30,0.80); --glass-3-blur: 16px;
+    --glass-modal: rgba(15,15,25,0.95); --glass-modal-blur: 16px;
     --warn: #e8b865; --info: #6fa8ff; --crit: #d66666; --ok: #74d68a;
     /* CJK font: switches to Simplified for zh-CN so glyphs render with correct
        forms. Every CJK-bearing font stack references var(--cjk). */
@@ -39,8 +44,7 @@
 
   /* ━━━ FULL-BLEED BACKGROUND (inside wrap) ━━━ */
   .app-bg-layer { position: absolute; inset: 0; z-index: 0; overflow: hidden; transition: filter 0.3s ease-out; }
-  /* Grid mode: blur background so the card grid stands out. */
-  .app-wrap:has(.app.grid-mode) .app-bg-layer,
+  /* Settings: blur background so the panel stands out. */
   .app-wrap:has(.app.settings-mode) .app-bg-layer { filter: blur(16px) brightness(0.7); }
   .app-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.6s ease-out; }
   .app-bg.fading { opacity: 0; }
@@ -85,13 +89,12 @@
     transition: grid-template-columns 0.25s ease;
   }
   .app.collapsed { grid-template-columns: 64px 1fr; }
-  .app.grid-mode, .app.settings-mode { grid-template-columns: 1fr; }
+  .app.settings-mode { grid-template-columns: 1fr; }
   .sidebar { grid-column: 1; grid-row: 1 / -1; }
   .topbar { grid-column: 2; grid-row: 1; }
   .main { grid-column: 2; grid-row: 2; }
   .footbar { grid-column: 2; grid-row: 3; }
-  .app.grid-mode .sidebar, .app.settings-mode .sidebar { display: none; }
-  .app.grid-mode .topbar, .app.grid-mode .main, .app.grid-mode .footbar,
+  .app.settings-mode .sidebar { display: none; }
   .app.settings-mode .topbar, .app.settings-mode .main, .app.settings-mode .footbar { grid-column: 1; }
 
   /* ━━━ GLASS CHROME ━━━ */
@@ -147,8 +150,9 @@
     min-width: 320px;
     max-width: 420px;
     max-height: 60vh;
-    background: rgba(15, 15, 25, 0.96);
-    backdrop-filter: blur(12px);
+    background: var(--glass-modal);
+    backdrop-filter: blur(var(--glass-modal-blur));
+    -webkit-backdrop-filter: blur(var(--glass-modal-blur));
     border: 1px solid rgba(214, 176, 75, 0.4);
     border-radius: 10px;
     color: var(--text);
@@ -229,13 +233,11 @@
   .topbar { --wails-draggable: drag; -webkit-user-select: none; }
   .topbar button, .toolbar, .brand-mark { --wails-draggable: no-drag; }
 
-  .app.grid-mode .bottom-bar { display: none; }
-
   /* ━━━ SIDEBAR (glass) ━━━ */
   .sidebar {
-    background: rgba(8,8,14,0.7);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
+    background: var(--glass-1);
+    backdrop-filter: blur(var(--glass-1-blur));
+    -webkit-backdrop-filter: blur(var(--glass-1-blur));
     overflow-y: auto; min-height: 0;
   }
   .sidebar-header {
@@ -282,8 +284,8 @@
   /* Detail (home) mode: drop the content padding/gap so the NavStrip pins flush
      under the titlebar at full content width and the key-art hero is full-bleed
      beneath it. The absolute BottomBar/HomeActionBar self-positions and is
-     unaffected. Grid/settings keep the padded layout. */
-  .app:not(.grid-mode):not(.settings-mode) .main { padding: 0; gap: 0; }
+     unaffected. Settings keeps the padded layout. */
+  .app:not(.settings-mode) .main { padding: 0; gap: 0; }
   .main::-webkit-scrollbar { width: 6px; }
   .main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); }
 
@@ -369,39 +371,11 @@
   .launch-btn:hover { transform: translate(-3px, -3px); box-shadow: 6px 6px 0 var(--accent-dim); }
   .launch-btn .play-tri { display: inline-block; width: 0; height: 0; border-left: 9px solid var(--bg); border-top: 6px solid transparent; border-bottom: 6px solid transparent; margin-right: 12px; vertical-align: middle; }
 
-  /* GRID view */
   .view.hidden { display: none; }
-  .view-grid { display: flex; flex-direction: column; gap: 36px; }
+  /* Shared full-width-view section header (used by the Settings view). */
   .grid-section-label { font-size: 14px; line-height: 20px; font-weight: 700; letter-spacing: 0.22em; color: var(--text); text-transform: uppercase; display: flex; align-items: baseline; gap: 18px; padding: 0 4px 14px; }
   .grid-section-label > span { min-width: 120px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 20px; }
   .grid-section-label::after { content: ''; flex: 1; height: 0; border-bottom: 1px dashed var(--border-strong); transform: translateY(-3px); }
-  .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 22px; }
-  .grid-card {
-    background: rgba(15,15,25,0.5);
-    backdrop-filter: blur(10px) saturate(1.2);
-    border: 1px solid var(--border-strong);
-    cursor: pointer; transition: border-color 0.12s, transform 0.12s;
-  }
-  .grid-card:hover { border-color: var(--accent-dim); transform: translateY(-2px); }
-  .grid-card-art { aspect-ratio: 16/9; position: relative; overflow: hidden; border-bottom: 1px solid var(--border); }
-  .grid-card-art img { width: 100%; height: 100%; object-fit: cover; filter: saturate(0.95) brightness(0.85); }
-  .grid-card-status-pill { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); padding: 3px 8px; font-size: 9px; line-height: 13px; letter-spacing: 0.16em; font-weight: 600; border: 1px solid rgba(214,176,75,0.4); color: rgba(255,255,255,0.95); }
-  .grid-card-status-pill.ready { color: var(--ok); border-color: rgba(116,214,138,0.4); }
-  .grid-card-status-pill.update { color: var(--warn); border-color: rgba(232,184,101,0.5); }
-  .grid-card-status-pill.predownload { color: var(--info); border-color: rgba(111,168,255,0.5); }
-  .grid-card-status-pill.downloading { color: var(--text); border-color: rgba(184,184,196,0.5); }
-  .grid-card-name { position: absolute; bottom: 8px; left: 12px; right: 8px; font-family: var(--cjk), sans-serif; font-size: 14px; line-height: 18px; font-weight: 700; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
-  .grid-progress { position: absolute; bottom: 0; left: 0; height: 2px; background: var(--accent); }
-  .grid-card-foot { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; }
-  .grid-card-substatus { font-size: 9px; line-height: 13px; letter-spacing: 0.16em; font-weight: 500; text-transform: uppercase; }
-  .grid-card-substatus.ready { color: var(--ok); }
-  .grid-card-substatus.update { color: var(--warn); }
-  .grid-card-substatus.predownload { color: var(--info); }
-  .grid-card-substatus.downloading { color: var(--text-2); }
-  .grid-card-btn { background: transparent; border: 1px solid var(--border-strong); color: var(--text); padding: 4px 12px; font-family: inherit; font-size: 9px; line-height: 13px; letter-spacing: 0.2em; font-weight: 600; text-transform: uppercase; cursor: pointer; }
-  .grid-card-btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-  .grid-card-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .grid-card-btn.primary:hover { transform: translate(-1px, -1px); box-shadow: 2px 2px 0 var(--accent-dim); color: var(--bg); }
 
   /* footer (glass) */
   .footbar {
@@ -433,8 +407,9 @@
     right: 0;
     z-index: 991;
     width: 480px;
-    background: rgba(15, 15, 25, 0.96);
-    backdrop-filter: blur(12px);
+    background: var(--glass-modal);
+    backdrop-filter: blur(var(--glass-modal-blur));
+    -webkit-backdrop-filter: blur(var(--glass-modal-blur));
     border: 1px solid rgba(214, 176, 75, 0.4);
     border-radius: 10px;
     color: var(--text);
@@ -574,8 +549,8 @@
   }
 
   /* Settings is a peer view filling the main content area (not an overlay), so
-     the titlebar / sidebar / footbar stay visible. It reuses grid view's
-     .grid-section-label headers so the two full-width views read as one family. */
+     the titlebar / sidebar / footbar stay visible. It uses the shared
+     .grid-section-label full-width-view header. */
   .settings-view {
     flex: 1; min-width: 0; min-height: 0;
     display: flex; flex-direction: column;

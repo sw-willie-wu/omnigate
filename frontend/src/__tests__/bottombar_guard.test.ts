@@ -24,9 +24,9 @@ describe('BottomBar visibility guard', () => {
     expect(bottomBarVisible(v)).toBe(false);
   });
 
-  it('hides outside detail (grid/settings) regardless of tab', () => {
+  it('hides outside detail (settings) regardless of tab', () => {
     const v = useViewStore();
-    v.setView('grid');
+    v.openSettings();
     v.setHomeTab('overview');
     expect(bottomBarVisible(v)).toBe(false);
   });

@@ -5,13 +5,18 @@ import "errors"
 // Sentinel errors that the rest of the codebase wraps with %w. The frontend
 // uses ErrorCode to map these to stable JSON-friendly codes.
 var (
-	ErrUnknownGame            = errors.New("unknown game id")
-	ErrGameNotInstalled       = errors.New("game not installed")
-	ErrBackendNotConfigured   = errors.New("backend not configured")
-	ErrLauncherMissing        = errors.New("launcher folder not found")
-	ErrAssetNotAvailable      = errors.New("asset not available")
-	ErrGachaURLUnavailable    = errors.New("gacha history url unavailable")
-	ErrPredownloadUnsupported = errors.New("predownload not supported for this game")
+	ErrUnknownGame              = errors.New("unknown game id")
+	ErrGameNotInstalled         = errors.New("game not installed")
+	ErrBackendNotConfigured     = errors.New("backend not configured")
+	ErrLauncherMissing          = errors.New("launcher folder not found")
+	ErrAssetNotAvailable        = errors.New("asset not available")
+	ErrGachaURLUnavailable      = errors.New("gacha history url unavailable")
+	ErrPredownloadUnsupported   = errors.New("predownload not supported for this game")
+	ErrGameRunning              = errors.New("game is running")
+	ErrAccountSwitchUnsupported = errors.New("account switching not supported for this game")
+	ErrGachaWrongAccount        = errors.New("gacha record belongs to a different account")
+	ErrGachaURLExpired          = errors.New("gacha convene url expired")
+	ErrGachaActiveUnknown       = errors.New("gacha active account unknown")
 )
 
 // ErrorCode returns a stable JSON-friendly code for the given error. The
@@ -33,6 +38,16 @@ func ErrorCode(err error) string {
 		return "asset_unavailable"
 	case errors.Is(err, ErrGachaURLUnavailable):
 		return "gacha_url"
+	case errors.Is(err, ErrGameRunning):
+		return "game_running"
+	case errors.Is(err, ErrAccountSwitchUnsupported):
+		return "account_switch_unsupported"
+	case errors.Is(err, ErrGachaWrongAccount):
+		return "gacha_wrong_account"
+	case errors.Is(err, ErrGachaURLExpired):
+		return "gacha_url_expired"
+	case errors.Is(err, ErrGachaActiveUnknown):
+		return "gacha_active_unknown"
 	default:
 		return "internal"
 	}

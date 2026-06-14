@@ -126,8 +126,8 @@ export const useGamesStore = defineStore('games', {
     // Direct field mutation only — NEVER via _replaceRow (that re-fetches and
     // would wipe icon_url/backgrounds/bgIndex). Backend persists the
     // authoritative value to playstate.json; it reaches us on next cold start.
-    async launchGame(gameID: string) {
-      await Launch(gameID);
+    async launchGame(gameID: string, accountID = '') {
+      await Launch(gameID, accountID);
       const row = this.games.find((g) => g.id === gameID);
       if (row) row.last_played = new Date().toISOString();
     },

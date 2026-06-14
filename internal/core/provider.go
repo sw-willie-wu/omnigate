@@ -195,6 +195,27 @@ type NewsProvider interface {
 	GetNews(ctx context.Context, gid GameID, lang string) ([]NewsItem, error)
 }
 
+// GameAccount is one launcher-remembered account for a game. The provider never
+// exposes credentials; ID is a provider-defined opaque key (for kurogames: the
+// KRSDK cuid). UID is the in-game UID, "" when not yet known.
+type GameAccount struct {
+	ID       string `json:"id"`
+	UID      string `json:"uid"`
+	Label    string `json:"label"` // App-owned user label; providers leave this empty
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Active   bool   `json:"active"`
+}
+
+// AccountSwitcher is an optional Provider capability: list the launcher-
+// remembered accounts for a game and switch which one logs in next. Switching
+// mutates only the publisher's own login-pointer state and requires the game to
+// be closed. Implementations store no credentials.
+type AccountSwitcher interface {
+	ListAccounts(ctx context.Context, gid GameID) ([]GameAccount, error)
+	SwitchAccount(ctx context.Context, gid GameID, accountID string) error // accountID = GameAccount.ID
+}
+
 // Provider is the integration point for one launcher backend (one publisher).
 // Phase 1 = hoyoverse only.
 type Provider interface {

@@ -24,6 +24,8 @@ type fakeProvider struct {
 	// DefaultScan result + captured SetResolvedPaths injection (Task 8)
 	def      map[core.GameID]string
 	injected map[core.GameID]string
+	// spawn counter for Launch (account-selection launch tests)
+	launchCalls int
 }
 
 func (f *fakeProvider) DefaultScan(context.Context) (map[core.GameID]string, error) {
@@ -46,6 +48,7 @@ func (f *fakeProvider) CheckVersion(ctx context.Context, gid core.GameID) (core.
 	return core.VersionInfo{}, nil
 }
 func (f *fakeProvider) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
+	f.launchCalls++
 	return 0, nil
 }
 func TestProviderLookup(t *testing.T) {
@@ -449,7 +452,7 @@ func TestLaunch_RecordsLastPlayed(t *testing.T) {
 	a := buildAppWithResolved(t, gid, dir)
 	a.playState = loadPlayState(filepath.Join(t.TempDir(), "playstate.json"))
 
-	if _, err := a.Launch(string(gid)); err != nil {
+	if _, err := a.Launch(string(gid), ""); err != nil {
 		t.Fatalf("Launch failed: %v", err)
 	}
 	if a.playState.Get(string(gid)).IsZero() {
@@ -464,6 +467,66 @@ func TestLaunch_RecordsLastPlayed(t *testing.T) {
 	}
 	if lp == "" {
 		t.Fatalf("ListGames row missing last_played")
+	}
+}
+
+func TestIsGameRunning(t *testing.T) {
+	gp := &fakeSwitcherGachaProvider{}
+	a := newTestAppWithSwitcherGacha(t, gp)
+	// fakeSwitcherGachaProvider embeds fakeProvider which does NOT implement
+	// ProcessChecker → IsGameRunning reports false, no error.
+	running, err := a.IsGameRunning("kurogames/wutheringwaves")
+	if err != nil || running {
+		t.Fatalf("want (false,nil) for non-ProcessChecker provider, got (%v,%v)", running, err)
+	}
+}
+
+func TestLaunch_SwitchBeforeSpawn(t *testing.T) {
+	game := "kurogames/wutheringwaves"
+	// (a) accountID "" → no switch, spawns.
+	gp := &fakeSwitcherGachaProvider{accounts: []core.GameAccount{{ID: "A", Active: true}, {ID: "B"}}}
+	a := newTestAppWithSwitcherGacha(t, gp)
+	if _, err := a.Launch(game, ""); err != nil {
+		t.Fatalf("launch(\"\"): %v", err)
+	}
+	if gp.swCalls != 0 || gp.launchCalls != 1 {
+		t.Fatalf("(a) sw=%d launch=%d want 0/1", gp.swCalls, gp.launchCalls)
+	}
+	// (b) accountID == already-active → no switch, spawns.
+	gp = &fakeSwitcherGachaProvider{accounts: []core.GameAccount{{ID: "A", Active: true}, {ID: "B"}}}
+	a = newTestAppWithSwitcherGacha(t, gp)
+	if _, err := a.Launch(game, "A"); err != nil {
+		t.Fatalf("launch(A): %v", err)
+	}
+	if gp.swCalls != 0 || gp.launchCalls != 1 {
+		t.Fatalf("(b) sw=%d launch=%d want 0/1", gp.swCalls, gp.launchCalls)
+	}
+	// (c) accountID == other → switch then spawn.
+	gp = &fakeSwitcherGachaProvider{accounts: []core.GameAccount{{ID: "A", Active: true}, {ID: "B"}}}
+	a = newTestAppWithSwitcherGacha(t, gp)
+	if _, err := a.Launch(game, "B"); err != nil {
+		t.Fatalf("launch(B): %v", err)
+	}
+	if gp.swCalls != 1 || gp.launchCalls != 1 {
+		t.Fatalf("(c) sw=%d launch=%d want 1/1", gp.swCalls, gp.launchCalls)
+	}
+	// (d) SwitchAccount errors → Launch returns it, no spawn.
+	gp = &fakeSwitcherGachaProvider{accounts: []core.GameAccount{{ID: "A", Active: true}, {ID: "B"}}, swErr: core.ErrGameRunning}
+	a = newTestAppWithSwitcherGacha(t, gp)
+	if _, err := a.Launch(game, "B"); !errors.Is(err, core.ErrGameRunning) {
+		t.Fatalf("(d) want ErrGameRunning, got %v", err)
+	}
+	if gp.launchCalls != 0 {
+		t.Fatalf("(d) must not spawn, launch=%d", gp.launchCalls)
+	}
+	// (e) ListAccounts errors with accountID≠"" → Launch returns it, no spawn.
+	gp = &fakeSwitcherGachaProvider{listErr: errors.New("io"), accounts: []core.GameAccount{{ID: "A", Active: true}}}
+	a = newTestAppWithSwitcherGacha(t, gp)
+	if _, err := a.Launch(game, "B"); err == nil {
+		t.Fatalf("(e) want error on ListAccounts failure")
+	}
+	if gp.launchCalls != 0 {
+		t.Fatalf("(e) must not spawn, launch=%d", gp.launchCalls)
 	}
 }
 

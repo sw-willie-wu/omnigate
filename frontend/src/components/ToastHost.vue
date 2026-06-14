@@ -16,7 +16,7 @@ defineExpose({
     const toast: Toast = { ...t, id: nextId++ };
     toasts.value.push(toast);
     if (!t.retryable) {
-      setTimeout(() => dismiss(toast.id), 5000);
+      setTimeout(() => dismiss(toast.id), 3000);
     }
   },
 });
@@ -33,14 +33,14 @@ function retry(t: Toast) {
 
 <template>
   <Teleport to="body">
-    <div class="toast-host">
+    <TransitionGroup name="toast" tag="div" class="toast-host">
       <div v-for="t in toasts.slice(-3)" :key="t.id" class="toast" :class="{retryable: t.retryable}">
         <span class="msg">{{ t.message }}</span>
         <button v-if="t.retryable" @click="retry(t)" class="btn-retry">Retry</button>
         <button @click="dismiss(t.id)" class="btn-close">×</button>
       </div>
-      <div v-if="toasts.length > 3" class="toast-overflow">+{{ toasts.length - 3 }} more</div>
-    </div>
+      <div v-if="toasts.length > 3" :key="'overflow'" class="toast-overflow">+{{ toasts.length - 3 }} more</div>
+    </TransitionGroup>
   </Teleport>
 </template>
 
@@ -55,16 +55,22 @@ function retry(t: Toast) {
   gap: 8px;
   max-width: 360px;
 }
+/* slide in from the right; fade (and ease back out) on dismiss */
+.toast-enter-active, .toast-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(40px); }
+.toast-move { transition: transform 0.3s ease; }
 .toast {
-  background: rgba(20, 20, 30, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--glass-3);
+  backdrop-filter: blur(var(--glass-3-blur));
+  -webkit-backdrop-filter: blur(var(--glass-3-blur));
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 12px 16px;
   color: var(--text);
   display: flex;
   align-items: center;
   gap: 8px;
+  box-shadow: 0 12px 32px -10px rgba(0,0,0,0.7);
 }
 .toast.retryable {
   border-color: rgba(214, 176, 75, 0.5);

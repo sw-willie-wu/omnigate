@@ -33,3 +33,13 @@ func platformIsProcessRunning(exeName string) bool {
 	}
 	return false
 }
+
+// anyProcessRunning reports whether ANY of the named exes is running.
+func anyProcessRunning(names []string) bool {
+	for _, n := range names {
+		if platformIsProcessRunning(n) {
+			return true
+		}
+	}
+	return false
+}

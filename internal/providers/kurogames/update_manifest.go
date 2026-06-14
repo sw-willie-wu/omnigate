@@ -20,7 +20,7 @@ import (
 )
 
 // AppCred is the hardcoded `appId_appKey` for WuWa Global / live channel.
-// Verified per docs/superpowers/research/m3a-kuro-update-protocol.md (2026-05-05);
+// Verified per .claude/research/m3a-kuro-update-protocol.md (2026-05-05);
 // identical on every install (NOT per-machine, NOT extracted from cache).
 const AppCred = "50004_obOHXFrFanqsaIEOmuKroCcbZkQRBC7c"
 

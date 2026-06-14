@@ -11,6 +11,7 @@ import { useUpdatesStore } from '../stores/updates';
 vi.mock('../composables/useDialog', () => ({ confirm: vi.fn().mockResolvedValue(true) }));
 vi.mock('../../wailsjs/go/app/App', () => ({
   Launch: vi.fn(),
+  IsGameRunning: vi.fn(),
   StartUpdate: vi.fn(),
   StartPredownload: vi.fn(),
   CancelInFlight: vi.fn(),
