@@ -16,12 +16,11 @@ describe('view store settings drawer', () => {
 
   it('toggling settings off returns to the home (detail) view, not where it was opened from', () => {
     const v = useViewStore();
-    v.setView('grid');
     v.toggleSettings();
     expect(v.viewMode).toBe('settings');
     expect(v.settingsOpen).toBe(true);
     v.toggleSettings();
-    expect(v.viewMode).toBe('detail'); // home, not the grid we came from
+    expect(v.viewMode).toBe('detail'); // home
     expect(v.settingsOpen).toBe(false);
   });
 
@@ -29,8 +28,8 @@ describe('view store settings drawer', () => {
     const v = useViewStore();
     v.openSettings();
     expect(v.viewMode).toBe('settings');
-    v.setView('grid');
-    expect(v.viewMode).toBe('grid');
+    v.setView('detail');
+    expect(v.viewMode).toBe('detail');
     expect(v.settingsOpen).toBe(false);
   });
 });

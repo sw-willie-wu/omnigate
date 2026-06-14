@@ -31,7 +31,6 @@ const onRefresh = async () => {
         <span class="material-symbols-outlined">{{ pendingCount > 0 ? 'notifications_active' : 'notifications' }}</span>
         <span v-if="pendingCount > 0" class="notif-badge">{{ pendingCount }}</span>
       </button>
-      <button class="icon-btn" :class="{active: view.viewMode === 'grid'}" @click="view.setView(view.viewMode === 'grid' ? 'detail' : 'grid')"><span class="material-symbols-outlined">grid_view</span></button>
       <button class="icon-btn" :class="{active: view.viewMode === 'settings'}" @click="view.toggleSettings()" title="Settings"><span class="material-symbols-outlined">settings</span></button>
       <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize"><span class="material-symbols-outlined">remove</span></button>
       <button class="icon-btn window-btn close" @click="Quit()" title="Close"><span class="material-symbols-outlined">close</span></button>
