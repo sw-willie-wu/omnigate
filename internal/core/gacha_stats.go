@@ -27,6 +27,7 @@ type HeadlineEntry struct {
 type GachaSummary struct {
 	Supported      bool            `json:"supported"`
 	UID            string          `json:"uid"`
+	ActiveUnknown  bool            `json:"activeUnknown"` // switcher-only: active account uid not yet known (play-first)
 	TotalPulls     int             `json:"totalPulls"`
 	PerBanner      map[string]int  `json:"perBanner"`
 	SpendEst       int             `json:"spendEst"`

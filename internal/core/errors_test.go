@@ -46,3 +46,16 @@ func TestErrorCode_AccountSwitcherSentinels(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorCode_GachaLinkageSentinels(t *testing.T) {
+	cases := map[error]string{
+		ErrGachaWrongAccount:  "gacha_wrong_account",
+		ErrGachaURLExpired:    "gacha_url_expired",
+		ErrGachaActiveUnknown: "gacha_active_unknown",
+	}
+	for sentinel, want := range cases {
+		if got := ErrorCode(fmt.Errorf("wrap: %w", sentinel)); got != want {
+			t.Errorf("ErrorCode(%v) = %q, want %q", sentinel, got, want)
+		}
+	}
+}

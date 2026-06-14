@@ -14,6 +14,9 @@ var (
 	ErrPredownloadUnsupported   = errors.New("predownload not supported for this game")
 	ErrGameRunning              = errors.New("game is running")
 	ErrAccountSwitchUnsupported = errors.New("account switching not supported for this game")
+	ErrGachaWrongAccount        = errors.New("gacha record belongs to a different account")
+	ErrGachaURLExpired          = errors.New("gacha convene url expired")
+	ErrGachaActiveUnknown       = errors.New("gacha active account unknown")
 )
 
 // ErrorCode returns a stable JSON-friendly code for the given error. The
@@ -39,6 +42,12 @@ func ErrorCode(err error) string {
 		return "game_running"
 	case errors.Is(err, ErrAccountSwitchUnsupported):
 		return "account_switch_unsupported"
+	case errors.Is(err, ErrGachaWrongAccount):
+		return "gacha_wrong_account"
+	case errors.Is(err, ErrGachaURLExpired):
+		return "gacha_url_expired"
+	case errors.Is(err, ErrGachaActiveUnknown):
+		return "gacha_active_unknown"
 	default:
 		return "internal"
 	}
