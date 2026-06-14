@@ -16,6 +16,9 @@ vi.mock('../../composables/useToast', () => ({
   pushToast: (...a: unknown[]) => pushToast(...a),
 }));
 
+const gachaReload = vi.fn();
+vi.mock('../../stores/gacha', () => ({ useGachaStore: () => ({ reload: gachaReload }) }));
+
 import AccountChip from '../AccountChip.vue';
 
 const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {
@@ -32,7 +35,7 @@ function mountChip() {
 }
 
 describe('AccountChip', () => {
-  beforeEach(() => { list.mockReset(); switchAcc.mockReset(); setLabel.mockReset(); pushToast.mockReset(); });
+  beforeEach(() => { list.mockReset(); switchAcc.mockReset(); setLabel.mockReset(); pushToast.mockReset(); gachaReload.mockReset(); });
 
   it('renders the email as primary and the UID as secondary', async () => {
     list.mockResolvedValue([
@@ -84,6 +87,20 @@ describe('AccountChip', () => {
     expect(switchAcc).toHaveBeenCalledWith('kurogames/wutheringwaves', '535788351');
     await flushPromises();
     expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('Switched to'));
+  });
+
+  it('reloads the gacha board after a successful switch', async () => {
+    list.mockResolvedValue([
+      { id: '537195734', uid: '700727240', label: '', email: 'a@example.com', username: 'U547195734A', active: true },
+      { id: '535788351', uid: '', label: '', email: 'b@example.com', username: 'U545788351A', active: false },
+    ]);
+    switchAcc.mockResolvedValue(undefined);
+    const w = mountChip();
+    await flushPromises();
+    await w.find('[data-test="account-chip"]').trigger('click');
+    await w.find('[data-test="account-opt-535788351"]').trigger('click');
+    await flushPromises();
+    expect(gachaReload).toHaveBeenCalledWith('kurogames/wutheringwaves');
   });
 
   it('shows the game-running toast when the switch is blocked', async () => {

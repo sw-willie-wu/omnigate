@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ListGameAccounts, SwitchGameAccount, SetAccountLabel } from '../../wailsjs/go/app/App';
 import { pushToast } from '../composables/useToast';
+import { useGachaStore } from '../stores/gacha';
 
 type Account = { id: string; uid: string; label: string; email: string; username: string; active: boolean };
 
@@ -54,6 +55,7 @@ async function pick(a: Account) {
   try {
     await SwitchGameAccount(props.gameId, a.id);
     await load();
+    useGachaStore().reload(props.gameId); // re-resolve the gacha board for the new active account
     pushToast(t('account.switchedToast', { name: primary(a) }));
   } catch (e) {
     const msg = String((e as Error)?.message ?? e);
