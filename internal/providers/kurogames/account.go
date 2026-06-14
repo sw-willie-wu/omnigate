@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -44,32 +46,65 @@ func rewriteLastLoginCuid(data []byte, cuid string) ([]byte, error) {
 	return lastLoginRe.ReplaceAll(data, []byte("${1}"+cuid+"${2}")), nil
 }
 
-// readRecentlyLoginUID returns the active in-game UID from a WuWa LocalStorage.db
-// (read-only). "" with nil error when the key is absent.
-func readRecentlyLoginUID(dbPath string) (string, error) {
+// readActiveLoginState reads RecentlyLoginUID plus the per-uid LoginTime_<uid>
+// from a WuWa LocalStorage.db (read-only). loginTime is the zero Time when the
+// active uid has no LoginTime row or its value can't be parsed (the account
+// never actually entered the game). "" uid with nil error when absent.
+func readActiveLoginState(dbPath string) (uid string, loginTime time.Time, err error) {
 	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	defer db.Close()
-	var uid string
-	err = db.QueryRow(`SELECT value FROM LocalStorage WHERE key='RecentlyLoginUID'`).Scan(&uid)
-	if err == sql.ErrNoRows {
-		return "", nil
+	if err := db.QueryRow(`SELECT value FROM LocalStorage WHERE key='RecentlyLoginUID'`).Scan(&uid); err != nil {
+		if err == sql.ErrNoRows {
+			return "", time.Time{}, nil
+		}
+		return "", time.Time{}, err
 	}
+	if uid == "" {
+		return "", time.Time{}, nil
+	}
+	var lt string
+	if err := db.QueryRow(`SELECT value FROM LocalStorage WHERE key=?`, "LoginTime_"+uid).Scan(&lt); err != nil {
+		// No LoginTime row (never entered the game) → zero time, not an error.
+		return uid, time.Time{}, nil
+	}
+	return uid, parseEpochTime(lt), nil
+}
+
+// readRecentlyLoginUID returns just the active uid (LoginTime ignored). Retained
+// as a thin wrapper for the focused reader test; ListAccounts uses
+// readActiveLoginState so it can apply the per-uid trust guard.
+func readRecentlyLoginUID(dbPath string) (string, error) {
+	uid, _, err := readActiveLoginState(dbPath)
 	return uid, err
 }
 
-// activeUIDTrustable reports whether LocalStorage.db's RecentlyLoginUID provably
-// belongs to the current last_login_cuid: true only when the game wrote the DB
-// AFTER the last login-pointer change (db mtime newer than cache mtime).
-func activeUIDTrustable(cachePath, dbPath string) bool {
-	cs, err1 := os.Stat(cachePath)
-	ds, err2 := os.Stat(dbPath)
-	if err1 != nil || err2 != nil {
+// parseEpochTime parses a WuWa LoginTime value ("<epoch_seconds>.<frac>") into a
+// time.Time. Unparseable → zero Time (the guard then rejects, degrading safe).
+func parseEpochTime(s string) time.Time {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return time.Time{}
+	}
+	sec := int64(f)
+	nsec := int64((f - float64(sec)) * 1e9)
+	return time.Unix(sec, nsec)
+}
+
+// activeUIDTrustable reports whether the active uid's in-game LoginTime is newer
+// than the KRSDK cache (login-pointer) mtime — i.e. the game actually entered
+// with that account AFTER the last pointer change. The whole-db-file mtime is
+// deliberately NOT used: it advances on every launch (login screen, account
+// picker, logging into another account) even when no account actually logged in,
+// which falsely trusted a stale RecentlyLoginUID.
+func activeUIDTrustable(cachePath string, loginTime time.Time) bool {
+	cs, err := os.Stat(cachePath)
+	if err != nil {
 		return false
 	}
-	return ds.ModTime().After(cs.ModTime())
+	return loginTime.After(cs.ModTime())
 }
 
 // parseKRSDKAccounts maps the KRSDK cache JSON to []core.GameAccount. The active
@@ -145,12 +180,10 @@ func (p *Provider) ListAccounts(ctx context.Context, gid core.GameID) ([]core.Ga
 	}
 	if installDir, derr := p.gameDir(ctx, gid); derr == nil {
 		dbPath := p.localStorageDBPathFn(installDir)
-		if activeUIDTrustable(cachePath, dbPath) {
-			if uid, uerr := readRecentlyLoginUID(dbPath); uerr == nil && uid != "" {
-				for i := range accts {
-					if accts[i].Active {
-						accts[i].UID = uid
-					}
+		if uid, lt, uerr := readActiveLoginState(dbPath); uerr == nil && uid != "" && activeUIDTrustable(cachePath, lt) {
+			for i := range accts {
+				if accts[i].Active {
+					accts[i].UID = uid
 				}
 			}
 		}

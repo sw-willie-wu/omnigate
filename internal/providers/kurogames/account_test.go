@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,63 @@ func writeLocalStorageDB(t *testing.T, path, uid string) {
 	}
 }
 
+// setLoginTime inserts a LoginTime_<uid> row with a raw string value (so both
+// numeric epochs and malformed values can be tested).
+func setLoginTime(t *testing.T, path, uid, value string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO LocalStorage(key,value) VALUES(?,?)`, "LoginTime_"+uid, value); err != nil {
+		t.Fatalf("insert LoginTime: %v", err)
+	}
+}
+
+func TestReadActiveLoginState(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "LocalStorage.db")
+	writeLocalStorageDB(t, db, "700001181")
+	setLoginTime(t, db, "700001181", "1781413062.0577722")
+	uid, lt, err := readActiveLoginState(db)
+	if err != nil || uid != "700001181" {
+		t.Fatalf("uid=%q err=%v", uid, err)
+	}
+	// Assert sub-second precision: the fractional epoch must be preserved (this
+	// matters when LoginTime and the cache mtime fall in the same whole second).
+	if d := lt.Sub(time.Unix(1781413062, 57772200)); d < -time.Millisecond || d > time.Millisecond {
+		t.Errorf("loginTime=%v, want ~1781413062.0577722 (off by %v)", lt, d)
+	}
+}
+
+func TestReadActiveLoginState_NoLoginTimeRow(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "LocalStorage.db")
+	writeLocalStorageDB(t, db, "700001181") // no LoginTime row
+	uid, lt, err := readActiveLoginState(db)
+	if err != nil || uid != "700001181" {
+		t.Fatalf("uid=%q err=%v", uid, err)
+	}
+	if !lt.IsZero() {
+		t.Errorf("loginTime should be zero when no LoginTime row, got %v", lt)
+	}
+}
+
+func TestReadActiveLoginState_MalformedLoginTime(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "LocalStorage.db")
+	writeLocalStorageDB(t, db, "700001181")
+	setLoginTime(t, db, "700001181", "not-a-number")
+	uid, lt, err := readActiveLoginState(db)
+	if err != nil || uid != "700001181" {
+		t.Fatalf("uid=%q err=%v", uid, err)
+	}
+	if !lt.IsZero() {
+		t.Errorf("malformed LoginTime must parse to zero time, got %v", lt)
+	}
+}
+
 func TestReadRecentlyLoginUID(t *testing.T) {
 	dir := t.TempDir()
 	db := filepath.Join(dir, "LocalStorage.db")
@@ -104,23 +162,53 @@ func TestReadRecentlyLoginUID(t *testing.T) {
 	}
 }
 
-func TestActiveUIDTrustable_MtimeGuard(t *testing.T) {
+func TestActiveUIDTrustable_LoginTimeGuard(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "KRSDKUserCache.json")
-	db := filepath.Join(dir, "LocalStorage.db")
 	os.WriteFile(cache, []byte("{}"), 0o644)
-	os.WriteFile(db, []byte("x"), 0o644)
-
 	base := time.Now()
 	os.Chtimes(cache, base, base)
-	os.Chtimes(db, base.Add(time.Minute), base.Add(time.Minute))
-	if !activeUIDTrustable(cache, db) {
-		t.Error("db newer than cache should be trustable")
+
+	if !activeUIDTrustable(cache, base.Add(time.Minute)) {
+		t.Error("loginTime after cache mtime should be trustable")
 	}
-	os.Chtimes(cache, base.Add(time.Minute), base.Add(time.Minute))
-	os.Chtimes(db, base, base)
-	if activeUIDTrustable(cache, db) {
-		t.Error("cache newer than db must NOT be trustable")
+	if activeUIDTrustable(cache, base.Add(-time.Minute)) {
+		t.Error("loginTime before cache mtime must NOT be trustable")
+	}
+	if activeUIDTrustable(cache, time.Time{}) {
+		t.Error("zero loginTime must NOT be trustable")
+	}
+}
+
+func TestListAccounts_TransitionalNotTrusted(t *testing.T) {
+	// The db file is newer than the cache (a launch/login-screen touch) but the
+	// active uid's LoginTime predates the cache mtime → old guard wrongly
+	// trusted; the hardened guard must NOT fill the active UID.
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "KRSDKUserCache.json")
+	os.WriteFile(cache, []byte(krsdkCacheFixture), 0o644)
+	install := t.TempDir()
+	dbDir := filepath.Join(install, "Client", "Saved", "LocalStorage")
+	os.MkdirAll(dbDir, 0o755)
+	db := filepath.Join(dbDir, "LocalStorage.db")
+	writeLocalStorageDB(t, db, "700001181")
+	base := time.Now()
+	os.Chtimes(cache, base, base)
+	setLoginTime(t, db, "700001181", strconv.FormatInt(base.Add(-time.Hour).Unix(), 10)) // stale
+	os.Chtimes(db, base.Add(time.Minute), base.Add(time.Minute))                          // launch touch
+
+	p := newTestProvider()
+	p.krsdkCachePathFn = func() (string, error) { return cache, nil }
+	p.SetResolvedPaths(map[core.GameID]string{wuwaGID(): install})
+
+	got, err := p.ListAccounts(context.Background(), wuwaGID())
+	if err != nil {
+		t.Fatalf("ListAccounts: %v", err)
+	}
+	for _, a := range got {
+		if a.Active && a.UID != "" {
+			t.Errorf("transitional state must not fill active UID, got %q", a.UID)
+		}
 	}
 }
 
@@ -139,7 +227,8 @@ func TestListAccounts_FromFixtures(t *testing.T) {
 	writeLocalStorageDB(t, db, "700001181")
 	base := time.Now()
 	os.Chtimes(cache, base, base)
-	os.Chtimes(db, base.Add(time.Minute), base.Add(time.Minute))
+	// LoginTime for the active uid is AFTER the cache mtime → trustable.
+	setLoginTime(t, db, "700001181", strconv.FormatInt(base.Add(time.Minute).Unix(), 10))
 
 	p := newTestProvider()
 	p.krsdkCachePathFn = func() (string, error) { return cache, nil }
