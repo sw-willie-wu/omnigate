@@ -1,9 +1,26 @@
 package app
 
 import (
+	"io"
 	"os"
 	"sync"
 )
+
+// teeWriter writes each payload to every underlying writer, ignoring per-writer
+// errors and always reporting the whole write as successful. Unlike io.MultiWriter
+// (which aborts on the first writer's error), this keeps file logging alive when
+// another sink — e.g. an invalid os.Stderr in a `-H windowsgui` build — fails.
+type teeWriter struct{ ws []io.Writer }
+
+func (t teeWriter) Write(p []byte) (int, error) {
+	for _, w := range t.ws {
+		_, _ = w.Write(p)
+	}
+	return len(p), nil
+}
+
+// NewTeeWriter returns an error-tolerant io.Writer fanning out to ws.
+func NewTeeWriter(ws ...io.Writer) io.Writer { return teeWriter{ws: ws} }
 
 // RotatingFile is a size-capped log sink. Writes append to the active file;
 // once a write would push the file past maxBytes, the active file is renamed

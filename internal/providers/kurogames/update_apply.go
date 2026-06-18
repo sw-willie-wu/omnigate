@@ -37,6 +37,25 @@ type applier struct {
 	lock     applyLock
 }
 
+// applyErr classifies an apply-phase write failure: a permission error (e.g.
+// game installed under C:\Program Files\ without admin) becomes permission_denied
+// — carrying the game id so the UI can offer one-click elevation — otherwise the
+// generic apply_partial. core.IsPermissionError unwraps os.LinkError/Errno.
+func (a *applier) applyErr(path string, err error) error {
+	if core.IsPermissionError(err) {
+		return &core.UpdateError{
+			Code:      "permission_denied",
+			Retryable: true,
+			Params:    map[string]string{"game": string(a.plan.GameID)},
+		}
+	}
+	return &core.UpdateError{
+		Code:      "apply_partial",
+		Retryable: true,
+		Params:    map[string]string{"path": path, "reason": err.Error()},
+	}
+}
+
 // runApply executes the apply phase: writes WAL, atomic-renames each file,
 // appends to WAL Done list, deletes WAL on success. ctx.Done() inside the
 // loop is treated as no-op per spec §2.6 (apply is atomic-batch).
@@ -109,18 +128,10 @@ func (a *applier) runApply(ctx context.Context) error {
 		src := filepath.Join(a.progress.dir(), f.Path)
 		dst := filepath.Join(a.gameDir, f.Path)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return &core.UpdateError{
-				Code:      "apply_partial",
-				Retryable: true,
-				Params:    map[string]string{"path": f.Path, "reason": err.Error()},
-			}
+			return a.applyErr(f.Path, err)
 		}
 		if err := atomicRename(src, dst); err != nil {
-			return &core.UpdateError{
-				Code:      "apply_partial",
-				Retryable: true,
-				Params:    map[string]string{"path": f.Path, "reason": err.Error()},
-			}
+			return a.applyErr(f.Path, err)
 		}
 		// Update WAL: move from Pending to Done
 		wal.Done = append(wal.Done, f.Path)

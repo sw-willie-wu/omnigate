@@ -43,7 +43,10 @@ func main() {
 	// with a single .1 backup so the log can't grow without bound.
 	var sink io.Writer = os.Stderr
 	if lf, err := app.OpenRotatingFile(logFilePath(), 5<<20); err == nil {
-		sink = io.MultiWriter(os.Stderr, lf)
+		// Error-tolerant tee: in a windowsgui build os.Stderr is invalid and
+		// io.MultiWriter would abort before reaching the file. NewTeeWriter does
+		// not, so omnigate.log is written in release builds too.
+		sink = app.NewTeeWriter(os.Stderr, lf)
 		defer lf.Close()
 	}
 

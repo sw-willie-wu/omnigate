@@ -83,7 +83,8 @@
     "update": "UPDATE",
     "pause": "PAUSE",
     "confirm": "Confirm",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "relaunch_admin": "Restart as administrator"
   },
   "notifications": {
     "title": "Notifications",
@@ -179,13 +180,14 @@
       "patch_corrupted": "Patch verification failed; please retry",
       "apply_failed": "Apply failed ({file}); please retry",
       "apply_partial": "Some files could not be updated ({file}); close game and retry",
-      "permission_denied": "Writing game dir requires admin; restart as administrator",
+      "permission_denied": "Updating {game} needs administrator rights",
       "version_unknown": "Cannot read local version",
       "sophon_no_install": "Use HoYoPlay for initial install",
       "sophon_manifest_fetch_failed": "Failed to fetch Sophon manifest",
       "sophon_chunk_verify_failed": "Chunk verification failed ({file})",
       "sophon_apply_failed": "Apply failed: {file}"
     },
+    "elevate_cancelled": "Elevation cancelled",
     "bell": {
       "predl_complete": {
         "title": "{game} predownload complete",

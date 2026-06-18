@@ -10,6 +10,7 @@ import {
   ResumeInterrupted,
   UpdateStatusAll,
   CheckForUpdate,
+  RelaunchElevated,
 } from '../../wailsjs/go/app/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 
@@ -127,6 +128,7 @@ export const useUpdatesStore = defineStore('updates', {
     async removePredownload(gameID: string): Promise<void> { await RemovePredownload(gameID); },
     async dismissError(gameID: string): Promise<void> { await DismissError(gameID); },
     async resumeInterrupted(gameID: string): Promise<void> { await ResumeInterrupted(gameID); },
+    async relaunchElevated(gameID: string): Promise<void> { await RelaunchElevated(gameID); },
     async checkForUpdate(gameID: string): Promise<void> {
       try { await CheckForUpdate(gameID); } catch (e) { console.warn('checkForUpdate failed', gameID, e); }
     },
