@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,6 +11,37 @@ import (
 
 	"omnigate/internal/core"
 )
+
+func TestEnsureGameDirWritable(t *testing.T) {
+	a := &App{logger: slog.Default()}
+	gid := core.GameID("kurogames/wutheringwaves")
+
+	orig := probeGameDirWritable
+	t.Cleanup(func() { probeGameDirWritable = orig })
+
+	// permission error → permission_denied carrying the game id
+	probeGameDirWritable = func(string) error { return os.ErrPermission }
+	if ue := a.ensureGameDirWritable(gid, `C:\Program Files\X`); ue == nil || ue.Code != "permission_denied" || ue.Params["game"] != string(gid) {
+		t.Fatalf("permission probe: got %#v; want permission_denied with game", ue)
+	}
+
+	// writable → nil
+	probeGameDirWritable = func(string) error { return nil }
+	if ue := a.ensureGameDirWritable(gid, `C:\Games\X`); ue != nil {
+		t.Fatalf("writable probe: got %#v; want nil", ue)
+	}
+
+	// non-permission error → nil (don't block here; other flows surface it)
+	probeGameDirWritable = func(string) error { return errors.New("dir missing") }
+	if ue := a.ensureGameDirWritable(gid, `C:\Games\X`); ue != nil {
+		t.Fatalf("non-permission probe: got %#v; want nil", ue)
+	}
+
+	// empty path → nil (unresolved install)
+	if ue := a.ensureGameDirWritable(gid, ""); ue != nil {
+		t.Fatalf("empty path: got %#v; want nil", ue)
+	}
+}
 
 // fakeUpdater satisfies core.Updater for testing the App layer.
 type fakeUpdater struct {
