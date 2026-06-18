@@ -3,6 +3,7 @@ package kurogames
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,6 +11,28 @@ import (
 
 	"omnigate/internal/core"
 )
+
+func TestApplier_applyErr_classifiesPermission(t *testing.T) {
+	a := &applier{plan: &core.UpdatePlan{GameID: "kurogames/wutheringwaves"}}
+
+	perm := a.applyErr("client/foo.pak", os.ErrPermission)
+	ue, ok := perm.(*core.UpdateError)
+	if !ok || ue.Code != "permission_denied" {
+		t.Fatalf("permission error: got %#v; want code permission_denied", perm)
+	}
+	if ue.Params["game"] != "kurogames/wutheringwaves" {
+		t.Fatalf("permission_denied params missing game: %#v", ue.Params)
+	}
+
+	other := a.applyErr("client/foo.pak", errors.New("disk gone"))
+	ue2, ok := other.(*core.UpdateError)
+	if !ok || ue2.Code != "apply_partial" {
+		t.Fatalf("non-permission error: got %#v; want code apply_partial", other)
+	}
+	if ue2.Params["path"] != "client/foo.pak" {
+		t.Fatalf("apply_partial should carry path: %#v", ue2.Params)
+	}
+}
 
 // TestApply_HappyPath: apply phase end-to-end with no recovery state.
 // Note: validateSameVolume runs on both tempDir and gameDir (both = t.TempDir()).
