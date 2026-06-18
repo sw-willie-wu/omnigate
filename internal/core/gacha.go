@@ -3,9 +3,11 @@ package core
 import "context"
 
 // GachaPull is one normalized pull record (backend-agnostic).
-// ID is the provider's monotonic unique id (HoYoverse `id`, Endfield `seqId`)
-// and doubles as the dedup key AND the chronological sort key — we never parse
-// the localized Time string for ordering.
+// ID is the provider's unique id (HoYoverse `id`, Endfield `seqId`) and doubles
+// as the dedup key AND the per-banner pity sort key. It is monotonic WITHIN a
+// banner but NOT necessarily comparable across banners (WuWa synthesizes
+// "<pool>-<idx>"), so cross-banner recency (recent-headline) is ordered by the
+// parsed Time string instead — see ComputeSummary.
 type GachaPull struct {
 	ID        string `json:"id"`
 	BannerKey string `json:"bannerKey"` // per-game banner key (matches GachaConfig.Banners[].Key)
