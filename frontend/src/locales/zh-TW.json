@@ -83,7 +83,8 @@
     "update": "更新",
     "pause": "暫停",
     "confirm": "確認",
-    "cancel": "取消"
+    "cancel": "取消",
+    "relaunch_admin": "以系統管理員重新啟動"
   },
   "notifications": {
     "title": "通知",
@@ -179,13 +180,14 @@
       "patch_corrupted": "修補檔案校驗失敗；請重試",
       "apply_failed": "套用失敗（{file}）；請重試",
       "apply_partial": "部分檔案無法更新（{file}）；請關閉遊戲後重試",
-      "permission_denied": "寫入遊戲目錄需要管理員；請以管理員身份重啟",
+      "permission_denied": "更新 {game} 需要系統管理員權限",
       "version_unknown": "無法讀取本地版本",
       "sophon_no_install": "請先用 HoYoPlay 完成首次安裝",
       "sophon_manifest_fetch_failed": "無法取得 Sophon 更新資訊",
       "sophon_chunk_verify_failed": "下載的檔案區塊驗證失敗 ({file})",
       "sophon_apply_failed": "{file} 套用失敗"
     },
+    "elevate_cancelled": "提權已取消",
     "bell": {
       "predl_complete": {
         "title": "{game} 預下載完成",

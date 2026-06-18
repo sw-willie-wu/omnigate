@@ -335,6 +335,12 @@
     text-shadow: 0 2px 6px rgba(0,0,0,0.85);
     white-space: normal;
   }
+  .bottom-bar .update-error .elevate-btn {
+    margin-left: 10px; padding: 4px 12px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-size: 12px; font-weight: 600;
+    background: var(--gold-soft); color: var(--gold-hi); border: 1px solid rgba(230, 197, 115, .4);
+  }
+  .bottom-bar .update-error .elevate-btn:hover { background: rgba(230, 197, 115, .2); }
   .hero-bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; }
 
   .hero-title-block { padding-left: 4px; min-width: 0; flex: 1; }

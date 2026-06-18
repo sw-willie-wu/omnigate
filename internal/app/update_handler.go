@@ -51,6 +51,13 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 		}
 	}
 
+	// Preflight: fail fast (before any download) if the game dir is not writable
+	// — e.g. installed under Program Files and we are not elevated.
+	if ue := a.ensureGameDirWritable(gid, a.gameInstallDir(gid, p)); ue != nil {
+		a.setLastError(gid, ue)
+		return nil
+	}
+
 	state := a.updateRegistry.Get(gid)
 	ctx, cancel := context.WithCancel(context.Background())
 	state.mu.Lock()
@@ -283,6 +290,12 @@ func (a *App) ApplyPredownload(gameID string) error {
 		}
 	}
 
+	// Preflight: fail fast if the game dir is not writable (Program Files w/o admin).
+	if ue := a.ensureGameDirWritable(gid, a.gameInstallDir(gid, p)); ue != nil {
+		a.setLastError(gid, ue)
+		return nil
+	}
+
 	// Set InFlight for ApplyPredownload (Phase: Apply at start since download done)
 	ctx, cancel := context.WithCancel(context.Background())
 	state.mu.Lock()
@@ -375,6 +388,12 @@ func (a *App) ResumeInterrupted(gameID string) error {
 			})
 			return nil
 		}
+	}
+
+	// Preflight: fail fast if the game dir is not writable (Program Files w/o admin).
+	if ue := a.ensureGameDirWritable(gid, a.gameInstallDir(gid, p)); ue != nil {
+		a.setLastError(gid, ue)
+		return nil
 	}
 
 	state := a.updateRegistry.Get(gid)
@@ -637,6 +656,41 @@ func (a *App) gameInstallDir(gid core.GameID, p core.Provider) string {
 	a.settingsMu.RLock()
 	defer a.settingsMu.RUnlock()
 	return a.resolved[gid].Path
+}
+
+// probeGameDirWritable creates and removes a probe file in dir to test write
+// access. Package var so tests can substitute it (mirrors the osReadDir/osRemoveAll
+// seams in the update_handler_{windows,other}.go files).
+var probeGameDirWritable = func(dir string) error {
+	probe := filepath.Join(dir, ".omnigate_wtest")
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	_ = f.Close()
+	_ = os.Remove(probe)
+	return nil
+}
+
+// ensureGameDirWritable returns *core.UpdateError{permission_denied} when the
+// game directory cannot be written (e.g. Program Files without admin), else nil.
+// Non-permission probe errors (missing dir, etc.) are ignored here — they surface
+// through the normal CheckForUpdate/apply paths. gameDir "" (unresolved) → nil.
+func (a *App) ensureGameDirWritable(gid core.GameID, gameDir string) *core.UpdateError {
+	if gameDir == "" {
+		return nil
+	}
+	if err := probeGameDirWritable(gameDir); err != nil {
+		if core.IsPermissionError(err) {
+			return &core.UpdateError{
+				Code:      "permission_denied",
+				Retryable: true,
+				Params:    map[string]string{"game": string(gid)},
+			}
+		}
+		a.logger.Debug("ensureGameDirWritable: non-permission probe error (ignored)", "game", gid, "dir", gameDir, "err", err)
+	}
+	return nil
 }
 
 func (a *App) preflightChecks(tempDir, gameDir string, totalBytes int64) error {

@@ -4,7 +4,8 @@ import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
 import { useUpdatesStore } from './stores/updates';
 import { useGachaStore } from './stores/gacha';
-import { GetSettings } from '../wailsjs/go/app/App';
+import { GetSettings, PendingElevatedGame } from '../wailsjs/go/app/App';
+import { runElevatedAutoStart } from './composables/elevatedAutoStart';
 import { setLang } from './i18n';
 import BgLayer from './components/BgLayer.vue';
 import Topbar from './components/Topbar.vue';
@@ -49,6 +50,14 @@ onMounted(async () => {
   gacha.bind();
   registerDialog(dialogRef.value);
   registerToast(toastRef.value);
+  // Elevated relaunch (Bug A): if started with --elevate-update <gid>, select that
+  // game and start its update now (we are admin). MUST run after updates.bind()
+  // above so the initial in-flight emit is captured.
+  await runElevatedAutoStart(
+    PendingElevatedGame,
+    (id) => games.select(id),
+    (id) => updates.startUpdate(id),
+  );
   // Probe for updates so BottomBar [更新 ↓] can appear without user clicking
   // Refresh first. Best-effort, parallel; errors swallowed.
   await Promise.allSettled(

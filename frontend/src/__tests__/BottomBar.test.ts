@@ -1,5 +1,5 @@
 import { describe, it, expect, test, beforeEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { setActivePinia, createPinia } from 'pinia';
 import { createI18n } from 'vue-i18n';
 import BottomBar from '../components/BottomBar.vue';
@@ -21,6 +21,8 @@ vi.mock('../../wailsjs/go/app/App', () => ({
   ResumeInterrupted: vi.fn(),
   UpdateStatusAll: vi.fn(async () => ({})),
   CheckForUpdate: vi.fn(),
+  IsElevated: vi.fn(async () => false),
+  RelaunchElevated: vi.fn(),
 }));
 vi.mock('../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 
@@ -151,5 +153,31 @@ describe('BottomBar smoke', () => {
     const txt = wrapper.find('.last-played').text();
     expect(txt).toContain('Last played');
     expect(txt).toContain('Today');
+  });
+
+  test('shows restart-as-admin button on permission_denied and calls relaunchElevated', async () => {
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const wrapper = mount(BottomBar, { global: { plugins: [i18n] } });
+
+    const games = useGamesStore();
+    games.games = [{
+      id: 'kurogames/wutheringwaves', backend: 'kurogames',
+      display_name: { en: 'Wuthering Waves' }, installed: true, has_predownload: false,
+    }] as any;
+    games.selectedID = 'kurogames/wutheringwaves';
+
+    const updates = useUpdatesStore();
+    updates.byGame['kurogames/wutheringwaves'] = {
+      last_error: { code: 'permission_denied', params: { game: 'kurogames/wutheringwaves' }, retryable: true },
+    } as any;
+    const spy = vi.spyOn(updates, 'relaunchElevated').mockResolvedValue();
+
+    await flushPromises();       // onMounted IsElevated() -> false
+    await wrapper.vm.$nextTick();
+
+    const btn = wrapper.find('.elevate-btn');
+    expect(btn.exists()).toBe(true);
+    await btn.trigger('click');
+    expect(spy).toHaveBeenCalledWith('kurogames/wutheringwaves');
   });
 });

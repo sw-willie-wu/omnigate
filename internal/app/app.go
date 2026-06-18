@@ -40,6 +40,7 @@ type App struct {
 	playState      *playState
 	gachaStore     store.GachaStore
 	uidCache       *uidCache
+	pendingElevate string // gid from --elevate-update; consumed once by PendingElevatedGame
 }
 
 // New returns an App. settingsPath may be "" → default to alongside the binary.
@@ -79,6 +80,10 @@ func New(settingsPath string, logger *slog.Logger) *App {
 	// Spec §2.3: walk <TempDir>/<gameID-flat>/<version>/ for sidecars left
 	// behind by an interrupted prior run.
 	a.scanForRecovery()
+
+	// Capture the --elevate-update <gid> arg passed by an elevated relaunch so
+	// the frontend can auto-select + auto-start that game's update (as admin).
+	a.pendingElevate = parseElevateArg(os.Args)
 
 	return a
 }

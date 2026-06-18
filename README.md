@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="版本" src="https://img.shields.io/badge/版本-v0.2.0-2ea043?style=flat-square" />
+  <img alt="版本" src="https://img.shields.io/badge/版本-v0.3.0-2ea043?style=flat-square" />
   <img alt="平台" src="https://img.shields.io/badge/平台-Windows-0a7bbd?style=flat-square" />
   <img alt="技術" src="https://img.shields.io/badge/Wails-Go%20＋%20Vue%203-00b8a9?style=flat-square" />
   <img alt="授權" src="https://img.shields.io/badge/授權-AGPL--3.0-4c8eda?style=flat-square" />
