@@ -6,7 +6,7 @@ import { useAccountStore, accountPrimary } from '../stores/account';
 import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
 import { pushToast } from '../composables/useToast';
-import { IsGameRunning } from '../../wailsjs/go/app/App';
+import { IsGameRunning, IsElevated } from '../../wailsjs/go/app/App';
 import { formatSize } from '../utils/format';
 import { formatRelativeTime } from '../utils/lastPlayed';
 import GameConfigPopover from './GameConfigPopover.vue';
@@ -78,6 +78,24 @@ const errorLabel = computed<string>(() => {
   if (te(plural)) return t(plural, params);
   return t('update.errors.internal', { detail: params.detail || err.code });
 });
+
+// permission_denied (game dir not writable, e.g. Program Files w/o admin) shows a
+// one-click "restart as administrator" button. Gated on !elevated so an already-
+// elevated process that still can't write doesn't loop back to the same prompt.
+const elevated = ref(true);
+onMounted(async () => { try { elevated.value = await IsElevated(); } catch { elevated.value = true; } });
+const showElevateButton = computed(() => lastError.value?.code === 'permission_denied' && !elevated.value);
+
+async function onRelaunchElevated() {
+  const gid = games.selected?.id;
+  if (!gid) return;
+  try {
+    await updates.relaunchElevated(gid);
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    pushToast(msg.includes('uac_declined') ? t('update.elevate_cancelled') : msg);
+  }
+}
 
 // Stage label from in_flight.stage + params (M3.B i18n)
 const stageLabel = computed<string>(() => {
@@ -202,7 +220,12 @@ async function onCancel() {
 
 <template>
   <div v-if="games.selected" class="bottom-bar">
-    <div v-if="errorLabel" class="update-error">{{ errorLabel }}</div>
+    <div v-if="errorLabel" class="update-error">
+      <span>{{ errorLabel }}</span>
+      <button v-if="showElevateButton" class="elevate-btn" @click="onRelaunchElevated">
+        {{ t('buttons.relaunch_admin') }}
+      </button>
+    </div>
     <div class="hero-meta">
       <div class="hero-stats-line">
         <span class="pill" :class="pillClass">{{ pillLabel }}</span>
