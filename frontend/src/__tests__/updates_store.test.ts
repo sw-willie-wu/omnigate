@@ -11,6 +11,7 @@ vi.mock('../../wailsjs/go/app/App', () => ({
   DismissError: vi.fn(),
   ResumeInterrupted: vi.fn(),
   UpdateStatusAll: vi.fn(async () => ({})),
+  RelaunchElevated: vi.fn(),
 }));
 
 let eventHandler: ((gameID: string, snap: any) => void) | null = null;
@@ -29,6 +30,17 @@ vi.mock('../stores/games', () => ({
 }));
 
 import { useUpdatesStore } from '../stores/updates';
+import { RelaunchElevated } from '../../wailsjs/go/app/App';
+
+describe('updates store relaunchElevated', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it('calls the RelaunchElevated binding with the gid', async () => {
+    const store = useUpdatesStore();
+    await store.relaunchElevated('kurogames/wutheringwaves');
+    expect(RelaunchElevated).toHaveBeenCalledWith('kurogames/wutheringwaves');
+  });
+});
 
 describe('updates store rAF batching', () => {
   beforeEach(() => {
