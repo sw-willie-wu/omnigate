@@ -1,11 +1,34 @@
 package app
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestTeeWriter_continuesAfterFailingWriter(t *testing.T) {
+	failing := writerFunc(func(p []byte) (int, error) { return 0, errors.New("stderr is invalid") })
+	var buf bytes.Buffer
+	tee := NewTeeWriter(failing, &buf)
+
+	n, err := tee.Write([]byte("hello log\n"))
+	if err != nil {
+		t.Fatalf("tee.Write returned error %v; want nil", err)
+	}
+	if n != len("hello log\n") {
+		t.Fatalf("tee.Write n=%d; want %d", n, len("hello log\n"))
+	}
+	if got := buf.String(); got != "hello log\n" {
+		t.Fatalf("second writer got %q; want the full payload", got)
+	}
+}
+
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 func TestRotatingFileWritesToFile(t *testing.T) {
 	dir := t.TempDir()
