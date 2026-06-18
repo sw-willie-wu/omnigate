@@ -86,6 +86,38 @@ func TestComputeSummaryBasics(t *testing.T) {
 	}
 }
 
+// TestComputeSummaryRecentHeadlineByTime guards the WuWa bug: pull IDs are
+// per-pool synthesized ("<pool>-<idx>"), NOT globally comparable, so the recent
+// list must order by real time across banners — otherwise the higher-pool-number
+// banner (weapon=pool 2) always sorts above the character banner (pool 1) and
+// recent characters get pushed off the list.
+func TestComputeSummaryRecentHeadlineByTime(t *testing.T) {
+	cfg := GachaConfig{
+		HeadlineRank: 5,
+		RankLabels:   map[int]LocalizedString{5: {"en": "5★"}},
+		Banners: []BannerConfig{
+			{Key: "character", Label: LocalizedString{"en": "Char"}, Pity: stdPity{cap: 80}},
+			{Key: "weapon", Label: LocalizedString{"en": "Weapon"}, Pity: stdPity{cap: 80}},
+		},
+		PullPrice: 160, Currency: "astrite", ExpectedPity: 62.5,
+	}
+	pulls := []GachaPull{
+		{ID: "1-00000431", BannerKey: "character", ItemType: "角色", Rank: 5, Name: "Danjin", Time: "2026-05-21 11:11:19"},
+		{ID: "2-00000160", BannerKey: "weapon", ItemType: "武器", Rank: 5, Name: "Frost", Time: "2026-04-30 10:41:33"},
+		{ID: "2-00000229", BannerKey: "weapon", ItemType: "武器", Rank: 5, Name: "Dwarf", Time: "2026-05-22 01:43:53"},
+	}
+	s := ComputeSummary("u1", pulls, cfg)
+	want := []string{"Dwarf", "Danjin", "Frost"} // pure time-desc
+	if len(s.RecentHeadline) != len(want) {
+		t.Fatalf("recent len=%d want %d (%+v)", len(s.RecentHeadline), len(want), s.RecentHeadline)
+	}
+	for i, w := range want {
+		if s.RecentHeadline[i].Name != w {
+			t.Fatalf("recent[%d]=%q want %q (full=%v)", i, s.RecentHeadline[i].Name, w, s.RecentHeadline)
+		}
+	}
+}
+
 func TestComputeSummaryFreeExcludedFromSpend(t *testing.T) {
 	pulls := []GachaPull{
 		{ID: "1", BannerKey: "special", Rank: 5, IsFree: true},

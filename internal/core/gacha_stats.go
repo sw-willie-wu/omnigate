@@ -3,6 +3,7 @@ package core
 import (
 	"math"
 	"sort"
+	"time"
 )
 
 // BannerPity is one banner's pity progress for the dashboard.
@@ -45,7 +46,9 @@ type GachaSummary struct {
 }
 
 // ComputeSummary builds the dashboard from one (uid)'s pulls + config. Pure.
-// Ordering uses the monotonic ID (string numeric compare), never parsed Time.
+// Per-banner pity ordering uses the monotonic ID (correct within a banner); the
+// cross-banner recent-headline list uses parsed Time (IDs are not comparable
+// across banners for providers like WuWa — see the sort below).
 func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary {
 	s := GachaSummary{
 		Supported: true, UID: uid, Currency: cfg.Currency,
@@ -94,7 +97,21 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	s.ExpectedPity = cfg.ExpectedPity
 	s.LuckScore = luckScore(s.AvgPity, cfg.ExpectedPity, len(allHits))
 
-	sort.Slice(allHits, func(i, j int) bool { return numLess(allHits[j].Pull.ID, allHits[i].Pull.ID) })
+	// Recent-headline ordering is CROSS-banner, so it must use real time, not the
+	// per-banner ID. HoYoverse IDs are a global increasing sequence (ID order ==
+	// time order), but WuWa/kurogames synthesizes IDs as "<pool>-<idx>" which are
+	// only monotonic WITHIN a pool — sorting those by ID surfaces whole pools at a
+	// time (weapon pool 2 always above character pool 1), hiding recent characters.
+	// Sort by parsed Time desc; fall back to the ID compare when times tie or don't
+	// parse (preserves HoYoverse same-second 10-pull order and any odd format).
+	sort.SliceStable(allHits, func(i, j int) bool {
+		ti, oki := parseGachaTime(allHits[i].Pull.Time)
+		tj, okj := parseGachaTime(allHits[j].Pull.Time)
+		if oki && okj && !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return numLess(allHits[j].Pull.ID, allHits[i].Pull.ID)
+	})
 	for i, h := range allHits {
 		if i >= 8 {
 			break
@@ -127,6 +144,18 @@ func luckScore(avg, expected float64, n int) int {
 	}
 	score := 50 + (expected-avg)/expected*100
 	return int(math.Max(0, math.Min(100, math.Round(score))))
+}
+
+// parseGachaTime parses the providers' shared "YYYY-MM-DD HH:MM:SS" local time
+// string (HoYoverse, WuWa, Endfield all use it). Returns ok=false on any other
+// format so callers fall back to ID ordering. Location is fixed (UTC) — only the
+// relative order matters, and every record in one game shares the same format.
+func parseGachaTime(s string) (time.Time, bool) {
+	t, err := time.Parse("2006-01-02 15:04:05", s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 func sortByID(g []GachaPull) {
