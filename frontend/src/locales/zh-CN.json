@@ -71,7 +71,20 @@
       "stellar_jade": "星琼",
       "polychrome": "菲林",
       "astrite": "星声",
-      "endfield_pull": "寻访"
+      "endfield_pull": "寻访",
+      "endfield_stone": "石"
+    },
+    "link": {
+      "title": "绑定 Gryphline 账号以读取寻访记录",
+      "step1": "1. 点「登录 Gryphline」，在打开的浏览器登录你的鹰角通行证",
+      "step2": "2. 把下方书签工具拖到浏览器书签栏（或复制为新书签）",
+      "step3": "3. 在已登录的 gryphline 标签页点该书签，omnigate 会自动收到 token",
+      "login": "登录 Gryphline",
+      "copy": "复制书签工具",
+      "rearm": "重新开始绑定",
+      "pasteLabel": "或直接粘贴 account_token：",
+      "paste": "提交",
+      "bookmarkletName": "omnigate 获取终末地 token"
     }
   },
   "buttons": {

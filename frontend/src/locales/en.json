@@ -71,7 +71,20 @@
       "stellar_jade": "Stellar Jade",
       "polychrome": "Polychrome",
       "astrite": "Astrite",
-      "endfield_pull": "Pulls"
+      "endfield_pull": "Pulls",
+      "endfield_stone": "Stone"
+    },
+    "link": {
+      "title": "Link your Gryphline account to read gacha history",
+      "step1": "1. Click \"Log in to Gryphline\" and sign in with your Gryphline passport in the browser",
+      "step2": "2. Drag the bookmarklet below to your bookmarks bar (or add it as a new bookmark)",
+      "step3": "3. On a logged-in gryphline tab, click the bookmarklet — omnigate captures the token automatically",
+      "login": "Log in to Gryphline",
+      "copy": "Copy bookmarklet",
+      "rearm": "Restart linking",
+      "pasteLabel": "Or paste your account_token directly:",
+      "paste": "Submit",
+      "bookmarkletName": "omnigate get Endfield token"
     }
   },
   "buttons": {

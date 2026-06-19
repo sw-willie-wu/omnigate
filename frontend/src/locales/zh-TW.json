@@ -71,7 +71,20 @@
       "stellar_jade": "星瓊",
       "polychrome": "菲林",
       "astrite": "星聲",
-      "endfield_pull": "尋訪"
+      "endfield_pull": "尋訪",
+      "endfield_stone": "石"
+    },
+    "link": {
+      "title": "連結 Gryphline 帳號以讀取尋訪紀錄",
+      "step1": "1. 點「登入 Gryphline」，在開啟的瀏覽器登入你的鷹角通行證",
+      "step2": "2. 把下方書籤列工具拖到瀏覽器書籤列（或複製為新書籤）",
+      "step3": "3. 在已登入的 gryphline 分頁點該書籤，omnigate 會自動收到 token",
+      "login": "登入 Gryphline",
+      "copy": "複製書籤工具",
+      "rearm": "重新開始連結",
+      "pasteLabel": "或直接貼上 account_token：",
+      "paste": "送出",
+      "bookmarkletName": "omnigate 取得終末地 token"
     }
   },
   "buttons": {

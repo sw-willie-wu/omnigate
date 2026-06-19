@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
+import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -93,6 +94,18 @@ const progressText = computed(() => {
     : t('gacha.loading');
 });
 
+const linkInfo = ref<{ bookmarklet: string; loginUrl: string; port: number } | null>(null);
+const pasteToken = ref('');
+async function startLink() {
+  try { linkInfo.value = await StartGachaLink(props.gid) as any; }
+  catch { /* surfaced via errKind */ }
+}
+async function submitPaste() {
+  if (!pasteToken.value.trim()) return;
+  await SetGachaCredential(props.gid, pasteToken.value.trim());
+  pasteToken.value = '';
+}
+
 onMounted(() => gacha.load(props.gid, accountID.value));
 watch(() => props.gid, (g) => gacha.load(g, accountID.value));
 // Re-resolve when the user selects another account in the chip. Skip the
@@ -130,6 +143,25 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
     <div v-else-if="st.errKind === 'wrong_account'" class="gacha-empty gacha-wrong-account">
       <p>{{ t('gacha.wrong_account') }}</p>
       <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
+    </div>
+
+    <div v-else-if="st.errKind === 'link'" class="gacha-empty gacha-link">
+      <p class="gacha-link-title">{{ t('gacha.link.title') }}</p>
+      <button data-test="gacha-link-login" @click="startLink">{{ t('gacha.link.login') }}</button>
+      <template v-if="linkInfo">
+        <ol class="gacha-link-steps">
+          <li>{{ t('gacha.link.step1') }}</li>
+          <li>{{ t('gacha.link.step2') }}</li>
+          <li>{{ t('gacha.link.step3') }}</li>
+        </ol>
+        <a class="gacha-bookmarklet" :href="linkInfo.bookmarklet">{{ t('gacha.link.bookmarkletName') }}</a>
+        <button @click="startLink">{{ t('gacha.link.rearm') }}</button>
+      </template>
+      <div class="gacha-link-paste">
+        <label>{{ t('gacha.link.pasteLabel') }}</label>
+        <input v-model="pasteToken" type="text" />
+        <button @click="submitPaste">{{ t('gacha.link.paste') }}</button>
+      </div>
     </div>
 
     <div v-else-if="st.errKind === 'url' || st.errKind === 'url_expired' || isEmpty" class="gacha-empty">

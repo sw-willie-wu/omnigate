@@ -12,6 +12,8 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
   RefreshGacha: (...a: unknown[]) => refreshGacha(...a),
   ListGameAccounts: (...a: unknown[]) => listAccounts(...a),
   SetAccountLabel: vi.fn(),
+  StartGachaLink: vi.fn(),
+  SetGachaCredential: vi.fn(),
 }));
 vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 
@@ -197,6 +199,13 @@ describe('GachaBoard', () => {
     w.unmount();
   });
 
+  it('renders the link panel when GetGachaSummary reports credential required', async () => {
+    getSummary.mockRejectedValue(new Error('gacha credential required'));
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('[data-test="gacha-link-login"]').exists()).toBe(true);
+    expect(w.text()).toContain('Link your Gryphline'); // en gacha.link.title
+  });
+
   it('has the 3 new gacha keys non-empty in every locale (i18n parity)', async () => {
     const en = (await import('../../locales/en.json')).default as Record<string, any>;
     const tw = (await import('../../locales/zh-TW.json')).default as Record<string, any>;
@@ -205,6 +214,10 @@ describe('GachaBoard', () => {
       for (const k of ['play_first', 'wrong_account', 'url_expired']) {
         expect(((loc.gacha?.[k] ?? '') as string).length).toBeGreaterThan(0);
       }
+      for (const k of ['title', 'login', 'step1', 'step2', 'step3', 'paste', 'pasteLabel', 'rearm']) {
+        expect(((loc.gacha?.link?.[k] ?? '') as string).length).toBeGreaterThan(0);
+      }
+      expect(((loc.gacha?.currency?.endfield_stone ?? '') as string).length).toBeGreaterThan(0);
     }
   });
 });
