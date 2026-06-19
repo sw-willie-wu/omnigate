@@ -41,6 +41,8 @@ type App struct {
 	gachaStore     store.GachaStore
 	uidCache       *uidCache
 	pendingElevate string // gid from --elevate-update; consumed once by PendingElevatedGame
+	gachaLinkMu    sync.Mutex
+	gachaLink      *gachaLinkSession
 }
 
 // New returns an App. settingsPath may be "" → default to alongside the binary.
@@ -272,6 +274,7 @@ func (a *App) Startup(ctx context.Context) {
 
 // Close releases App-held resources (gacha DB). Safe to call once.
 func (a *App) Close() {
+	a.stopGachaLink()
 	if a.gachaStore != nil {
 		a.gachaStore.Close()
 	}
