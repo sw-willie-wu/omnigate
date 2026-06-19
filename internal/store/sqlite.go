@@ -2,7 +2,11 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
+	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"omnigate/internal/core"
@@ -10,10 +14,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 type SQLiteStore struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 var _ GachaStore = (*SQLiteStore)(nil)
@@ -26,7 +31,7 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 	}
 	// Single connection avoids SQLITE_BUSY on the file; writes are short txns.
 	db.SetMaxOpenConns(1)
-	s := &SQLiteStore{db: db}
+	s := &SQLiteStore{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -53,8 +58,107 @@ func (s *SQLiteStore) migrate() error {
 			return err
 		}
 	}
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO meta(key,value) VALUES('schema_version', ?)`, schemaVersion)
-	return err
+	// For a brand-new DB this records the current schema version; an existing DB
+	// keeps its stored value (the v2 re-key below upgrades a v1 DB).
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO meta(key,value) VALUES('schema_version', ?)`, schemaVersion); err != nil {
+		return err
+	}
+	var verStr string
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&verStr); err != nil {
+		return err
+	}
+	ver, _ := strconv.Atoi(verStr)
+	if ver < 2 {
+		if err := s.migrateV2RekeyWuwa(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateV2RekeyWuwa re-keys legacy WuWa pulls ("<pool>-<idx>", an unstable
+// position-from-oldest index) to the stable "w|<pool>|<time>|<ord>" scheme, so the
+// sliding-window record API no longer drops new pulls on dedup. Idempotent;
+// WuWa-only; backs up the DB first.
+func (s *SQLiteStore) migrateV2RekeyWuwa() error {
+	var legacy int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pulls WHERE game LIKE 'kurogames/%' AND id NOT LIKE 'w|%'`).Scan(&legacy); err != nil {
+		return err
+	}
+	if legacy == 0 {
+		_, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','2')`)
+		return err // fresh/empty or already-migrated → just record the version
+	}
+
+	// Back up (only if absent; never clobber a pristine backup) via VACUUM INTO.
+	if s.path != "" && s.path != ":memory:" {
+		bak := s.path + ".bak-v2"
+		if _, err := os.Stat(bak); os.IsNotExist(err) {
+			if _, err := s.db.Exec(`VACUUM INTO ?`, bak); err != nil {
+				return fmt.Errorf("gacha v2 backup: %w", err)
+			}
+		}
+	}
+
+	// Collect legacy rows (Rows MUST be closed before the write txn — MaxOpenConns(1)).
+	type row struct{ game, uid, id, time string }
+	rows, err := s.db.Query(`SELECT game,uid,id,time FROM pulls WHERE game LIKE 'kurogames/%' AND id NOT LIKE 'w|%' ORDER BY game,uid,id`)
+	if err != nil {
+		return err
+	}
+	var legacyRows []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.game, &r.uid, &r.id, &r.time); err != nil {
+			rows.Close()
+			return err
+		}
+		legacyRows = append(legacyRows, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// New ids: ordinal = position within (game,uid,pool,time), in id-asc order (the
+	// ORDER BY id above = oldest-first within (pool,time), matching fetchWuwa).
+	type rekey struct{ game, uid, oldID, newID string }
+	var ups []rekey
+	ordinals := map[string]int{}
+	for _, r := range legacyRows {
+		dash := strings.IndexByte(r.id, '-')
+		if dash <= 0 {
+			continue // not a legacy "<pool>-<idx>" id; skip defensively
+		}
+		pool := r.id[:dash]
+		key := r.game + "|" + r.uid + "|" + pool + "|" + r.time
+		ord := ordinals[key]
+		ordinals[key]++
+		ups = append(ups, rekey{r.game, r.uid, r.id, fmt.Sprintf("w|%s|%s|%d", pool, r.time, ord)})
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, u := range ups {
+		// UPDATE OR IGNORE: on a PK conflict (new id already present = a true dup),
+		// the update is skipped (0 rows) → delete the legacy duplicate instead.
+		res, err := tx.Exec(`UPDATE OR IGNORE pulls SET id=? WHERE game=? AND uid=? AND id=?`, u.newID, u.game, u.uid, u.oldID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			if _, err := tx.Exec(`DELETE FROM pulls WHERE game=? AND uid=? AND id=?`, u.game, u.uid, u.oldID); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','2')`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) Close() error { return s.db.Close() }

@@ -1,11 +1,77 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"omnigate/internal/core"
 )
+
+func TestMigrateV2_RekeysWuwaPreservesHistory(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gacha.db")
+
+	s, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := [][]any{
+		{"kurogames/wutheringwaves", "u1", "1-00000000", "character", "角色", 4, "old0", "2026-01-01 10:00:00", 0},
+		{"kurogames/wutheringwaves", "u1", "1-00000001", "character", "角色", 5, "old1", "2026-01-01 10:00:00", 0},
+		{"kurogames/wutheringwaves", "u1", "2-00000000", "weapon", "武器", 5, "w0", "2026-02-01 12:00:00", 0},
+		{"hoyoverse/genshin", "h1", "1780000000000000001", "char", "角色", 5, "hoyo", "2026-03-01 00:00:00", 0},
+	}
+	for _, r := range legacy {
+		if _, err := s.db.Exec(`INSERT INTO pulls(game,uid,id,banner_key,item_type,rank,name,time,is_free) VALUES(?,?,?,?,?,?,?,?,?)`, r...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','1')`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s2, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("reopen/migrate: %v", err)
+	}
+	defer s2.Close()
+
+	if _, err := os.Stat(dbPath + ".bak-v2"); err != nil {
+		t.Fatalf("backup not created: %v", err)
+	}
+	wuwa, _ := s2.AllPulls("kurogames/wutheringwaves", "u1")
+	if len(wuwa) != 3 {
+		t.Fatalf("wuwa count=%d want 3", len(wuwa))
+	}
+	for _, p := range wuwa {
+		if p.ID[:2] != "w|" {
+			t.Fatalf("not re-keyed: %s", p.ID)
+		}
+	}
+	ids := map[string]string{}
+	for _, p := range wuwa {
+		ids[p.Name] = p.ID
+	}
+	if ids["old0"] != "w|1|2026-01-01 10:00:00|0" || ids["old1"] != "w|1|2026-01-01 10:00:00|1" {
+		t.Fatalf("ordinals wrong: %v", ids)
+	}
+	hoyo, _ := s2.AllPulls("hoyoverse/genshin", "h1")
+	if len(hoyo) != 1 || hoyo[0].ID != "1780000000000000001" {
+		t.Fatalf("hoyoverse must be untouched: %+v", hoyo)
+	}
+	s2.Close()
+	s3, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("third open: %v", err)
+	}
+	defer s3.Close()
+	w2, _ := s3.AllPulls("kurogames/wutheringwaves", "u1")
+	if len(w2) != 3 {
+		t.Fatalf("idempotency broke count: %d", len(w2))
+	}
+}
 
 func openTemp(t *testing.T) *SQLiteStore {
 	t.Helper()
