@@ -241,3 +241,94 @@ func TestGetSummary_ExplicitNonActiveAccount(t *testing.T) {
 		t.Fatalf("sum=%+v err=%v (want uidY, 2 pulls)", sum, err)
 	}
 }
+
+// ── Credential-path tests (Task 5) ──
+
+// fakeCredProvider implements both GachaProvider (via embedded *fakeGachaProvider)
+// and GachaCredentialProvider, allowing tests of the Endfield credential branch.
+type fakeCredProvider struct {
+	*fakeGachaProvider // embeds GachaConfig + a no-op FetchGacha
+	res                core.GachaFetchResult
+	err                error
+	gotLang            string
+}
+
+func (f *fakeCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, cred, lang string) (core.GachaFetchResult, error) {
+	f.gotLang = lang
+	if f.err != nil {
+		return core.GachaFetchResult{}, f.err
+	}
+	return f.res, nil
+}
+
+// newTestAppWithCredProvider builds a test App with prov registered for gameID.
+// CRITICAL: a.ctx is left nil so a.emit() is a safe no-op. With a non-nil
+// context.Background(), wruntime.EventsEmit hits log.Fatalf → os.Exit(1) and
+// kills the whole go test binary. RefreshGacha nil-guards base := a.ctx, so a
+// nil ctx is safe for the 120 s timeout path.
+func newTestAppWithCredProvider(t *testing.T, gameID string, prov *fakeCredProvider) *App {
+	t.Helper()
+	gid := core.GameID(gameID)
+	backendID, _, _ := core.ParseGameID(gid)
+	base := fakeProvider{id: backendID, games: []core.GameDescriptor{{ID: gid, Backend: backendID}}}
+	a := &App{settings: Settings{Version: 2}, logger: slog.Default()}
+	// Do NOT set a.ctx — see critical note above.
+	a.resolved = map[core.GameID]resolvedEntry{gid: {Path: t.TempDir(), Source: core.SourceDefault}}
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "gacha.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	a.gachaStore = st
+	prov.fakeGachaProvider.fakeProvider = base
+	a.providers = []core.Provider{prov}
+	return a
+}
+
+func TestRefreshGacha_CredentialPath(t *testing.T) {
+	prov := &fakeCredProvider{
+		fakeGachaProvider: &fakeGachaProvider{},
+		res: core.GachaFetchResult{
+			UID:   "R2",
+			Pulls: []core.GachaPull{{ID: "1", BannerKey: "standard", ItemType: "char", Rank: 6, Name: "X", Time: "2026-01-01 00:00:00"}},
+		},
+	}
+	a := newTestAppWithCredProvider(t, "hypergryph/endfield", prov)
+	_ = a.gachaStore.PutGachaCred("hypergryph/endfield", "acct-TOK")
+
+	sum, err := a.RefreshGacha("hypergryph/endfield", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.TotalPulls != 1 {
+		t.Fatalf("total = %d; want 1", sum.TotalPulls)
+	}
+	if prov.gotLang == "" {
+		t.Error("lang not passed to provider")
+	}
+}
+
+func TestRefreshGacha_NoCredentialRequired(t *testing.T) {
+	prov := &fakeCredProvider{fakeGachaProvider: &fakeGachaProvider{}}
+	a := newTestAppWithCredProvider(t, "hypergryph/endfield", prov)
+	if _, err := a.RefreshGacha("hypergryph/endfield", ""); !errors.Is(err, core.ErrGachaCredentialRequired) {
+		t.Fatalf("err = %v; want ErrGachaCredentialRequired", err)
+	}
+}
+
+func TestGetGachaSummary_UnlinkedRequired(t *testing.T) {
+	prov := &fakeCredProvider{fakeGachaProvider: &fakeGachaProvider{}}
+	a := newTestAppWithCredProvider(t, "hypergryph/endfield", prov)
+	if _, err := a.GetGachaSummary("hypergryph/endfield", ""); !errors.Is(err, core.ErrGachaCredentialRequired) {
+		t.Fatalf("err = %v; want ErrGachaCredentialRequired", err)
+	}
+}
+
+func TestMapEndfieldLang(t *testing.T) {
+	cases := map[string]string{"zh-TW": "zh-tw", "zh-CN": "zh-cn", "en": "en-us", "": "en-us"}
+	for in, want := range cases {
+		if got := mapEndfieldLang(in); got != want {
+			t.Errorf("mapEndfieldLang(%q) = %q; want %q", in, got, want)
+		}
+	}
+}

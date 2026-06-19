@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"omnigate/internal/core"
@@ -66,6 +68,23 @@ func gachaProgressPayload(cfg core.GachaConfig, p core.GachaProgress) map[string
 	}
 }
 
+// mapEndfieldLang maps a UI locale (zh-TW/zh-CN/en) to a legal Endfield record lang.
+func mapEndfieldLang(uiLang string) string {
+	switch uiLang {
+	case "zh-TW", "zh-HK":
+		return "zh-tw"
+	case "zh-CN":
+		return "zh-cn"
+	case "en":
+		return "en-us"
+	default:
+		if strings.HasPrefix(uiLang, "zh") {
+			return "zh-cn"
+		}
+		return "en-us"
+	}
+}
+
 // RefreshGacha extracts the local history URL, fetches the record API, upserts
 // into the store (dedup), and returns the recomputed summary. Network-touching.
 func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) {
@@ -84,10 +103,52 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 
 	a.settingsMu.RLock()
 	installDir := a.resolved[gid].Path
+	uiLang := a.settings.App.Language
 	a.settingsMu.RUnlock()
 
 	game := string(gid)
 
+	base := a.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, 120*time.Second)
+	defer cancel()
+
+	// Stream pagination progress to the UI (banner/page/pool — never the URL).
+	cfg := gp.GachaConfig(gid)
+	ctx = core.WithGachaProgress(ctx, func(pr core.GachaProgress) {
+		a.emit("gacha:progress", gameID, gachaProgressPayload(cfg, pr))
+	})
+
+	// Credential path (Endfield): durable account_token, no switcher/URL logic.
+	if cp, isCred := p.(core.GachaCredentialProvider); isCred {
+		cred, _, _ := a.gachaStore.GetGachaCred(game)
+		if cred == "" {
+			return core.GachaSummary{}, core.ErrGachaCredentialRequired
+		}
+		res, err := cp.FetchGachaWithCredential(ctx, gid, cred, mapEndfieldLang(uiLang))
+		if err != nil {
+			a.logger.Warn("RefreshGacha credential fetch failed", "gid", gameID, "code", core.ErrorCode(err))
+			// Token hygiene (spec §10): *url.Error from transport failures embeds the
+			// record URL carrying the live u8_token — never let it reach the frontend.
+			// Sentinel errors (Required/Expired) are token-free and drive the link UX.
+			if errors.Is(err, core.ErrGachaCredentialRequired) || errors.Is(err, core.ErrGachaCredentialExpired) {
+				return core.GachaSummary{}, err
+			}
+			return core.GachaSummary{}, fmt.Errorf("endfield gacha refresh failed (%s)", core.ErrorCode(err))
+		}
+		if _, err := a.gachaStore.UpsertPulls(game, res.UID, res.Pulls); err != nil {
+			return core.GachaSummary{}, err
+		}
+		all, err := a.gachaStore.AllPulls(game, res.UID)
+		if err != nil {
+			return core.GachaSummary{}, err
+		}
+		return core.ComputeSummary(res.UID, all, cfg), nil
+	}
+
+	// ── Existing URL/switcher path (UNCHANGED below) ──
 	uid, isSwitcher := a.gachaUIDFor(gid, accountID)
 	if isSwitcher && uid == "" {
 		return core.GachaSummary{}, core.ErrGachaActiveUnknown
@@ -102,19 +163,6 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 	if cacheUID != "" {
 		cachedURL, _, _ = a.gachaStore.GetURLCache(game, cacheUID)
 	}
-
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	// Stream pagination progress to the UI (banner/page/pool — never the URL).
-	cfg := gp.GachaConfig(gid)
-	ctx = core.WithGachaProgress(ctx, func(p core.GachaProgress) {
-		a.emit("gacha:progress", gameID, gachaProgressPayload(cfg, p))
-	})
 
 	res, err := gp.FetchGacha(ctx, gid, installDir, cachedURL)
 	if err != nil {
@@ -162,6 +210,11 @@ func (a *App) GetGachaSummary(gameID, accountID string) (core.GachaSummary, erro
 		return core.GachaSummary{Supported: false}, nil
 	}
 	game := string(gid)
+	if _, isCred := p.(core.GachaCredentialProvider); isCred {
+		if cred, _, _ := a.gachaStore.GetGachaCred(game); cred == "" {
+			return core.GachaSummary{}, core.ErrGachaCredentialRequired
+		}
+	}
 	uid, isSwitcher := a.gachaUIDFor(gid, accountID)
 	if !isSwitcher {
 		uid, _ = a.gachaStore.LatestUID(game)
