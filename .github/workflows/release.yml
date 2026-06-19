@@ -38,7 +38,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Node 24 (npm 11) matches the npm major that generated the committed
+          # lockfile, so `npm ci` validates cleanly. A mismatched npm major
+          # (e.g. runner npm 10) re-resolves the esbuild/@emnapi optional
+          # platform deps and fails the strict lock check.
+          node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
