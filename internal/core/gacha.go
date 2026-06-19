@@ -79,3 +79,13 @@ type GachaProvider interface {
 	FetchGacha(ctx context.Context, gid GameID, installDir, cachedURL string) (GachaFetchResult, error)
 	GachaConfig(gid GameID) GachaConfig
 }
+
+// GachaCredentialProvider is an optional capability for providers that
+// authenticate with a durable, account-level credential (Endfield's Gryphline
+// account_token) rather than a per-uid history URL. When a provider implements
+// it, App.RefreshGacha reads the stored credential and calls this instead of the
+// URL-based FetchGacha. `lang` is the already-mapped record-API language (App
+// resolves it from settings; the provider has no other source — mirrors GetNews).
+type GachaCredentialProvider interface {
+	FetchGachaWithCredential(ctx context.Context, gid GameID, credential, lang string) (GachaFetchResult, error)
+}
