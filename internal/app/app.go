@@ -29,7 +29,8 @@ type detectEntry struct {
 type App struct {
 	ctx            context.Context
 	settings       Settings
-	settingsP      string
+	dataDir        string
+	store          store.StateStore
 	providers      []core.Provider
 	detect         map[core.BackendID]detectEntry
 	resolved       map[core.GameID]resolvedEntry
@@ -45,32 +46,40 @@ type App struct {
 	gachaLink      *gachaLinkSession
 }
 
-// New returns an App. settingsPath may be "" → default to alongside the binary.
-// logger may be nil → uses slog.Default().
-func New(settingsPath string, logger *slog.Logger) *App {
-	if settingsPath == "" {
-		settingsPath = "settings.toml"
-	}
+// New returns an App. dataDir is the directory holding omnigate.db (plus the log
+// and the WebView2 .cache). logger may be nil → uses slog.Default().
+func New(dataDir string, logger *slog.Logger) *App {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s, err := LoadSettings(settingsPath)
-	if err != nil {
-		logger.Error("settings load failed; using defaults", "err", err, "path", settingsPath)
-	}
+	pendingBak, _ := promoteGachaDB(dataDir, logger) // crash-safe gacha.db → omnigate.db
+	dbPath := filepath.Join(dataDir, "omnigate.db")
 	a := &App{
-		settings:  s,
-		settingsP: settingsPath,
-		detect:    map[core.BackendID]detectEntry{},
-		resolved:  map[core.GameID]resolvedEntry{},
-		logger:    logger,
+		dataDir:  dataDir,
+		detect:   map[core.BackendID]detectEntry{},
+		resolved: map[core.GameID]resolvedEntry{},
+		logger:   logger,
 	}
-	a.playState = loadPlayState(playStatePathFor(settingsPath))
-	a.uidCache = loadUIDCache(uidCachePathFor(settingsPath))
-	if gs, gerr := store.OpenSQLite(gachaDBPathFor(settingsPath)); gerr == nil {
-		a.gachaStore = gs
+	if st, gerr := store.OpenSQLite(dbPath); gerr != nil {
+		logger.Error("omnigate.db open failed; running with in-memory defaults", "err", gerr, "path", dbPath)
+		a.settings = defaultSettings()
+		a.playState = loadPlayState(nil)
+		a.uidCache = loadUIDCache(nil)
 	} else {
-		logger.Error("gacha store open failed; gacha disabled", "err", gerr)
+		a.store = st
+		a.gachaStore = st
+		if pendingBak != "" { // promotion succeeded AND DB opened → retire the source
+			_ = os.Rename(pendingBak, pendingBak+".bak")
+		}
+		importLegacyFiles(dataDir, st, logger) // BEFORE the loads below (spec §6.4)
+		if s, lerr := loadSettingsFromDB(st); lerr == nil {
+			a.settings = s
+		} else {
+			logger.Error("settings load failed; using defaults", "err", lerr)
+			a.settings = defaultSettings()
+		}
+		a.playState = loadPlayState(st)
+		a.uidCache = loadUIDCache(st)
 	}
 	if err := a.constructProviders(); err != nil {
 		logger.Error("provider construction failed", "err", err)
@@ -388,9 +397,11 @@ func (a *App) SetGameOverride(gameID, path string) (GameRow, error) {
 	g := a.settings.Games[gameID]
 	g.Path = path
 	a.settings.Games[gameID] = g
-	if err := SaveSettings(a.settingsP, a.settings); err != nil {
-		a.settingsMu.Unlock()
-		return GameRow{}, err
+	if a.store != nil {
+		if err := saveSettingsToDB(a.store, a.settings); err != nil {
+			a.settingsMu.Unlock()
+			return GameRow{}, err
+		}
 	}
 	a.resolveProviderLocked(a.resolveCtx(), p) // re-resolve+inject under the write lock
 	a.settingsMu.Unlock()
@@ -416,9 +427,11 @@ func (a *App) ClearGameOverride(gameID string) (GameRow, error) {
 	} else {
 		delete(a.settings.Games, gameID)
 	}
-	if err := SaveSettings(a.settingsP, a.settings); err != nil {
-		a.settingsMu.Unlock()
-		return GameRow{}, err
+	if a.store != nil {
+		if err := saveSettingsToDB(a.store, a.settings); err != nil {
+			a.settingsMu.Unlock()
+			return GameRow{}, err
+		}
 	}
 	a.resolveProviderLocked(a.resolveCtx(), p)
 	a.settingsMu.Unlock()
@@ -663,8 +676,10 @@ func (a *App) GetSettings() Settings {
 
 func (a *App) UpdateSettings(s Settings) error {
 	// Disk write first; it touches neither a.settings nor a.providers.
-	if err := SaveSettings(a.settingsP, s); err != nil {
-		return err
+	if a.store != nil {
+		if err := saveSettingsToDB(a.store, s); err != nil {
+			return err
+		}
 	}
 	a.settingsMu.Lock()
 	a.settings = s
@@ -687,8 +702,10 @@ func (a *App) SetLanguage(lang string) error {
 	defer a.settingsMu.Unlock()
 	s := a.settings
 	s.App.Language = lang
-	if err := SaveSettings(a.settingsP, s); err != nil {
-		return err
+	if a.store != nil {
+		if err := saveSettingsToDB(a.store, s); err != nil {
+			return err
+		}
 	}
 	a.settings = s
 	return nil
@@ -731,7 +748,7 @@ func (a *App) ErrorMessage(code string) string {
 	case "not_installed":
 		return "Game is not installed."
 	case "not_configured":
-		return "Backend not configured. Set the launcher path in settings.toml."
+		return "Backend not configured. Set the launcher path in Settings."
 	case "launcher_missing":
 		return "Launcher folder not found at the configured path."
 	case "asset_unavailable":
@@ -740,9 +757,6 @@ func (a *App) ErrorMessage(code string) string {
 		return "Internal error."
 	}
 }
-
-// resolveSettingsPath returns ./settings.toml relative to the binary.
-func resolveSettingsPath() string { return filepath.Join(".", "settings.toml") }
 
 func strContains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || stringIndex(s, sub) >= 0)

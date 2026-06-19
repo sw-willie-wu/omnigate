@@ -3,23 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"log/slog"
 	"strings"
 	"sync"
 
 	"omnigate/internal/core"
+	"omnigate/internal/store"
 )
-
-// uidCachePathFor puts wuwa_uid_cache.json beside settings (mirrors
-// playStatePathFor / gachaDBPathFor).
-func uidCachePathFor(settingsPath string) string {
-	dir := filepath.Dir(settingsPath)
-	if dir == "." || dir == "" {
-		return "wuwa_uid_cache.json"
-	}
-	return filepath.Join(dir, "wuwa_uid_cache.json")
-}
 
 // acctMeta is the per-account cache value: the (numeric) game UID plus an
 // optional user-defined label. It unmarshals from either the new object form
@@ -50,25 +40,33 @@ func (m *acctMeta) UnmarshalJSON(b []byte) error {
 // uidCache is the App-owned, non-sensitive cuid→{uid,label} map. It never holds
 // credentials — only numeric UIDs and user-typed labels.
 type uidCache struct {
-	mu   sync.Mutex
-	path string
-	m    map[string]acctMeta
+	mu    sync.Mutex
+	store store.StateStore
+	m     map[string]acctMeta
 }
 
-func loadUIDCache(path string) *uidCache {
-	c := &uidCache{path: path, m: map[string]acctMeta{}}
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &c.m)
+func loadUIDCache(st store.StateStore) *uidCache {
+	c := &uidCache{store: st, m: map[string]acctMeta{}}
+	if st == nil {
+		return c
+	}
+	if all, err := st.AllAccountUID(); err == nil {
+		for cuid, a := range all {
+			c.m[cuid] = acctMeta{UID: a.UID, Label: a.Label}
+		}
 	}
 	return c
 }
 
-// persist writes the map atomically (best-effort). Caller holds c.mu.
-func (c *uidCache) persist() {
-	b, _ := json.MarshalIndent(c.m, "", "  ")
-	tmp := c.path + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
-		_ = os.Rename(tmp, c.path)
+// persist upserts one cuid's row (best-effort). Caller holds c.mu. No-op when
+// the store is nil (degraded mode).
+func (c *uidCache) persist(cuid string) {
+	if c.store == nil {
+		return
+	}
+	e := c.m[cuid]
+	if err := c.store.SetAccountUID(cuid, e.UID, e.Label); err != nil {
+		slog.Default().Warn("account_uid persist failed", "cuid", cuid, "err", err)
 	}
 }
 
@@ -85,7 +83,7 @@ func (c *uidCache) Record(cuid, uid string) {
 	}
 	e.UID = uid
 	c.m[cuid] = e
-	c.persist()
+	c.persist(cuid)
 }
 
 // SetLabel sets (or clears) the user label for cuid, preserving the uid. The
@@ -106,7 +104,7 @@ func (c *uidCache) SetLabel(cuid, label string) {
 	}
 	e.Label = label
 	c.m[cuid] = e
-	c.persist()
+	c.persist(cuid)
 }
 
 // Backfill fills each account's label from the cache (for every account,

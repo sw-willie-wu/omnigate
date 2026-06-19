@@ -4,22 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"omnigate/internal/core"
 )
-
-// gachaDBPathFor puts gacha.db beside the settings file (same dir convention as
-// playstate). Mirrors playStatePathFor.
-func gachaDBPathFor(settingsPath string) string {
-	dir := filepath.Dir(settingsPath)
-	if dir == "." || dir == "" {
-		return "gacha.db"
-	}
-	return filepath.Join(dir, "gacha.db")
-}
 
 // gachaUIDFor resolves the gacha uid for a specific account. For switcher
 // providers (WuWa): accountID=="" → the written-active account's uid; else the

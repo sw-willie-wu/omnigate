@@ -30,15 +30,16 @@ func TestDumpFallbackIcons(t *testing.T) {
 		t.Skip("guarded utility; set DUMP_ICONS=1 to regenerate fallback icons")
 	}
 
-	// Test CWD is the package dir (internal/app); the app's real settings file
-	// (with the user's install paths) lives at the repo root.
-	settingsPath := filepath.Join("..", "..", "settings.toml")
+	// Test CWD is the package dir (internal/app); the app's real data dir
+	// (omnigate.db with the user's install paths) is the repo root. NB: New runs
+	// the one-shot legacy migration on that dir — fine for this manual utility.
+	dataDir := filepath.Join("..", "..")
 	outDir := filepath.Join("..", "..", "frontend", "src", "assets", "gameicons")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", outDir, err)
 	}
 
-	a := New(settingsPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a := New(dataDir, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a.ctx = context.Background() // hoyoverse GetIcon needs a non-nil ctx for its API call
 	handler := AssetHandlerForApp(a)
 
