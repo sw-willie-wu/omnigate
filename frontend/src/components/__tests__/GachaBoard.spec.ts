@@ -217,7 +217,7 @@ describe('GachaBoard', () => {
       for (const k of ['title', 'login', 'step1', 'step2', 'step3', 'paste', 'pasteLabel', 'rearm']) {
         expect(((loc.gacha?.link?.[k] ?? '') as string).length).toBeGreaterThan(0);
       }
-      expect(((loc.gacha?.currency?.endfield_stone ?? '') as string).length).toBeGreaterThan(0);
+      expect(((loc.gacha?.currency?.endfield_oroberyl ?? '') as string).length).toBeGreaterThan(0);
     }
   });
 });
