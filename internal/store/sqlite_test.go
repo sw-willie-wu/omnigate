@@ -130,3 +130,38 @@ func TestURLCacheRoundTrip(t *testing.T) {
 		t.Fatalf("GetURLCache url=%q err=%v", url, err)
 	}
 }
+
+func TestGachaCred_RoundTripAndClear(t *testing.T) {
+	s, err := OpenSQLite(filepath.Join(t.TempDir(), "g.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	game := "hypergryph/endfield"
+
+	if cred, _, err := s.GetGachaCred(game); err != nil || cred != "" {
+		t.Fatalf("empty get = %q,%v; want \"\",nil", cred, err)
+	}
+	if err := s.PutGachaCred(game, "tok-A"); err != nil {
+		t.Fatal(err)
+	}
+	cred, ts, err := s.GetGachaCred(game)
+	if err != nil || cred != "tok-A" {
+		t.Fatalf("get = %q,%v; want tok-A", cred, err)
+	}
+	if ts.IsZero() {
+		t.Error("updated_at should be set")
+	}
+	if err := s.PutGachaCred(game, "tok-B"); err != nil {
+		t.Fatal(err)
+	}
+	if cred, _, _ := s.GetGachaCred(game); cred != "tok-B" {
+		t.Fatalf("overwrite get = %q; want tok-B", cred)
+	}
+	if err := s.PutGachaCred(game, ""); err != nil {
+		t.Fatal(err)
+	}
+	if cred, _, _ := s.GetGachaCred(game); cred != "" {
+		t.Fatalf("after clear = %q; want empty", cred)
+	}
+}
