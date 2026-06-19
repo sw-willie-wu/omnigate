@@ -165,3 +165,48 @@ func TestGachaCred_RoundTripAndClear(t *testing.T) {
 		t.Fatalf("after clear = %q; want empty", cred)
 	}
 }
+
+func TestMigrate_FreshDB_SchemaVersion3AndTables(t *testing.T) {
+	s, err := OpenSQLite(filepath.Join(t.TempDir(), "omnigate.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var v string
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	if v != "3" {
+		t.Fatalf("schema_version = %q, want 3", v)
+	}
+	for _, tbl := range []string{"config", "game_settings", "playstate", "account_uid"} {
+		var name string
+		if err := s.db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl).Scan(&name); err != nil {
+			t.Fatalf("table %s missing: %v", tbl, err)
+		}
+	}
+}
+
+func TestMigrate_ExistingV2DB_BumpedTo3(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "omnigate.db")
+	s, err := OpenSQLite(p) // fresh → 3; force back to 2 to simulate a pre-upgrade DB
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','2')`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s2, err := OpenSQLite(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	var v string
+	if err := s2.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	if v != "3" {
+		t.Fatalf("schema_version = %q, want 3 after re-open", v)
+	}
+}
