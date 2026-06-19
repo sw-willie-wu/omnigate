@@ -240,13 +240,19 @@ func (p *Provider) fetchWuwa(ctx context.Context, f url.Values) (core.GachaFetch
 		if r.Code != 0 {
 			return out, core.ErrGachaURLUnavailable
 		}
-		// API returns newest-first; reverse to oldest-first for stable indices.
+		// API returns newest-first; reverse to oldest-first for stable ordinals.
+		// Stable, window-independent id: w|<pool>|<time>|<ordinal>, ordinal = 0-based
+		// position among same-(pool,time) records, oldest-first. WuWa has no native
+		// id and its record API returns a SLIDING WINDOW, so a position-from-oldest
+		// index is unstable across fetches and collides on dedup (spec 2026-06-19).
 		n := len(r.Data)
+		ordinals := map[string]int{}
 		for i := n - 1; i >= 0; i-- {
 			e := r.Data[i]
-			idx := n - 1 - i // 0 = oldest
+			ord := ordinals[e.Time]
+			ordinals[e.Time]++
 			out.Pulls = append(out.Pulls, core.GachaPull{
-				ID:        fmt.Sprintf("%d-%08d", pool, idx),
+				ID:        fmt.Sprintf("w|%d|%s|%d", pool, e.Time, ord),
 				BannerKey: poolBanner(pool),
 				ItemType:  e.ResourceType,
 				Rank:      e.QualityLevel,
