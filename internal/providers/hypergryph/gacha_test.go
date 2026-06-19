@@ -126,6 +126,9 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 		}
 		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
 	})
+	mux.HandleFunc("/api/record/weapon", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	p := New(Settings{}, nil)
@@ -161,5 +164,58 @@ func TestEndfieldRecord_AuthTimeoutExpired(t *testing.T) {
 	p.pageDelay = 0
 	if _, err := p.efFetchRecords(context.Background(), "stale", "2", "en-us"); !errors.Is(err, core.ErrGachaCredentialExpired) {
 		t.Fatalf("err = %v; want ErrGachaCredentialExpired", err)
+	}
+}
+
+func TestEndfieldFetchRecords_IncludesWeapon(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/record/char", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+	})
+	mux.HandleFunc("/api/record/weapon", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("pool_type") != "" {
+			t.Errorf("weapon must be single-pass (no pool_type), got %s", r.URL.RawQuery)
+		}
+		if r.URL.Query().Get("seq_id") == "" {
+			// isFree:true here proves the normalizer's char-only guard: weapon pulls
+			// must come back IsFree=false regardless of the source field.
+			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[
+				{"seqId":"900","weaponName":"Blade","rarity":6,"gachaTs":"1769062855302","isFree":true}]}}`))
+			return
+		}
+		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.recordAPIBase = srv.URL
+	p.pageDelay = 0
+
+	res, err := p.efFetchRecords(context.Background(), "u8", "2", "en-us")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var weapon *core.GachaPull
+	for i := range res.Pulls {
+		if res.Pulls[i].ItemType == "weapon" {
+			weapon = &res.Pulls[i]
+		}
+	}
+	if weapon == nil {
+		t.Fatal("no weapon pull")
+	}
+	if weapon.BannerKey != "weapon" || weapon.Name != "Blade" || weapon.Rank != 6 || weapon.IsFree {
+		t.Fatalf("weapon pull = %+v", *weapon)
+	}
+}
+
+func TestEndfieldGachaConfig_PriceCurrencyWeaponBanner(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("hypergryph/endfield")
+	if cfg.PullPrice != 500 || cfg.Currency != "endfield_oroberyl" {
+		t.Fatalf("price/currency = %d/%q; want 500/endfield_oroberyl", cfg.PullPrice, cfg.Currency)
+	}
+	if cfg.BannerOf("weapon") == nil {
+		t.Error("weapon banner missing")
 	}
 }

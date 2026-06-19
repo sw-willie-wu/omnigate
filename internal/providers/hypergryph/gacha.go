@@ -19,7 +19,7 @@ import (
 const endfieldHardPity = 80       // official: 6★ hard pity (char)
 const endfieldExpectedPity = 62.0 // theoretical avg pulls/6★ for the luck score
 const endfieldMilestone = 60      // free-pull carryover milestone (ref repo)
-const endfieldPullPrice = 160     // placeholder: real Endfield per-pull cost TBD (currency code "endfield_pull")
+const endfieldPullPrice = 500     // Endfield per-pull cost: 500 Oroberyl (嵌晶玉)
 const endfieldMaxPages = 200      // per-pool pagination safety cap (200×~20 ≫ any account)
 
 // endfieldStandardPity: every pull counts; reset to 0 on a headline.
@@ -84,8 +84,11 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			// rule is unverified → standard-pity placeholder so its pulls still count
 			// and display; refine if a live record set shows different behaviour.
 			{Key: "joint", Label: core.LocalizedString{"zh-TW": "聯動尋訪", "zh-CN": "联动寻访", "en": "Joint"}, Pity: endfieldStandardPity{}},
+			// Weapon pity = standard placeholder per spec §12.1 (weapons are 4/5/6★ so
+			// headline=6 resets correctly; exact weapon guarantee rule unverified).
+			{Key: "weapon", Label: core.LocalizedString{"zh-TW": "武器", "zh-CN": "武器", "en": "Weapon"}, Pity: endfieldStandardPity{}},
 		},
-		PullPrice: endfieldPullPrice, Currency: "endfield_pull", ExpectedPity: endfieldExpectedPity,
+		PullPrice: endfieldPullPrice, Currency: "endfield_oroberyl", ExpectedPity: endfieldExpectedPity,
 	}
 }
 
@@ -295,13 +298,17 @@ type endfieldPool struct {
 	itemType  string // "char" | "weapon"
 }
 
-// endfieldCharPools are the 4 character pools. Weapon is added in Task 10.
+// endfieldCharPools are the 4 character pools.
 var endfieldCharPools = []endfieldPool{
 	{"/api/record/char", "E_CharacterGachaPoolType_Special", "special", "char"},
 	{"/api/record/char", "E_CharacterGachaPoolType_Standard", "standard", "char"},
 	{"/api/record/char", "E_CharacterGachaPoolType_Beginner", "beginner", "char"},
 	{"/api/record/char", "E_CharacterGachaPoolType_Joint", "joint", "char"},
 }
+
+// endfieldAllPools = the 4 char pools + the single weapon pass (no pool_type).
+var endfieldAllPools = append(append([]endfieldPool{}, endfieldCharPools...),
+	endfieldPool{"/api/record/weapon", "", "weapon", "weapon"})
 
 type endfieldRecordResp struct {
 	Code    int    `json:"code"`
@@ -332,7 +339,7 @@ func parseEndfieldTime(ms string) (string, error) {
 // efFetchRecords paginates the given pools and returns normalized pulls (UID set
 // by the caller to the roleId).
 func (p *Provider) efFetchRecords(ctx context.Context, u8, serverID, lang string) (core.GachaFetchResult, error) {
-	return p.efFetchPools(ctx, u8, serverID, lang, endfieldCharPools)
+	return p.efFetchPools(ctx, u8, serverID, lang, endfieldAllPools)
 }
 
 func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, pools []endfieldPool) (core.GachaFetchResult, error) {
