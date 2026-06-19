@@ -49,3 +49,9 @@ settings.toml
 # runtime state written to CWD when running the dev exe from repo root
 /playstate.json
 /gacha.db
+
+# portable single-file data layout (omnigate.db) — written to dataDir, which in
+# dev is the repo root. (/omnigate.log is already covered by *.log above.)
+/omnigate.db
+/.cache/
+/*.bak

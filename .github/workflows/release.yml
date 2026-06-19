@@ -84,15 +84,20 @@ jobs:
           & $wails build -platform windows/amd64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Rename artifact
-        run: cp build/bin/omnigate.exe "omnigate-${{ github.ref_name }}-windows-amd64.exe"
+      - name: Stage dist artifact
+        # Wails outputs to build/bin (scratch, gitignored); stage the distributable
+        # into dist/ (gitignored) — build/ holds committed build assets, dist/ holds
+        # release output.
+        run: |
+          mkdir -p dist
+          cp build/bin/omnigate.exe "dist/omnigate-${{ github.ref_name }}-windows-amd64.exe"
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.ref_name }}"
-          args=(release create "$tag" "omnigate-$tag-windows-amd64.exe" --title "$tag" --generate-notes)
+          args=(release create "$tag" "dist/omnigate-$tag-windows-amd64.exe" --title "$tag" --generate-notes)
           if [[ "$tag" == *-* ]]; then
             args+=(--prerelease)
           fi
