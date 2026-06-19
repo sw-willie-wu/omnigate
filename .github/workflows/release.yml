@@ -1,0 +1,99 @@
+name: release
+
+# Build and publish a GitHub release whenever a version tag is pushed.
+# A clean semver tag (v1.2.3) becomes a full release; any tag with a suffix
+# (v1.2.3-rc1, v0.5.0-m3c, ...) is published as a pre-release. The build embeds
+# the tag as the app version via OMNIGATE_VERSION (see frontend/vite.config.ts).
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CGO_ENABLED: '0'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 (npm 11) matches the npm major that generated the committed
+          # lockfile, so `npm ci` validates cleanly. A mismatched npm major
+          # (e.g. runner npm 10) re-resolves the esbuild/@emnapi optional
+          # platform deps and fails the strict lock check.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Stub frontend/dist for binding generation
+        # main.go has //go:embed all:frontend/dist, so the Go app won't compile
+        # (and `wails generate module` can't introspect bindings) until dist
+        # exists. A placeholder satisfies the embed; the Build step's vite run
+        # overwrites dist with the real output.
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
+
+      - name: Generate Wails bindings
+        # wails generate module writes frontend/wailsjs/ (Go<->JS bindings),
+        # which is gitignored. The frontend unit tests import from it, so it
+        # must exist before vitest runs. `wails build` regenerates it anyway.
+        shell: pwsh
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails.exe'
+          & $wails generate module
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Frontend deps + tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run test
+
+      - name: Backend tests
+        run: go test ./...
+
+      - name: Build
+        shell: pwsh
+        env:
+          OMNIGATE_VERSION: ${{ github.ref_name }}
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails.exe'
+          & $wails build -platform windows/amd64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Rename artifact
+        run: cp build/bin/omnigate.exe "omnigate-${{ github.ref_name }}-windows-amd64.exe"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          args=(release create "$tag" "omnigate-$tag-windows-amd64.exe" --title "$tag" --generate-notes)
+          if [[ "$tag" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
