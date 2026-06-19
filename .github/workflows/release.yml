@@ -46,6 +46,19 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Generate Wails bindings
+        # wails generate module writes frontend/wailsjs/ (Go<->JS bindings),
+        # which is gitignored. The frontend unit tests import from it, so it
+        # must exist before vitest runs. `wails build` regenerates it anyway.
+        shell: pwsh
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails.exe'
+          & $wails generate module
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Frontend deps + tests
         working-directory: frontend
         run: |
@@ -54,9 +67,6 @@ jobs:
 
       - name: Backend tests
         run: go test ./...
-
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
       - name: Build
         shell: pwsh
