@@ -20,3 +20,26 @@ type GachaStore interface {
 	PutGachaCred(game, cred string) error
 	Close() error
 }
+
+// GameOverride is a per-game settings row (install path + background image).
+type GameOverride struct{ Path, BackgroundPath string }
+
+// AccountUID is a WuWa account uid-cache row.
+type AccountUID struct{ UID, Label string }
+
+// StateStore persists app config + per-game/account state in the SAME DB file
+// as gacha (omnigate.db). Implemented by *SQLiteStore. All methods are
+// single-statement (or a single short transaction) under MaxOpenConns(1).
+type StateStore interface {
+	GetMeta(key string) (val string, ok bool, err error)
+	SetMeta(key, val string) error
+	GetConfig(key string) (val string, ok bool, err error)
+	SetConfig(key, val string) error
+	AllConfig() (map[string]string, error)
+	AllGameSettings() (map[string]GameOverride, error)
+	ReplaceGameSettings(m map[string]GameOverride) error
+	AllPlaystate() (map[string]int64, error)
+	SetPlaystate(game string, unix int64) error
+	AllAccountUID() (map[string]AccountUID, error)
+	SetAccountUID(cuid, uid, label string) error
+}
