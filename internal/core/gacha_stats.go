@@ -46,9 +46,10 @@ type GachaSummary struct {
 }
 
 // ComputeSummary builds the dashboard from one (uid)'s pulls + config. Pure.
-// Per-banner pity ordering uses the monotonic ID (correct within a banner); the
-// cross-banner recent-headline list uses parsed Time (IDs are not comparable
-// across banners for providers like WuWa — see the sort below).
+// Per-banner pity ordering is chronological (parsed Time, id tiebreak); the
+// cross-banner recent-headline list also uses parsed Time. IDs are not globally
+// comparable across banners/providers (WuWa synthesizes them) so Time is the
+// source of truth — see the sorts below.
 func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary {
 	s := GachaSummary{
 		Supported: true, UID: uid, Currency: cfg.Currency,
@@ -74,7 +75,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	var allHits []PityHit
 	for _, b := range cfg.Banners {
 		group := byBanner[b.Key]
-		sortByID(group)
+		sortChronological(group)
 		hits, trailing := b.Pity.Walk(group, cfg.HeadlineRank)
 		allHits = append(allHits, hits...)
 		near := b.Pity.HardPity() > 0 && trailing*100 >= b.Pity.HardPity()*80
@@ -99,11 +100,11 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 
 	// Recent-headline ordering is CROSS-banner, so it must use real time, not the
 	// per-banner ID. HoYoverse IDs are a global increasing sequence (ID order ==
-	// time order), but WuWa/kurogames synthesizes IDs as "<pool>-<idx>" which are
-	// only monotonic WITHIN a pool — sorting those by ID surfaces whole pools at a
-	// time (weapon pool 2 always above character pool 1), hiding recent characters.
-	// Sort by parsed Time desc; fall back to the ID compare when times tie or don't
-	// parse (preserves HoYoverse same-second 10-pull order and any odd format).
+	// time order), but WuWa/kurogames synthesizes IDs as "w|<pool>|<time>|<ord>"
+	// which are not comparable across banners — sorting those by ID surfaces whole
+	// pools at a time, hiding recent characters. Sort by parsed Time desc; fall back
+	// to the ID compare when times tie or don't parse (preserves HoYoverse
+	// same-second 10-pull order and any odd format).
 	sort.SliceStable(allHits, func(i, j int) bool {
 		ti, oki := parseGachaTime(allHits[i].Pull.Time)
 		tj, okj := parseGachaTime(allHits[j].Pull.Time)
@@ -158,8 +159,20 @@ func parseGachaTime(s string) (time.Time, bool) {
 	return t, true
 }
 
-func sortByID(g []GachaPull) {
-	sort.Slice(g, func(i, j int) bool { return numLess(g[i].ID, g[j].ID) })
+// sortChronological orders a banner's pulls oldest-first for pity walking: parsed
+// Time ascending, with numLess(id) as the tiebreak for same-second records and a
+// fallback when Time is empty/unparseable. WuWa's stable ids ("w|pool|time|ord")
+// are NOT numeric, so a pure id sort would mis-order; Time is the real chronology.
+// No-op for HoYoverse/Endfield (native ids are increasing == chronological).
+func sortChronological(g []GachaPull) {
+	sort.SliceStable(g, func(i, j int) bool {
+		ti, oki := parseGachaTime(g[i].Time)
+		tj, okj := parseGachaTime(g[j].Time)
+		if oki && okj && !ti.Equal(tj) {
+			return ti.Before(tj)
+		}
+		return numLess(g[i].ID, g[j].ID)
+	})
 }
 
 // numLess compares numeric-string ids by (length, lexicographic) so longer

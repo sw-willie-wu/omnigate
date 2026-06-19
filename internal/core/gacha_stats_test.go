@@ -1,6 +1,48 @@
 package core
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
+
+// Guards B1. The new WuWa id "w|<pool>|<time>|<ord>" is non-numeric. The bug is
+// CROSS-TIME with mixed ordinal width: an EARLIER timestamp whose headline has a
+// 2-digit ordinal (id one char LONGER) vs a LATER timestamp's 1-digit-ordinal
+// headline. Old numLess sorts length-first, so the shorter (later) id sorts BEFORE
+// the longer (earlier) one → pity bound to the wrong pull. Assert Count↔Time.
+func TestComputeSummaryPityOrderCrossTimeMixedWidth(t *testing.T) {
+	cfg := GachaConfig{
+		HeadlineRank: 5,
+		RankLabels:   map[int]LocalizedString{5: {"en": "5★"}},
+		Banners:      []BannerConfig{{Key: "character", Label: LocalizedString{"en": "C"}, Pity: stdPity{cap: 80}}},
+		PullPrice:    160, Currency: "astrite", ExpectedPity: 62.5,
+	}
+	const tEarly = "2026-06-13 14:20:00" // headline at 2-digit ordinal 10 (id LONGER)
+	const tLate = "2026-06-13 14:30:00"  // headline at 1-digit ordinal 0 (id SHORTER)
+	var pulls []GachaPull
+	for ord := 0; ord <= 10; ord++ { // 11 same-second records; ord 0-9 = 4★, ord 10 = 5★
+		rank := 4
+		if ord == 10 {
+			rank = 5
+		}
+		pulls = append(pulls, GachaPull{
+			ID: "w|1|" + tEarly + "|" + strconv.Itoa(ord), BannerKey: "character", ItemType: "角色", Rank: rank, Time: tEarly,
+		})
+	}
+	pulls = append(pulls, GachaPull{ID: "w|1|" + tLate + "|0", BannerKey: "character", ItemType: "角色", Rank: 5, Name: "late", Time: tLate})
+
+	s := ComputeSummary("u", pulls, cfg)
+	byTime := map[string]int{}
+	for _, h := range s.RecentHeadline {
+		byTime[h.Time] = h.Count
+	}
+	if byTime[tEarly] != 11 {
+		t.Fatalf("early(%s) count=%d want 11 (chronological pity)", tEarly, byTime[tEarly])
+	}
+	if byTime[tLate] != 1 {
+		t.Fatalf("late(%s) count=%d want 1", tLate, byTime[tLate])
+	}
+}
 
 // stdPity: every pull counts, reset to 0 on headline (HoYoverse-standard-like).
 type stdPity struct{ cap int }
