@@ -5,9 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"omnigate/internal/core"
 )
@@ -86,6 +90,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 }
 
 var _ core.GachaProvider = (*Provider)(nil)
+var _ core.GachaCredentialProvider = (*Provider)(nil)
 
 const (
 	endfieldGrantCode = "3dacefa138426cfe" // GLOBAL endfield OAuth grant appCode (distinct from news endfieldAppCode)
@@ -280,4 +285,157 @@ func (p *Provider) efU8Token(ctx context.Context, oauth, uid string) (string, er
 		return "", core.ErrGachaCredentialExpired
 	}
 	return r.Data.Token, nil
+}
+
+// endfieldPool is one record stream to paginate.
+type endfieldPool struct {
+	endpoint  string // "/api/record/char" or "/api/record/weapon"
+	poolType  string // char pool_type enum; "" for weapon (single pass)
+	bannerKey string
+	itemType  string // "char" | "weapon"
+}
+
+// endfieldCharPools are the 4 character pools. Weapon is added in Task 10.
+var endfieldCharPools = []endfieldPool{
+	{"/api/record/char", "E_CharacterGachaPoolType_Special", "special", "char"},
+	{"/api/record/char", "E_CharacterGachaPoolType_Standard", "standard", "char"},
+	{"/api/record/char", "E_CharacterGachaPoolType_Beginner", "beginner", "char"},
+	{"/api/record/char", "E_CharacterGachaPoolType_Joint", "joint", "char"},
+}
+
+type endfieldRecordResp struct {
+	Code    int    `json:"code"`
+	Msg     string `json:"msg"`
+	Message string `json:"message"` // some endpoints use "message"
+	Data    *struct {
+		List []struct {
+			SeqID      flexStr `json:"seqId"`
+			Rarity     int     `json:"rarity"`
+			GachaTs    flexStr `json:"gachaTs"`
+			IsFree     bool    `json:"isFree"`
+			CharName   string  `json:"charName"`
+			WeaponName string  `json:"weaponName"`
+		} `json:"list"`
+		HasMore bool `json:"hasMore"`
+	} `json:"data"`
+}
+
+// parseEndfieldTime converts a ms-epoch string to the shared canonical layout.
+func parseEndfieldTime(ms string) (string, error) {
+	n, err := strconv.ParseInt(strings.TrimSpace(ms), 10, 64)
+	if err != nil {
+		return "", err
+	}
+	return time.UnixMilli(n).Format("2006-01-02 15:04:05"), nil
+}
+
+// efFetchRecords paginates the given pools and returns normalized pulls (UID set
+// by the caller to the roleId).
+func (p *Provider) efFetchRecords(ctx context.Context, u8, serverID, lang string) (core.GachaFetchResult, error) {
+	return p.efFetchPools(ctx, u8, serverID, lang, endfieldCharPools)
+}
+
+func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, pools []endfieldPool) (core.GachaFetchResult, error) {
+	out := core.GachaFetchResult{Pulls: []core.GachaPull{}}
+	for i, pool := range pools {
+		seqID := ""
+		for page := 0; page < endfieldMaxPages; page++ {
+			if err := ctx.Err(); err != nil {
+				return out, err
+			}
+			core.ReportGachaProgress(ctx, core.GachaProgress{
+				BannerKey: pool.bannerKey, Page: page + 1, PoolIndex: i + 1, PoolTotal: len(pools),
+			})
+			q := url.Values{}
+			q.Set("token", u8)
+			q.Set("lang", lang)
+			q.Set("server_id", serverID)
+			if pool.poolType != "" {
+				q.Set("pool_type", pool.poolType)
+			}
+			if seqID != "" {
+				q.Set("seq_id", seqID)
+			}
+			req, err := http.NewRequestWithContext(ctx, "GET", p.recordAPIBase+pool.endpoint+"?"+q.Encode(), nil)
+			if err != nil {
+				return out, err
+			}
+			req.Header.Set("User-Agent", endfieldUA)
+			resp, err := p.httpClient().Do(req)
+			if err != nil {
+				return out, err
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != 200 {
+				return out, fmt.Errorf("endfield %s status %d", pool.endpoint, resp.StatusCode)
+			}
+			var r endfieldRecordResp
+			if err := json.Unmarshal(body, &r); err != nil {
+				return out, err
+			}
+			if r.Code == -101 || r.Code == 40100 { // bad/expired u8_token
+				return out, core.ErrGachaCredentialExpired
+			}
+			if r.Code != 0 || r.Data == nil {
+				return out, core.ErrGachaURLUnavailable
+			}
+			for _, e := range r.Data.List {
+				name := e.CharName
+				if pool.itemType == "weapon" {
+					name = e.WeaponName
+				}
+				ts, _ := parseEndfieldTime(string(e.GachaTs))
+				out.Pulls = append(out.Pulls, core.GachaPull{
+					ID:        string(e.SeqID),
+					BannerKey: pool.bannerKey,
+					ItemType:  pool.itemType,
+					Rank:      e.Rarity,
+					Name:      name,
+					Time:      ts,
+					IsFree:    pool.itemType == "char" && e.IsFree,
+				})
+			}
+			if !r.Data.HasMore || len(r.Data.List) == 0 {
+				break
+			}
+			seqID = string(r.Data.List[len(r.Data.List)-1].SeqID)
+			if p.pageDelay > 0 {
+				// jitter so paging lands in the spec'd ~500–1000ms band (anti-风控).
+				time.Sleep(p.pageDelay + time.Duration(rand.Intn(300))*time.Millisecond)
+			}
+		}
+	}
+	return out, nil
+}
+
+// FetchGachaWithCredential runs the full chain and returns pulls + roleId uid.
+func (p *Provider) FetchGachaWithCredential(ctx context.Context, gid core.GameID, credential, lang string) (core.GachaFetchResult, error) {
+	if findByID(gid) == nil {
+		return core.GachaFetchResult{}, core.ErrUnknownGame
+	}
+	if credential == "" {
+		return core.GachaFetchResult{}, core.ErrGachaCredentialRequired
+	}
+	if lang == "" {
+		lang = "en-us"
+	}
+	oauth, err := p.efGrant(ctx, credential)
+	if err != nil {
+		return core.GachaFetchResult{}, err
+	}
+	uid, roleID, serverID, err := p.efBinding(ctx, oauth)
+	if err != nil {
+		return core.GachaFetchResult{}, err
+	}
+	u8, err := p.efU8Token(ctx, oauth, uid)
+	if err != nil {
+		return core.GachaFetchResult{}, err
+	}
+	res, err := p.efFetchRecords(ctx, u8, serverID, lang)
+	if err != nil {
+		return core.GachaFetchResult{}, err
+	}
+	res.UID = roleID
+	return res, nil
 }

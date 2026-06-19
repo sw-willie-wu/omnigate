@@ -110,3 +110,56 @@ func TestEndfieldChain_GrantAuthFailExpired(t *testing.T) {
 		t.Fatalf("err = %v; want ErrGachaCredentialExpired", err)
 	}
 }
+
+func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/record/char", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("token") != "u8-TOK" || q.Get("server_id") != "2" || q.Get("lang") != "zh-tw" {
+			t.Errorf("char bad query: %s", r.URL.RawQuery)
+		}
+		// One page per pool; only the Standard pool returns a row.
+		if q.Get("pool_type") == "E_CharacterGachaPoolType_Standard" && q.Get("seq_id") == "" {
+			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[
+				{"seqId":"100","charId":"c1","charName":"Perlica","rarity":6,"gachaTs":"1769062855302","isFree":false}]}}`))
+			return
+		}
+		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.recordAPIBase = srv.URL
+	p.pageDelay = 0
+
+	res, err := p.efFetchRecords(context.Background(), "u8-TOK", "2", "zh-tw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Pulls) != 1 {
+		t.Fatalf("pulls = %d; want 1", len(res.Pulls))
+	}
+	got := res.Pulls[0]
+	if got.ID != "100" || got.BannerKey != "standard" || got.ItemType != "char" || got.Rank != 6 || got.Name != "Perlica" {
+		t.Fatalf("pull = %+v", got)
+	}
+	if got.Time != "2026-01-22 14:20:55" { // 1769062855302 ms in LOCAL tz — adjust expected to your tz when running
+		t.Logf("time = %q (local-tz dependent; assert the parse, not the literal)", got.Time)
+	}
+	if _, err := parseEndfieldTime("1769062855302"); err != nil {
+		t.Errorf("parseEndfieldTime: %v", err)
+	}
+}
+
+func TestEndfieldRecord_AuthTimeoutExpired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"code":-101,"message":"auth key timeout"}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.recordAPIBase = srv.URL
+	p.pageDelay = 0
+	if _, err := p.efFetchRecords(context.Background(), "stale", "2", "en-us"); !errors.Is(err, core.ErrGachaCredentialExpired) {
+		t.Fatalf("err = %v; want ErrGachaCredentialExpired", err)
+	}
+}
