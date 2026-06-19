@@ -32,22 +32,31 @@ func defaultConvLogPaths(installDir string) []string {
 // and returns its fragment params (svr_id/player_id/lang/record_id/resources_id…).
 func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 	paths := p.convLogPathsFn(installDir)
+	p.logger.Debug("wuwa convene: scanning logs", "installDir", installDir, "paths", len(paths))
 	var last string
 	for _, path := range paths {
 		b, err := os.ReadFile(path)
 		if err != nil {
+			p.logger.Debug("wuwa convene: log not readable", "path", path, "err", err)
 			continue
 		}
-		m := conveneURLRe.FindAll(b, -1)
+		raw := conveneURLRe.FindAll(b, -1)
+		m := raw
+		xorHits := 0
 		if len(m) == 0 {
 			// recent builds XOR-obfuscate Client.log; decrypt and retry.
-			m = conveneURLRe.FindAll(xorDecryptClientLog(b), -1)
+			xm := conveneURLRe.FindAll(xorDecryptClientLog(b), -1)
+			xorHits = len(xm)
+			m = xm
 		}
+		// Diagnostic only: counts + size, never the URL/token content.
+		p.logger.Debug("wuwa convene: log scanned", "path", path, "size", len(b), "rawHits", len(raw), "xorHits", xorHits)
 		if len(m) > 0 {
 			last = string(m[len(m)-1]) // most recent in this file
 		}
 	}
 	if last == "" {
+		p.logger.Warn("wuwa convene: no record URL found in any log", "installDir", installDir, "paths", len(paths))
 		return nil, core.ErrGachaURLUnavailable
 	}
 	// params are in the fragment after "#/record?"
@@ -57,8 +66,13 @@ func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 	}
 	q, err := url.ParseQuery(frag)
 	if err != nil || q.Get("record_id") == "" || q.Get("player_id") == "" {
+		// Diagnostic only: booleans, never the values.
+		p.logger.Warn("wuwa convene: URL matched but params incomplete",
+			"hasRecordId", q.Get("record_id") != "", "hasPlayerId", q.Get("player_id") != "",
+			"hasResourcesId", q.Get("resources_id") != "", "parseErr", err)
 		return nil, core.ErrGachaURLUnavailable
 	}
+	p.logger.Debug("wuwa convene: params extracted OK (record_id+player_id present)")
 	return q, nil
 }
 
@@ -226,13 +240,19 @@ func (p *Provider) fetchWuwa(ctx context.Context, f url.Values) (core.GachaFetch
 		if r.Code != 0 {
 			return out, core.ErrGachaURLUnavailable
 		}
-		// API returns newest-first; reverse to oldest-first for stable indices.
+		// API returns newest-first; reverse to oldest-first for stable ordinals.
+		// Stable, window-independent id: w|<pool>|<time>|<ordinal>, ordinal = 0-based
+		// position among same-(pool,time) records, oldest-first. WuWa has no native
+		// id and its record API returns a SLIDING WINDOW, so a position-from-oldest
+		// index is unstable across fetches and collides on dedup (spec 2026-06-19).
 		n := len(r.Data)
+		ordinals := map[string]int{}
 		for i := n - 1; i >= 0; i-- {
 			e := r.Data[i]
-			idx := n - 1 - i // 0 = oldest
+			ord := ordinals[e.Time]
+			ordinals[e.Time]++
 			out.Pulls = append(out.Pulls, core.GachaPull{
-				ID:        fmt.Sprintf("%d-%08d", pool, idx),
+				ID:        fmt.Sprintf("w|%d|%s|%d", pool, e.Time, ord),
 				BannerKey: poolBanner(pool),
 				ItemType:  e.ResourceType,
 				Rank:      e.QualityLevel,

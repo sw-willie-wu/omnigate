@@ -141,15 +141,45 @@ func TestWuwaFetch_NormalizesAndSynthIDs(t *testing.T) {
 	if res.UID != "800" || len(res.Pulls) != 2 {
 		t.Fatalf("uid=%q pulls=%d", res.UID, len(res.Pulls))
 	}
-	// oldest gets index 0; Alpha (newest) gets the higher index.
+	// each distinct-time record is ordinal 0 within its own (pool,time).
 	var alpha *core.GachaPull
 	for i := range res.Pulls {
 		if res.Pulls[i].Name == "Alpha" {
 			alpha = &res.Pulls[i]
 		}
 	}
-	if alpha == nil || alpha.Rank != 5 || alpha.BannerKey != "character" || alpha.ID != "1-00000001" {
+	if alpha == nil || alpha.Rank != 5 || alpha.BannerKey != "character" || alpha.ID != "w|1|2026-06-01 10:00:00|0" {
 		t.Fatalf("alpha wrong: %+v", alpha)
+	}
+}
+
+func TestWuwaFetch_SameSecondOrdinals(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["cardPoolType"].(float64) == 1 {
+			// three records, SAME second, newest-first
+			w.Write([]byte(`{"code":0,"message":"success","data":[
+				{"qualityLevel":3,"resourceType":"武器","name":"C","count":1,"time":"2026-06-01 10:00:00"},
+				{"qualityLevel":3,"resourceType":"武器","name":"B","count":1,"time":"2026-06-01 10:00:00"},
+				{"qualityLevel":3,"resourceType":"武器","name":"A","count":1,"time":"2026-06-01 10:00:00"}]}`))
+			return
+		}
+		w.Write([]byte(`{"code":0,"message":"success","data":[]}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.recordAPIBase = srv.URL
+	p.recordDelay = 0
+	f := url.Values{"player_id": {"800"}, "record_id": {"R"}}
+	res, _ := p.fetchWuwa(context.Background(), f)
+	// oldest-first ordinals: A(oldest)=0, B=1, C(newest)=2 — all distinct, stable.
+	ids := map[string]string{}
+	for _, pl := range res.Pulls {
+		ids[pl.Name] = pl.ID
+	}
+	if ids["A"] != "w|1|2026-06-01 10:00:00|0" || ids["B"] != "w|1|2026-06-01 10:00:00|1" || ids["C"] != "w|1|2026-06-01 10:00:00|2" {
+		t.Fatalf("ordinals wrong: %v", ids)
 	}
 }
 
