@@ -49,6 +49,13 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - name: Stub frontend/dist for binding generation
+        # main.go has //go:embed all:frontend/dist, so the Go app won't compile
+        # (and `wails generate module` can't introspect bindings) until dist
+        # exists. A placeholder satisfies the embed; the Build step's vite run
+        # overwrites dist with the real output.
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
+
       - name: Generate Wails bindings
         # wails generate module writes frontend/wailsjs/ (Go<->JS bindings),
         # which is gitignored. The frontend unit tests import from it, so it
