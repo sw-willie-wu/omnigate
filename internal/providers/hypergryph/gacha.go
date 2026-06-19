@@ -1,16 +1,13 @@
 package hypergryph
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
-	"regexp"
-	"time"
+	"strings"
 
 	"omnigate/internal/core"
 )
@@ -88,193 +85,199 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	}
 }
 
-// ── Task 6: FetchGacha ────────────────────────────────────────────────────────
-
 var _ core.GachaProvider = (*Provider)(nil)
 
-var endfieldGachaURLRe = regexp.MustCompile(`https://ef-webview\.gryphline\.com/page/gacha_[^\s"']*`)
+const (
+	endfieldGrantCode = "3dacefa138426cfe" // GLOBAL endfield OAuth grant appCode (distinct from news endfieldAppCode)
+	endfieldUA        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Safari/537.36"
+)
 
-var endfieldPools = []struct{ poolType, bannerKey string }{
-	{"E_CharacterGachaPoolType_Special", "special"},
-	{"E_CharacterGachaPoolType_Standard", "standard"},
-	{"E_CharacterGachaPoolType_Beginner", "beginner"},
-	{"E_CharacterGachaPoolType_Joint", "joint"},
-}
-
-func defaultEndfieldLogPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, "AppData", "LocalLow", "Gryphline", "Endfield", "sdklogs", "HGWebview.log")
-}
-
-// extractEndfieldGachaURL returns the LAST (most recent) gacha page URL in the log.
-func extractEndfieldGachaURL(log []byte) string {
-	m := endfieldGachaURLRe.FindAll(log, -1)
-	if len(m) == 0 {
-		return ""
-	}
-	return string(m[len(m)-1])
-}
-
-type endfieldRecordResp struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-	Data *struct {
-		List []struct {
-			PoolID   string `json:"poolId"`
-			PoolName string `json:"poolName"`
-			CharID   string `json:"charId"`
-			CharName string `json:"charName"`
-			Rarity   int    `json:"rarity"`
-			GachaTs  string `json:"gachaTs"`
-			SeqID    string `json:"seqId"`
-			IsFree   bool   `json:"isFree"`
-		} `json:"list"`
-		HasMore bool `json:"hasMore"`
-	} `json:"data"`
-}
-
-// FetchGacha implements core.GachaProvider.
-func (p *Provider) FetchGacha(ctx context.Context, gid core.GameID, _, cachedURL string) (core.GachaFetchResult, error) {
+// FetchGacha (URL path) is unused for Endfield — auth is credential-based. Kept to
+// satisfy core.GachaProvider; App branches to FetchGachaWithCredential first.
+func (p *Provider) FetchGacha(_ context.Context, gid core.GameID, _, _ string) (core.GachaFetchResult, error) {
 	if findByID(gid) == nil {
 		return core.GachaFetchResult{}, core.ErrUnknownGame
 	}
-	gachaURL := p.readGachaURL()
-	if gachaURL == "" {
-		gachaURL = cachedURL
-	}
-	if gachaURL == "" {
-		return core.GachaFetchResult{}, core.ErrGachaURLUnavailable
-	}
-	return p.fetchEndfield(ctx, gachaURL)
+	return core.GachaFetchResult{}, core.ErrGachaCredentialRequired
 }
 
-// readGachaURL reads the local SDK log and extracts the latest gacha URL ("" if none).
-func (p *Provider) readGachaURL() string {
-	path := p.logPathFn()
-	if path == "" {
-		return ""
+// flexStr unmarshals a JSON value that may be sent as either a string or a number
+// (the Gryphline APIs are untyped JS; ids/server/rarity-ish fields vary).
+type flexStr string
+
+func (f *flexStr) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if s == "null" {
+		*f = ""
+		return nil
 	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
+	if len(s) >= 2 && s[0] == '"' {
+		*f = flexStr(strings.Trim(s, `"`))
+		return nil
 	}
-	return extractEndfieldGachaURL(b)
+	*f = flexStr(s) // bare number → its text
+	return nil
 }
 
-// fetchEndfield parses the token/server/lang from the gachaURL and paginates
-// each pool against /api/record/char.
-//
-// The live (2026) page URL carries these as `u8_token` and `server` — verified
-// against the real endpoint: the record API itself wants them as `token` and
-// `server_id` (a token-only probe returned 400 listing token/pool_type/server_id/
-// lang as required; supplying them yielded HTTP 200, only the expired token was
-// rejected with code 40100). We accept the older `token`/`server_id` query names
-// too as a fallback. The /api/record/char endpoint, pool_type enum, and seq_id
-// cursor are unchanged; the record RESPONSE shape is still pending live-token
-// smoke verification (matches the documented {code,msg,data:{list,hasMore}}).
-func (p *Provider) fetchEndfield(ctx context.Context, gachaURL string) (core.GachaFetchResult, error) {
-	u, err := url.Parse(gachaURL)
+func (p *Provider) httpClient() *http.Client {
+	if p.client != nil {
+		return p.client
+	}
+	return http.DefaultClient
+}
+
+// efPostJSON POSTs body to url and decodes the JSON response into out.
+func (p *Provider) efPostJSON(ctx context.Context, rawURL string, body []byte, out any) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", rawURL, bytes.NewReader(body))
 	if err != nil {
-		return core.GachaFetchResult{}, core.ErrGachaURLUnavailable
+		return err
 	}
-	q := u.Query()
-	token := firstNonEmpty(q.Get("u8_token"), q.Get("token"))
-	serverID := firstNonEmpty(q.Get("server"), q.Get("server_id"))
-	lang := q.Get("lang")
-	if token == "" {
-		return core.GachaFetchResult{}, core.ErrGachaURLUnavailable
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", endfieldUA)
+	resp, err := p.httpClient().Do(req)
+	if err != nil {
+		return err
 	}
-	if serverID == "" {
-		serverID = "2"
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("endfield POST %s status %d", rawURL, resp.StatusCode)
 	}
-	if lang == "" {
-		lang = "zh-tw"
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// efGrant exchanges the durable account_token for a short-lived OAuth token.
+func (p *Provider) efGrant(ctx context.Context, accountToken string) (string, error) {
+	body, _ := json.Marshal(map[string]any{"token": accountToken, "appCode": endfieldGrantCode, "type": 1})
+	var r struct {
+		Status int `json:"status"`
+		Data   struct {
+			Token string `json:"token"`
+		} `json:"data"`
 	}
-	hc := p.client
-	if hc == nil {
-		hc = http.DefaultClient
+	if err := p.efPostJSON(ctx, p.oauthBase+"/user/oauth2/v2/grant", body, &r); err != nil {
+		return "", err
 	}
-	out := core.GachaFetchResult{URL: gachaURL, Pulls: []core.GachaPull{}}
-	for i, pool := range endfieldPools {
-		seqID := ""
-		for page := 0; page < endfieldMaxPages; page++ {
-			if err := ctx.Err(); err != nil {
-				return out, err
+	if r.Status != 0 || r.Data.Token == "" {
+		return "", core.ErrGachaCredentialExpired
+	}
+	return r.Data.Token, nil
+}
+
+// Named binding types (cleaner than an inline anon struct, and reused by the
+// app-pick helper).
+type bindingResp struct {
+	Status int    `json:"status"`
+	Msg    string `json:"msg"`
+	Data   struct {
+		List []bindingApp `json:"list"`
+	} `json:"data"`
+}
+type bindingApp struct {
+	AppCode     string        `json:"appCode"`
+	BindingList []bindingAcct `json:"bindingList"`
+}
+type bindingAcct struct {
+	UID       flexStr       `json:"uid"`
+	IsDefault bool          `json:"isDefault"`
+	Roles     []bindingRole `json:"roles"`
+}
+type bindingRole struct {
+	RoleID    flexStr `json:"roleId"`
+	ServerID  flexStr `json:"serverId"`
+	IsDefault bool    `json:"isDefault"`
+}
+
+// efBindingGet does one binding_list GET with the given token param name.
+func (p *Provider) efBindingGet(ctx context.Context, oauth, tokenParam string, out *bindingResp) error {
+	q := url.Values{}
+	q.Set(tokenParam, oauth)
+	q.Set("appCode", "endfield")
+	req, err := http.NewRequestWithContext(ctx, "GET", p.bindingBase+"/account/binding/v1/binding_list?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", endfieldUA)
+	resp, err := p.httpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("endfield binding_list status %d", resp.StatusCode)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// efBinding returns the default binding's hashed uid + default role's roleId +
+// serverId. Replicates the AiverAiva quirk: if lowercase "token" fails with a
+// base64 msg, retry once with capitalized "Token" (spec §5.2).
+func (p *Provider) efBinding(ctx context.Context, oauth string) (uid, roleID, serverID string, err error) {
+	for _, param := range []string{"token", "Token"} {
+		var r bindingResp
+		if err = p.efBindingGet(ctx, oauth, param, &r); err != nil {
+			return "", "", "", err
+		}
+		if r.Status != 0 {
+			if param == "token" && strings.Contains(strings.ToLower(r.Msg), "base64") {
+				continue // retry with capitalized Token
 			}
-			core.ReportGachaProgress(ctx, core.GachaProgress{
-				BannerKey: pool.bannerKey, Page: page + 1, PoolIndex: i + 1, PoolTotal: len(endfieldPools),
-			})
-			q := url.Values{}
-			q.Set("token", token)
-			q.Set("pool_type", pool.poolType)
-			q.Set("lang", lang)
-			q.Set("server_id", serverID)
-			if seqID != "" {
-				q.Set("seq_id", seqID)
-			}
-			req, err := http.NewRequestWithContext(ctx, "GET", p.recordAPIBase+"/api/record/char?"+q.Encode(), nil)
-			if err != nil {
-				return out, err
-			}
-			req.Header.Set("User-Agent", UserAgent)
-			resp, err := hc.Do(req)
-			if err != nil {
-				return out, err
-			}
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if resp.StatusCode != 200 {
-				return out, fmt.Errorf("endfield record api status %d", resp.StatusCode)
-			}
-			var r endfieldRecordResp
-			if err := json.Unmarshal(body, &r); err != nil {
-				return out, err
-			}
-			if r.Code != 0 || r.Data == nil {
-				return out, core.ErrGachaURLUnavailable
-			}
-			for _, e := range r.Data.List {
-				out.Pulls = append(out.Pulls, core.GachaPull{
-					ID:        e.SeqID,
-					BannerKey: pool.bannerKey,
-					ItemType:  "char",
-					Rank:      e.Rarity,
-					Name:      e.CharName,
-					Time:      e.GachaTs,
-					IsFree:    e.IsFree,
-				})
-			}
-			if !r.Data.HasMore || len(r.Data.List) == 0 {
-				break
-			}
-			seqID = r.Data.List[len(r.Data.List)-1].SeqID
-			if p.pageDelay > 0 {
-				time.Sleep(p.pageDelay)
-			}
+			return "", "", "", core.ErrGachaCredentialExpired
+		}
+		return pickDefaultRole(r)
+	}
+	return "", "", "", core.ErrGachaCredentialExpired
+}
+
+// pickDefaultRole selects the endfield app (else first non-empty), its default
+// binding (else first), and that binding's default role (else first).
+func pickDefaultRole(r bindingResp) (uid, roleID, serverID string, err error) {
+	var app *bindingApp
+	for i := range r.Data.List {
+		if strings.Contains(strings.ToLower(r.Data.List[i].AppCode), "endfield") {
+			app = &r.Data.List[i]
+			break
+		}
+		if app == nil && len(r.Data.List[i].BindingList) > 0 {
+			app = &r.Data.List[i]
 		}
 	}
-	if out.UID == "" {
-		out.UID = serverID + ":" + token[:minInt(len(token), 8)]
+	if app == nil || len(app.BindingList) == 0 {
+		return "", "", "", core.ErrGachaCredentialExpired
 	}
-	return out, nil
-}
-
-func firstNonEmpty(vs ...string) string {
-	for _, v := range vs {
-		if v != "" {
-			return v
+	bind := app.BindingList[0]
+	for i := range app.BindingList {
+		if app.BindingList[i].IsDefault {
+			bind = app.BindingList[i]
+			break
 		}
 	}
-	return ""
+	if len(bind.Roles) == 0 {
+		return "", "", "", core.ErrGachaCredentialExpired
+	}
+	role := bind.Roles[0]
+	for i := range bind.Roles {
+		if bind.Roles[i].IsDefault {
+			role = bind.Roles[i]
+			break
+		}
+	}
+	return string(bind.UID), string(role.RoleID), string(role.ServerID), nil
 }
 
-// minInt avoids shadowing the Go 1.21 builtin min / any package-level helper.
-func minInt(a, b int) int {
-	if a < b {
-		return a
+// efU8Token mints the short-lived u8_token used for all record-API calls.
+func (p *Provider) efU8Token(ctx context.Context, oauth, uid string) (string, error) {
+	body, _ := json.Marshal(map[string]string{"uid": uid, "token": oauth})
+	var r struct {
+		Status int `json:"status"`
+		Data   struct {
+			Token string `json:"token"`
+		} `json:"data"`
 	}
-	return b
+	if err := p.efPostJSON(ctx, p.bindingBase+"/account/binding/v1/u8_token_by_uid", body, &r); err != nil {
+		return "", err
+	}
+	if r.Status != 0 || r.Data.Token == "" {
+		return "", core.ErrGachaCredentialExpired
+	}
+	return r.Data.Token, nil
 }
