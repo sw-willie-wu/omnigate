@@ -76,21 +76,17 @@ jobs:
         run: go test ./...
 
       - name: Build
+        # scripts/build.ps1 stamps the Windows PE version from OMNIGATE_VERSION
+        # (the tag), runs `wails build`, and stages dist/omnigate.exe.
         shell: pwsh
         env:
           OMNIGATE_VERSION: ${{ github.ref_name }}
         run: |
-          $wails = Join-Path (go env GOPATH) 'bin/wails.exe'
-          & $wails build -platform windows/amd64
+          ./scripts/build.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Stage dist artifact
-        # Wails outputs to build/bin (scratch, gitignored); stage the distributable
-        # into dist/ (gitignored) — build/ holds committed build assets, dist/ holds
-        # release output.
-        run: |
-          mkdir -p dist
-          cp build/bin/omnigate.exe "dist/omnigate-${{ github.ref_name }}-windows-amd64.exe"
+      - name: Name the release artifact
+        run: cp dist/omnigate.exe "dist/omnigate-${{ github.ref_name }}-windows-amd64.exe"
 
       - name: Create GitHub release
         env:
