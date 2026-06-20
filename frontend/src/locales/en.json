@@ -75,13 +75,13 @@
     },
     "link": {
       "title": "Link your Gryphline account to read gacha history",
-      "step1": "1. Click \"Log in to Gryphline\" and sign in with your Gryphline passport in the browser",
+      "step1": "1. Click \"Log in to Gryphline\" and sign in with your Gryphline passport (a gryphline or skport account both work)",
       "step2": "2. Drag the bookmarklet below to your bookmarks bar (or add it as a new bookmark)",
-      "step3": "3. On a logged-in gryphline tab, click the bookmarklet — omnigate captures the token automatically",
+      "step3": "3. On a logged-in gryphline OR skport tab, click the bookmarklet — omnigate captures the token automatically",
       "login": "Log in to Gryphline",
       "copy": "Copy bookmarklet",
       "rearm": "Restart linking",
-      "pasteLabel": "Or paste your account_token directly:",
+      "pasteLabel": "Or get it manually: while logged in, open web-api.gryphline.com (or web-api.skport.com) /cookie_store/account_token, then paste the whole JSON (or just the account_token) below:",
       "paste": "Submit",
       "bookmarkletName": "omnigate get Endfield token"
     }

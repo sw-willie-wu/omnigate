@@ -59,6 +59,50 @@ func TestGachaLinkListener_CaptureAndNonce(t *testing.T) {
 	}
 }
 
+func TestBuildGachaBookmarklet_BothDomains(t *testing.T) {
+	bm := buildGachaBookmarklet(54321, "deadbeefnonce")
+	if !strings.HasPrefix(bm, "javascript:") {
+		t.Fatalf("bookmarklet must start with javascript:, got %.20q", bm)
+	}
+	for _, want := range []string{
+		"web-api.gryphline.com/cookie_store/account_token",
+		"web-api.skport.com/cookie_store/account_token",
+		"127.0.0.1:54321/cb?n=deadbeefnonce",
+	} {
+		if !strings.Contains(bm, want) {
+			t.Errorf("bookmarklet missing %q\n got: %s", want, bm)
+		}
+	}
+}
+
+func TestExtractAccountToken(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"raw", "abc123", "abc123"},
+		{"raw spaced", "  abc123  ", "abc123"},
+		{"nested json", `{"code":0,"data":{"content":"abc123"}}`, "abc123"},
+		{"nested json spaced", "  {\"data\":{\"content\":\"abc123\"}}  ", "abc123"},
+		{"top-level content", `{"content":"xyz"}`, "xyz"},
+		{"not json", "{not json", "{not json"},
+		{"json without content", `{"data":{}}`, `{"data":{}}`},
+	}
+	for _, c := range cases {
+		if got := extractAccountToken(c.in); got != c.want {
+			t.Errorf("%s: extractAccountToken(%q) = %q; want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestSetGachaCredential_AcceptsWholeJSON(t *testing.T) {
+	game := "hypergryph/endfield"
+	a := newTestAppWithCredProvider(t, game, &fakeCredProvider{fakeGachaProvider: &fakeGachaProvider{}})
+	if err := a.SetGachaCredential(game, `  {"data":{"content":"acct-XYZ"}}  `); err != nil {
+		t.Fatal(err)
+	}
+	if cred, _, _ := a.gachaStore.GetGachaCred(game); cred != "acct-XYZ" {
+		t.Fatalf("cred = %q; want acct-XYZ (extracted from pasted JSON)", cred)
+	}
+}
+
 func TestSetGachaCredential_Stores(t *testing.T) {
 	game := "hypergryph/endfield"
 	// a.ctx is nil in this harness, so SetGachaCredential's a.emit("gacha:linked")

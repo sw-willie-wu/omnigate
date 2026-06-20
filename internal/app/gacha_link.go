@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -67,7 +68,7 @@ func (a *App) startGachaLinkListener(game string, onLinked func(string)) (int, s
 			return
 		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-		token := strings.TrimSpace(string(body))
+		token := extractAccountToken(string(body))
 		if token == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -150,7 +151,7 @@ func (a *App) SetGachaCredential(gameID, credential string) error {
 	if a.gachaStore == nil {
 		return fmt.Errorf("gacha store unavailable")
 	}
-	credential = strings.TrimSpace(credential)
+	credential = extractAccountToken(credential)
 	if credential == "" {
 		return core.ErrGachaCredentialRequired
 	}
@@ -161,17 +162,52 @@ func (a *App) SetGachaCredential(gameID, credential string) error {
 	return nil
 }
 
-// buildGachaBookmarklet returns a javascript: URL that, run on a gryphline.com
-// page, reads cookie_store/account_token (first-party) and POSTs it to the
-// listener (loopback POST; mixed-content-exempt; PNA preflight answered by /cb).
+// buildGachaBookmarklet returns a javascript: URL that, run on a logged-in
+// gryphline.com OR skport.com page, reads cookie_store/account_token (the
+// matching domain succeeds same-origin; the other resolves empty) and POSTs the
+// token to the listener (loopback POST; mixed-content-exempt; PNA preflight
+// answered by /cb). Trying both domains lets the same bookmarklet work whether
+// the user's passport session is on gryphline or skport (the daily-check-in app).
 func buildGachaBookmarklet(port int, nonce string) string {
 	js := fmt.Sprintf(`javascript:(function(){`+
-		`fetch('https://web-api.gryphline.com/cookie_store/account_token',{credentials:'include'})`+
+		`function g(u){return fetch(u,{credentials:'include'})`+
 		`.then(function(r){return r.json()})`+
-		`.then(function(d){var t=(d&&d.data&&d.data.content)||'';`+
-		`if(!t){alert('未取得 token：請先在此分頁登入 Gryphline');return;}`+
+		`.then(function(d){return(d&&d.data&&d.data.content)||''})`+
+		`.catch(function(){return''})}`+
+		`Promise.all([`+
+		`g('https://web-api.gryphline.com/cookie_store/account_token'),`+
+		`g('https://web-api.skport.com/cookie_store/account_token')`+
+		`]).then(function(a){var t=a[0]||a[1]||'';`+
+		`if(!t){alert('未取得 token：請先在 gryphline 或 skport 分頁登入鷹角通行證');return;}`+
 		`fetch('http://127.0.0.1:%d/cb?n=%s',{method:'POST',mode:'no-cors',body:t})`+
-		`.then(function(){alert('已回傳 omnigate，可關閉分頁');});})`+
-		`.catch(function(e){alert('擷取失敗：'+e);});})();`, port, nonce)
+		`.then(function(){alert('已回傳 omnigate，可關閉分頁');})`+
+		`.catch(function(e){alert('回傳失敗：'+e);});});})();`, port, nonce)
 	return js
+}
+
+// extractAccountToken normalises a captured/pasted credential: it accepts either
+// the bare account_token or the whole cookie_store/account_token JSON response
+// ({"data":{"content":"<token>"}}, or a top-level {"content":...}) and returns
+// the token. Non-JSON input is returned trimmed as-is, so a bare token still works.
+func extractAccountToken(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "{") {
+		return s
+	}
+	var p struct {
+		Content string `json:"content"`
+		Data    struct {
+			Content string `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(s), &p); err != nil {
+		return s // not parseable JSON → treat as a raw token
+	}
+	if p.Data.Content != "" {
+		return p.Data.Content
+	}
+	if p.Content != "" {
+		return p.Content
+	}
+	return s // JSON but no content field → leave untouched
 }
