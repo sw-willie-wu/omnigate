@@ -33,7 +33,14 @@ func defaultConvLogPaths(installDir string) []string {
 func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 	paths := p.convLogPathsFn(installDir)
 	p.logger.Debug("wuwa convene: scanning logs", "installDir", installDir, "paths", len(paths))
+	// Pick the convene URL from the NEWEST log file by mtime, not the last in the
+	// fixed path order. A stale leftover debug.log (frozen from an old session)
+	// must never override a freshly written Client.log — the last-file-wins logic
+	// did exactly that on a user's PC, yielding an expired record_id → API code!=0
+	// → gacha_url. Mirrors wuwatracker's newest-first selection.
 	var last string
+	var lastMod time.Time
+	var haveLast bool
 	for _, path := range paths {
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -49,10 +56,16 @@ func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 			xorHits = len(xm)
 			m = xm
 		}
-		// Diagnostic only: counts + size, never the URL/token content.
-		p.logger.Debug("wuwa convene: log scanned", "path", path, "size", len(b), "rawHits", len(raw), "xorHits", xorHits)
-		if len(m) > 0 {
-			last = string(m[len(m)-1]) // most recent in this file
+		var mod time.Time
+		if fi, statErr := os.Stat(path); statErr == nil {
+			mod = fi.ModTime()
+		}
+		// Diagnostic only: counts + size + mtime, never the URL/token content.
+		p.logger.Debug("wuwa convene: log scanned", "path", path, "size", len(b), "rawHits", len(raw), "xorHits", xorHits, "modTime", mod)
+		if len(m) > 0 && (!haveLast || mod.After(lastMod)) {
+			last = string(m[len(m)-1]) // most recent in this (newest) file
+			lastMod = mod
+			haveLast = true
 		}
 	}
 	if last == "" {
@@ -264,6 +277,10 @@ func (p *Provider) fetchWuwa(ctx context.Context, f url.Values) (core.GachaFetch
 			return out, err
 		}
 		if r.Code != 0 {
+			// Surface the API's real verdict — a blanket ErrGachaURLUnavailable hid
+			// why fetches failed (e.g. expired record_id) and made the stale-log bug
+			// hard to diagnose. Code/message only; no token content.
+			p.logger.Debug("wuwa record api rejected", "code", r.Code, "msg", r.Message, "pool", pool)
 			return out, core.ErrGachaURLUnavailable
 		}
 		// API returns newest-first; reverse to oldest-first for stable ordinals.

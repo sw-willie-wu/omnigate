@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"omnigate/internal/core"
 )
@@ -34,6 +35,42 @@ func TestExtractConveneParams_LatestWins(t *testing.T) {
 
 // Recent WuWa builds XOR-obfuscate Client.log (low-nibble-odd byte ^ 0xA5, else
 // ^ 0xEF). The plaintext regex finds nothing; extract must decrypt and retry.
+// A stale debug.log (a leftover from an old session, frozen) must NOT override a
+// freshly-written Client.log. The default path order is [Client.log, debug.log],
+// so the old last-file-wins logic picked debug.log regardless of age — the exact
+// failure seen on a user's other PC (stale record_id → API code!=0 → gacha_url).
+// Selection must be by newest mtime, mirroring wuwatracker's newest-first+break.
+func TestExtractConveneParams_NewestFileWins(t *testing.T) {
+	dir := t.TempDir()
+	logs := filepath.Join(dir, "Client", "Saved", "Logs")
+	dbg := filepath.Join(dir, "Client", "Binaries", "Win64", "ThirdParty", "KrPcSdk_Global", "KRSDKRes", "KRSDKWebView")
+	os.MkdirAll(logs, 0o755)
+	os.MkdirAll(dbg, 0o755)
+
+	fresh := "https://aki-gm-resources-oversea.aki-game.net/aki/gacha/index.html#/record?svr_id=9&player_id=FRESH&lang=zh-Hant&gacha_id=1&gacha_type=1&svr_area=global&record_id=RFRESH&resources_id=RSF&platform=PC"
+	stale := "https://aki-gm-resources-oversea.aki-game.net/aki/gacha/index.html#/record?svr_id=1&player_id=STALE&lang=zh-Hant&gacha_id=1&gacha_type=1&svr_area=global&record_id=RSTALE&resources_id=RSS&platform=PC"
+
+	clientPath := filepath.Join(logs, "Client.log")
+	dbgPath := filepath.Join(dbg, "debug.log")
+	os.WriteFile(clientPath, []byte("opening convene record "+fresh+"\n"), 0o644)
+	os.WriteFile(dbgPath, []byte(`{"#url":"`+stale+`"}`), 0o644)
+
+	// debug.log = stale leftover (2h old); Client.log = freshly written (now).
+	old := time.Now().Add(-2 * time.Hour)
+	now := time.Now()
+	os.Chtimes(dbgPath, old, old)
+	os.Chtimes(clientPath, now, now)
+
+	p := New(Settings{}, nil)
+	f, err := p.extractConveneParams(dir)
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if f.Get("player_id") != "FRESH" || f.Get("record_id") != "RFRESH" {
+		t.Fatalf("picked stale log instead of newest Client.log: %v", f)
+	}
+}
+
 func TestExtractConveneParams_EncryptedClientLog(t *testing.T) {
 	dir := t.TempDir()
 	logs := filepath.Join(dir, "Client", "Saved", "Logs")
