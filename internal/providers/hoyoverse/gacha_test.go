@@ -447,3 +447,25 @@ func TestStarRailStandardPoolLimited(t *testing.T) {
 		t.Error("standard/beginner must NOT be Limited")
 	}
 }
+
+// ── Task 5 (off-marker): ZZZ StandardPool + Limited (Soldier 11 unbracketed) ──
+
+func TestZZZStandardPoolLimited(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("hoyoverse/zzz")
+	for _, n := range []string{"Nekomata", "貓又", "11号", "11號", "Steel Cushion", "鋼鐵肉墊"} {
+		if !cfg.StandardPool[n] {
+			t.Errorf("StandardPool missing %q", n)
+		}
+	}
+	lim := map[string]bool{}
+	for _, b := range cfg.Banners {
+		lim[b.Key] = b.Limited
+	}
+	if !lim["character"] || !lim["wengine"] {
+		t.Error("character/wengine must be Limited")
+	}
+	if lim["standard"] || lim["bangboo"] {
+		t.Error("standard/bangboo must NOT be Limited")
+	}
+}
