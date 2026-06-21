@@ -3,6 +3,7 @@ package core
 import (
 	"strconv"
 	"testing"
+	"time"
 )
 
 // Guards B1. The new WuWa id "w|<pool>|<time>|<ord>" is non-numeric. The bug is
@@ -212,5 +213,67 @@ func TestComputeSummaryEmpty(t *testing.T) {
 	s := ComputeSummary("", nil, testConfig())
 	if !s.Supported || s.TotalPulls != 0 || len(s.RecentHeadline) != 0 {
 		t.Fatalf("empty summary wrong: %+v", s)
+	}
+}
+
+func TestComputeSummaryOff(t *testing.T) {
+	winStart := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2024, 1, 21, 23, 59, 59, 0, time.UTC)
+	cfg := GachaConfig{
+		HeadlineRank: 5,
+		RankLabels:   map[int]LocalizedString{5: {"en": "5★"}, 4: {"en": "4★"}},
+		Banners: []BannerConfig{
+			{Key: "character", Label: LocalizedString{"en": "Char"}, Pity: stdPity{cap: 90}, Limited: true},
+			{Key: "standard", Label: LocalizedString{"en": "Std"}, Pity: stdPity{cap: 90}, Limited: false},
+		},
+		StandardPool: map[string]bool{"Qiqi": true, "七七": true, "Tighnari": true},
+		DualCitizens: []DualCitizen{{Names: []string{"Tighnari"}, Start: winStart, End: winEnd}},
+		PullPrice:    160, Currency: "x", ExpectedPity: 62.5,
+	}
+	pulls := []GachaPull{
+		{ID: "1-1", BannerKey: "character", Rank: 5, Name: "Qiqi", Time: "2026-02-01 10:00:00"},     // a) limited+std → off
+		{ID: "1-2", BannerKey: "character", Rank: 5, Name: "Hutao", Time: "2026-02-02 10:00:00"},    // b) limited+limited → not
+		{ID: "2-1", BannerKey: "standard", Rank: 5, Name: "Qiqi", Time: "2026-02-03 10:00:00"},      // c) standard banner → not
+		{ID: "1-3", BannerKey: "character", Rank: 5, Name: "Tighnari", Time: "2024-01-10 10:00:00"}, // d) dual-citizen IN window → not
+		{ID: "1-4", BannerKey: "character", Rank: 5, Name: "Tighnari", Time: "2026-02-05 10:00:00"}, // d) dual-citizen OUT window → off
+		{ID: "1-5", BannerKey: "character", Rank: 4, Name: "Amber", Time: "2026-02-06 10:00:00"},    // e) second-rank, not in pool → not
+		{ID: "1-6", BannerKey: "character", Rank: 5, Name: "七七", Time: "2026-02-07 10:00:00"},      // f) cross-language (zh) → off
+		{ID: "1-7", BannerKey: "character", Rank: 5, Name: "Tighnari", Time: "not-a-time"},          // g) dual-citizen, unparseable time → fail-safe suppresses off
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	want := map[string]bool{ // name|time → off
+		"Qiqi|2026-02-01 10:00:00":     true,
+		"Hutao|2026-02-02 10:00:00":    false,
+		"Qiqi|2026-02-03 10:00:00":     false,
+		"Tighnari|2024-01-10 10:00:00": false,
+		"Tighnari|2026-02-05 10:00:00": true,
+		"Amber|2026-02-06 10:00:00":    false,
+		"七七|2026-02-07 10:00:00":       true,
+		"Tighnari|not-a-time":          false, // g) fail-safe: unparseable time suppresses 歪
+	}
+	got := map[string]bool{}
+	for _, h := range s.Highlights {
+		got[h.Name+"|"+h.Time] = h.Off
+	}
+	for k, w := range want {
+		v, ok := got[k]
+		if !ok {
+			t.Errorf("Highlights missing %s", k)
+			continue
+		}
+		if v != w {
+			t.Errorf("Highlights Off[%s] = %v; want %v", k, v, w)
+		}
+	}
+	// RecentHeadline uses the same offFor wiring as Highlights; assert it too so a
+	// dropped call site at the RecentHeadline append is caught (guards both sites).
+	gotRecent := map[string]bool{}
+	for _, h := range s.RecentHeadline {
+		gotRecent[h.Name+"|"+h.Time] = h.Off
+	}
+	for k, w := range want {
+		if v, ok := gotRecent[k]; ok && v != w {
+			t.Errorf("RecentHeadline Off[%s] = %v; want %v", k, v, w)
+		}
 	}
 }

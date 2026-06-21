@@ -25,6 +25,7 @@ type HeadlineEntry struct {
 	Time      string `json:"time"`
 	Count     int    `json:"count"` // pulls spent to land this one
 	Rank      int    `json:"rank"`  // the pull's rarity (e.g. 4 or 5; Endfield 5 or 6)
+	Off       bool   `json:"off"`   // lost the 50/50 (歪): a standard-pool item on a limited banner
 }
 
 // GachaSummary is the full dashboard payload.
@@ -103,6 +104,13 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	s.ExpectedPity = cfg.ExpectedPity
 	s.LuckScore = luckScore(s.AvgPity, cfg.ExpectedPity, len(allHits))
 
+	// limited maps banner-key → Limited, the per-banner lookup for the 歪 (50/50-loss)
+	// marker (offFor); built once here and reused by both headline loops below.
+	limited := make(map[string]bool, len(cfg.Banners))
+	for _, b := range cfg.Banners {
+		limited[b.Key] = b.Limited
+	}
+
 	// Recent-headline ordering is CROSS-banner, so it must use real time, not the
 	// per-banner ID. HoYoverse IDs are a global increasing sequence (ID order ==
 	// time order), but WuWa/kurogames synthesizes IDs as "w|<pool>|<time>|<ord>"
@@ -115,7 +123,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 		if i >= 8 {
 			break
 		}
-		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(h))
+		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(h, offFor(cfg, limited, h.Pull)))
 	}
 
 	// Highlights: ALL top-two-rarity pulls (top = HeadlineRank, second = one below)
@@ -143,7 +151,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	}
 	sort.SliceStable(hlHits, func(i, j int) bool { return headlineNewer(hlHits[i], hlHits[j]) })
 	for _, h := range hlHits {
-		s.Highlights = append(s.Highlights, headlineEntry(h))
+		s.Highlights = append(s.Highlights, headlineEntry(h, offFor(cfg, limited, h.Pull)))
 	}
 	return s
 }
@@ -160,11 +168,40 @@ func headlineNewer(a, b PityHit) bool {
 	return numLess(b.Pull.ID, a.Pull.ID)
 }
 
-func headlineEntry(h PityHit) HeadlineEntry {
+func headlineEntry(h PityHit, off bool) HeadlineEntry {
 	return HeadlineEntry{
 		Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: h.Pull.BannerKey,
-		Time: h.Pull.Time, Count: h.Count, Rank: h.Pull.Rank,
+		Time: h.Pull.Time, Count: h.Count, Rank: h.Pull.Rank, Off: off,
 	}
+}
+
+// offFor reports whether a pull lost the 50/50: a standard-pool item on a limited
+// banner, excluding a dual-citizen pulled inside its debut up-window.
+func offFor(cfg GachaConfig, limited map[string]bool, p GachaPull) bool {
+	return limited[p.BannerKey] && cfg.StandardPool[p.Name] && !inDebutWindow(cfg, p)
+}
+
+// inDebutWindow: true iff p is a dual-citizen pulled inside its debut window. On a
+// time-parse failure it returns true (fail-safe: suppress 歪 on a likely debut win).
+func inDebutWindow(cfg GachaConfig, p GachaPull) bool {
+	for _, d := range cfg.DualCitizens {
+		match := false
+		for _, n := range d.Names {
+			if n == p.Name {
+				match = true
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		t, ok := parseGachaTime(p.Time)
+		if !ok {
+			return true
+		}
+		return !t.Before(d.Start) && !t.After(d.End)
+	}
+	return false
 }
 
 // bucket maps a pull-count to a histogram index: 0=1-9,1=10-19,...,7=70-79,8=80+.
