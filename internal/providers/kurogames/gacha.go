@@ -115,6 +115,18 @@ var wuwaPoolBanner = map[int]string{
 	5: "beginner", 6: "beginner_choice", 7: "other",
 }
 
+// wuwaStandardPool is the fixed set of standard 5★ resonators in WuWa.
+// WuWa does not add limited resonators to the standard pool after their
+// debut, so this list is stable. en + zh-TW + zh-CN forms.
+// Weapon banner is guaranteed (no 50/50) → no weapon pool needed.
+var wuwaStandardPool = map[string]bool{
+	"Calcharo": true, "卡卡羅": true, "卡卡罗": true,
+	"Encore": true, "安可": true,
+	"Jianxin": true, "鑒心": true, "鉴心": true,
+	"Lingyang": true, "凌陽": true, "凌阳": true,
+	"Verina": true, "維里奈": true, "维里奈": true,
+}
+
 func poolBanner(t int) string {
 	if b, ok := wuwaPoolBanner[t]; ok {
 		return b
@@ -131,14 +143,15 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 		HeadlineRank: 5,
 		RankLabels:   map[int]core.LocalizedString{5: wuwaLoc("五星", "五星", "5★"), 4: wuwaLoc("四星", "四星", "4★")},
 		Banners: []core.BannerConfig{
-			{Key: "character", Label: wuwaLoc("限定共鳴者", "限定共鸣者", "Featured Resonator"), Pity: wuwaPity{}},
-			{Key: "weapon", Label: wuwaLoc("限定武器", "限定武器", "Featured Weapon"), Pity: wuwaPity{}},
+			{Key: "character", Label: wuwaLoc("限定共鳴者", "限定共鸣者", "Featured Resonator"), Pity: wuwaPity{}, Limited: true},
+			{Key: "weapon", Label: wuwaLoc("限定武器", "限定武器", "Featured Weapon"), Pity: wuwaPity{}, Limited: true},
 			{Key: "standard_char", Label: wuwaLoc("常駐共鳴者", "常驻共鸣者", "Standard Resonator"), Pity: wuwaPity{}},
 			{Key: "standard_weapon", Label: wuwaLoc("常駐武器", "常驻武器", "Standard Weapon"), Pity: wuwaPity{}},
 			{Key: "beginner", Label: wuwaLoc("新手", "新手", "Beginner"), Pity: wuwaPity{}},
 			{Key: "beginner_choice", Label: wuwaLoc("新手自選", "新手自选", "Beginner Choice"), Pity: wuwaPity{}},
 			{Key: "other", Label: wuwaLoc("感恩定向", "感恩定向", "Other"), Pity: wuwaPity{}},
 		},
+		StandardPool: wuwaStandardPool,
 		PullPrice: 160, Currency: "astrite", ExpectedPity: 62.5,
 	}
 }

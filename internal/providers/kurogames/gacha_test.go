@@ -197,3 +197,23 @@ func TestWuwaFetch_ErrorCode(t *testing.T) {
 		t.Fatalf("err=%v want ErrGachaURLUnavailable", err)
 	}
 }
+
+func TestWuwaStandardPoolAndLimited(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("kurogames/wutheringwaves")
+	for _, n := range []string{"Calcharo", "Encore", "Jianxin", "Lingyang", "Verina", "卡卡羅", "凌阳"} {
+		if !cfg.StandardPool[n] {
+			t.Errorf("StandardPool missing %q", n)
+		}
+	}
+	lim := map[string]bool{}
+	for _, b := range cfg.Banners {
+		lim[b.Key] = b.Limited
+	}
+	if !lim["character"] || !lim["weapon"] {
+		t.Error("character/weapon must be Limited")
+	}
+	if lim["standard_char"] || lim["standard_weapon"] || lim["beginner"] {
+		t.Error("standard/beginner must NOT be Limited")
+	}
+}
