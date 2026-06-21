@@ -50,6 +50,7 @@
     "dist_axis_mid": "pulls",
     "dist_axis_high": "80+",
     "recent_title": "Top pulls",
+    "off": "Off",
     "error_other": "Failed to load. Try again.",
     "luck_band": {
       "superb": "Blessed",

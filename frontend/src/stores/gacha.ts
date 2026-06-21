@@ -3,7 +3,7 @@ import { GetGachaSummary, RefreshGacha } from '../../wailsjs/go/app/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 export interface BannerPity { key: string; label: Record<string, string>; current: number; cap: number; nearPity: boolean; }
-export interface HeadlineEntry { name: string; itemType: string; bannerKey: string; time: string; count: number; rank: number; }
+export interface HeadlineEntry { name: string; itemType: string; bannerKey: string; time: string; count: number; rank: number; off: boolean; }
 export interface GachaSummary {
   supported: boolean; uid: string; activeUnknown: boolean; totalPulls: number; perBanner: Record<string, number>;
   spendEst: number; currency: string; headlineCnt: number; headlineByType: Record<string, number>;

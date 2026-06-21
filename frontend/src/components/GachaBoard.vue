@@ -312,7 +312,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
             <div class="hl-col-title">{{ charHeading }}<span class="hl-n">{{ hlCharTotal }}</span></div>
             <div v-if="hlChars.length === 0" class="hl-empty">—</div>
             <div v-for="(h, i) in hlChars" :key="'c' + i" class="hl-row" :class="'r' + h.rank">
-              <span class="hl-name">{{ h.name }}</span>
+              <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
               <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
               <span class="hl-count mono">{{ h.count }}</span>
             </div>
@@ -321,7 +321,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
             <div class="hl-col-title">{{ weaponHeading }}<span class="hl-n">{{ hlWeaponTotal }}</span></div>
             <div v-if="hlWeapons.length === 0" class="hl-empty">—</div>
             <div v-for="(h, i) in hlWeapons" :key="'w' + i" class="hl-row" :class="'r' + h.rank">
-              <span class="hl-name">{{ h.name }}</span>
+              <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
               <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
               <span class="hl-count mono">{{ h.count }}</span>
             </div>
@@ -418,7 +418,9 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .hl-n { float: right; color: rgba(255,255,255,.45); font-weight: 600; }
 .hl-empty { color: rgba(255,255,255,.34); font-size: .8rem; padding: 4px 0; }
 .hl-row { display: grid; grid-template-columns: minmax(56px, 40%) 1fr auto; align-items: center; gap: 8px; padding: 3px 0; }
-.hl-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hl-name-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hl-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.hl-off { font-size: .68rem; font-weight: 700; color: #f85149; border: 1px solid #f85149; border-radius: 4px; padding: 0 4px; flex: none; }
 .hl-row.r4 .hl-name { color: rgba(196,166,255,.92); }
 .hl-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
 .hl-fill { display: block; height: 100%; border-radius: 3px; background: var(--ok); }

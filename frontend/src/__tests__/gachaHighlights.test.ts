@@ -3,7 +3,7 @@ import { isEquip, equipTypeKey, splitByType, distinctRanks } from '../utils/gach
 import type { HeadlineEntry } from '../stores/gacha';
 
 const mk = (bannerKey: string, rank: number, name = 'x'): HeadlineEntry => ({
-  name, itemType: '', bannerKey, time: '', count: 1, rank,
+  name, itemType: '', bannerKey, time: '', count: 1, rank, off: false,
 });
 
 describe('gachaHighlights', () => {
