@@ -219,3 +219,36 @@ func TestEndfieldGachaConfig_PriceCurrencyWeaponBanner(t *testing.T) {
 		t.Error("weapon banner missing")
 	}
 }
+
+func TestEndfieldStandardPoolLimited(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("hypergryph/endfield")
+	// standard 6★ operators present — Traditional (API-confirmed zh-tw form) + Simplified
+	for _, n := range []string{"艾爾黛拉", "黎風", "駿衛", "別禮", "餘燼", "艾尔黛拉", "余烬"} {
+		if !cfg.StandardPool[n] {
+			t.Errorf("StandardPool missing operator %q", n)
+		}
+	}
+	// 破碎君王 + sampled standard 6★ weapons present (Traditional, probe-confirmed)
+	for _, n := range []string{"破碎君王", "顯赫聲名", "驍勇", "典範", "扶搖"} {
+		if !cfg.StandardPool[n] {
+			t.Errorf("StandardPool missing standard weapon %q", n)
+		}
+	}
+	// the 7 featured weapons must NOT be in the pool (Traditional + Simplified)
+	for _, n := range []string{"狼之緋", "狼之绯", "孤舟", "落草", "使命必達", "使命必达", "藝術暴君", "熔鑄火焰", "赤纓"} {
+		if cfg.StandardPool[n] {
+			t.Errorf("featured weapon %q must NOT be in StandardPool", n)
+		}
+	}
+	lim := map[string]bool{}
+	for _, b := range cfg.Banners {
+		lim[b.Key] = b.Limited
+	}
+	if !lim["special"] || !lim["weapon"] || !lim["joint"] {
+		t.Error("special/weapon/joint must be Limited")
+	}
+	if lim["standard"] || lim["beginner"] {
+		t.Error("standard/beginner must NOT be Limited")
+	}
+}

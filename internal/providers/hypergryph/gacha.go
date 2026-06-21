@@ -68,6 +68,52 @@ func (endfieldLimitedPity) Walk(sorted []core.GachaPull, headline int) ([]core.P
 	return hits, pity
 }
 
+// endfieldStandardPool contains the standard (permanent) 6★ pool for Endfield:
+// 5 standard operators + 29 standard 6★ weapons (the biligame 6★ weapon atlas minus
+// the 7 featured). Stored zh-TW (Traditional) + zh-CN (Simplified); operators also en.
+// The record API returns names in the REQUESTED lang, so a zh-TW client
+// (mapEndfieldLang→"zh-tw") gets Traditional — the Traditional forms are load-bearing
+// (verified against the user's stored pulls). 6★ ONLY (a 5★ name would mis-flag
+// second-rank Highlights). Approximate: misses losses into past-featured items.
+var endfieldStandardPool = map[string]bool{
+	// standard 6★ operators (zh-TW / zh-CN / en)
+	"艾爾黛拉": true, "艾尔黛拉": true, "Ardelia": true,
+	"駿衛": true, "骏卫": true, "Pogranichnik": true,
+	"別禮": true, "别礼": true, "Last Rite": true,
+	"黎風": true, "黎风": true, "Lifeng": true,
+	"餘燼": true, "余烬": true, "Ember": true,
+	// standard 6★ weapons (zh-TW / zh-CN)
+	"同類相食": true, "同类相食": true,
+	"望鄉": true, "望乡": true,
+	"顯赫聲名": true, "显赫声名": true,
+	"爆破單元": true, "爆破单元": true,
+	"不知歸": true, "不知归": true,
+	"典範": true, "典范": true,
+	"J.E.T.": true,
+	"光榮記憶": true, "光荣记忆": true,
+	"白夜新星": true,
+	"昔日精品": true,
+	"遺忘": true, "遗忘": true,
+	"鍍紅祝福": true, "镀红祝福": true,
+	"破碎君王": true,
+	"騎士精神": true, "骑士精神": true,
+	"黯色火炬": true,
+	"燈火使命": true, "灯火使命": true,
+	"領航者": true, "领航者": true,
+	"作品：蝕跡": true, "作品：蚀迹": true,
+	"扶搖": true, "扶摇": true,
+	"幻想苦痛": true,
+	"大雷斑": true,
+	"負山": true, "负山": true,
+	"楔子": true,
+	"熱熔切割器": true, "热熔切割器": true,
+	"滄溟星夢": true, "沧溟星梦": true,
+	"宏願": true, "宏愿": true,
+	"赫拉芬格": true,
+	"驍勇": true, "骁勇": true,
+	"霧中微光": true, "雾中微光": true,
+}
+
 // GachaConfig implements part of core.GachaProvider (FetchGacha is below).
 func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	return core.GachaConfig{
@@ -77,18 +123,19 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			5: {"zh-TW": "五星", "zh-CN": "五星", "en": "5★"},
 		},
 		Banners: []core.BannerConfig{
-			{Key: "special", Label: core.LocalizedString{"zh-TW": "特許尋訪", "zh-CN": "特许寻访", "en": "Limited"}, Pity: endfieldLimitedPity{}},
+			{Key: "special", Label: core.LocalizedString{"zh-TW": "特許尋訪", "zh-CN": "特许寻访", "en": "Limited"}, Pity: endfieldLimitedPity{}, Limited: true},
 			{Key: "standard", Label: core.LocalizedString{"zh-TW": "基礎尋訪", "zh-CN": "基础寻访", "en": "Standard"}, Pity: endfieldStandardPity{}},
 			{Key: "beginner", Label: core.LocalizedString{"zh-TW": "啟程尋訪", "zh-CN": "启程寻访", "en": "Beginner"}, Pity: endfieldStandardPity{}},
 			// Joint pool (collab) exists in the live pool_type enum. Its exact pity
 			// rule is unverified → standard-pity placeholder so its pulls still count
 			// and display; refine if a live record set shows different behaviour.
-			{Key: "joint", Label: core.LocalizedString{"zh-TW": "聯動尋訪", "zh-CN": "联动寻访", "en": "Joint"}, Pity: endfieldStandardPity{}},
+			{Key: "joint", Label: core.LocalizedString{"zh-TW": "聯動尋訪", "zh-CN": "联动寻访", "en": "Joint"}, Pity: endfieldStandardPity{}, Limited: true},
 			// Weapon pity = standard placeholder per spec §12.1 (weapons are 4/5/6★ so
 			// headline=6 resets correctly; exact weapon guarantee rule unverified).
-			{Key: "weapon", Label: core.LocalizedString{"zh-TW": "武器", "zh-CN": "武器", "en": "Weapon"}, Pity: endfieldStandardPity{}},
+			{Key: "weapon", Label: core.LocalizedString{"zh-TW": "武器", "zh-CN": "武器", "en": "Weapon"}, Pity: endfieldStandardPity{}, Limited: true},
 		},
-		PullPrice: endfieldPullPrice, Currency: "endfield_oroberyl", ExpectedPity: endfieldExpectedPity,
+		StandardPool: endfieldStandardPool,
+		PullPrice:    endfieldPullPrice, Currency: "endfield_oroberyl", ExpectedPity: endfieldExpectedPity,
 	}
 }
 
