@@ -425,3 +425,25 @@ func TestGenshinStandardPoolDualCitizenLimited(t *testing.T) {
 		t.Error("standard/beginner/chronicled must NOT be Limited")
 	}
 }
+
+// ── Task 4 (off-marker): Star Rail StandardPool + Limited ────────────────────
+
+func TestStarRailStandardPoolLimited(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("hoyoverse/starrail")
+	for _, n := range []string{"Bronya", "布洛妮婭", "Welt", "瓦尔特", "Night on the Milky Way", "银河铁道之夜"} {
+		if !cfg.StandardPool[n] {
+			t.Errorf("StandardPool missing %q", n)
+		}
+	}
+	lim := map[string]bool{}
+	for _, b := range cfg.Banners {
+		lim[b.Key] = b.Limited
+	}
+	if !lim["character"] || !lim["lightcone"] {
+		t.Error("character/lightcone must be Limited")
+	}
+	if lim["standard"] || lim["beginner"] {
+		t.Error("standard/beginner must NOT be Limited")
+	}
+}

@@ -201,6 +201,28 @@ var genshinStandardPool = map[string]bool{
 	"Skyward Blade": true, "天空之刃": true,
 }
 
+// starrailStandardPool lists every top-rarity permanent item name in all stored
+// language forms. A limited-banner pull of any of these is a 50/50 loss (歪).
+// Star Rail has no dual-citizens (standard-pool units were never re-run on limited).
+var starrailStandardPool = map[string]bool{
+	// Characters
+	"Bailu": true, "白露": true,
+	"Bronya": true, "布洛妮婭": true, "布洛妮娅": true,
+	"Clara": true, "克拉拉": true,
+	"Gepard": true, "傑帕德": true, "杰帕德": true,
+	"Himeko": true, "姬子": true,
+	"Welt": true, "瓦爾特": true, "瓦尔特": true,
+	"Yanqing": true, "彥卿": true, "彦卿": true,
+	// Light Cones
+	"Night on the Milky Way": true, "銀河鐵道之夜": true, "银河铁道之夜": true,
+	"Something Irreplaceable": true, "無可取代的東西": true, "无可取代的东西": true,
+	"But the Battle Isn't Over": true, "但戰鬥還未結束": true, "但战斗还未结束": true,
+	"In the Name of the World": true, "以世界之名": true,
+	"Moment of Victory": true, "制勝的瞬間": true, "制胜的瞬间": true,
+	"Sleep Like the Dead": true, "如泥酣眠": true,
+	"Time Waits for No One": true, "時節不居": true, "时节不居": true,
+}
+
 // genshinDualCitizens lists standard-pool 5★ units that were ALSO featured on a
 // limited Event Wish exactly once (their debut). A pull inside the debut window is
 // that win (not 歪); outside it is a 50/50 loss. Windows are padded ±1 day from
@@ -245,11 +267,12 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	case "hoyoverse/starrail":
 		cfg.Currency = "stellar_jade"
 		cfg.Banners = []core.BannerConfig{
-			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}},
-			{Key: "lightcone", Label: loc("光錐", "光锥", "Light Cone"), Pity: hoyoPity{80, true}},
+			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}, Limited: true},
+			{Key: "lightcone", Label: loc("光錐", "光锥", "Light Cone"), Pity: hoyoPity{80, true}, Limited: true},
 			{Key: "standard", Label: loc("常駐", "常驻", "Standard"), Pity: hoyoPity{90, false}},
 			{Key: "beginner", Label: loc("新手", "新手", "Beginner"), Pity: hoyoPity{90, false}},
 		}
+		cfg.StandardPool = starrailStandardPool
 	case "hoyoverse/zzz":
 		cfg.Currency = "polychrome"
 		cfg.Banners = []core.BannerConfig{
