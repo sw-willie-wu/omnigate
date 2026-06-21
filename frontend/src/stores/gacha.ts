@@ -3,12 +3,12 @@ import { GetGachaSummary, RefreshGacha } from '../../wailsjs/go/app/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 export interface BannerPity { key: string; label: Record<string, string>; current: number; cap: number; nearPity: boolean; }
-export interface HeadlineEntry { name: string; itemType: string; bannerKey: string; time: string; count: number; }
+export interface HeadlineEntry { name: string; itemType: string; bannerKey: string; time: string; count: number; rank: number; }
 export interface GachaSummary {
   supported: boolean; uid: string; activeUnknown: boolean; totalPulls: number; perBanner: Record<string, number>;
   spendEst: number; currency: string; headlineCnt: number; headlineByType: Record<string, number>;
   avgPity: number; expectedPity: number; luckScore: number; winRate5050: number | null; worstPull: number;
-  pity: BannerPity[]; distribution: number[]; recentHeadline: HeadlineEntry[];
+  pity: BannerPity[]; distribution: number[]; recentHeadline: HeadlineEntry[]; highlights: HeadlineEntry[];
 }
 // One pagination progress tick streamed from the backend during refresh.
 export interface GachaProgress { banner: Record<string, string>; page: number; poolIndex: number; poolTotal: number; }

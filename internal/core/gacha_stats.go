@@ -15,13 +15,16 @@ type BannerPity struct {
 	NearPity bool            `json:"nearPity"` // >80% of cap
 }
 
-// HeadlineEntry is one headline-rank pull for the recent list / timeline.
+// HeadlineEntry is one high-rarity pull for the recent/headline lists. Count is
+// the per-rank pity distance (pulls since the previous pull of this rank-or-higher
+// for the top rank; since the previous top-or-second-rank pull for the second).
 type HeadlineEntry struct {
 	Name      string `json:"name"`
 	ItemType  string `json:"itemType"`
 	BannerKey string `json:"bannerKey"`
 	Time      string `json:"time"`
 	Count     int    `json:"count"` // pulls spent to land this one
+	Rank      int    `json:"rank"`  // the pull's rarity (e.g. 4 or 5; Endfield 5 or 6)
 }
 
 // GachaSummary is the full dashboard payload.
@@ -42,7 +45,8 @@ type GachaSummary struct {
 	WorstPull      int             `json:"worstPull"`
 	Pity           []BannerPity    `json:"pity"`
 	Distribution   []int           `json:"distribution"`
-	RecentHeadline []HeadlineEntry `json:"recentHeadline"`
+	RecentHeadline []HeadlineEntry `json:"recentHeadline"` // recent top-rank only (cap 8)
+	Highlights     []HeadlineEntry `json:"highlights"`     // ALL top-two-rarity pulls, newest-first
 }
 
 // ComputeSummary builds the dashboard from one (uid)'s pulls + config. Pure.
@@ -54,7 +58,8 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	s := GachaSummary{
 		Supported: true, UID: uid, Currency: cfg.Currency,
 		PerBanner: map[string]int{}, HeadlineByType: map[string]int{},
-		Pity: []BannerPity{}, Distribution: make([]int, 9), RecentHeadline: []HeadlineEntry{},
+		Pity: []BannerPity{}, Distribution: make([]int, 9),
+		RecentHeadline: []HeadlineEntry{}, Highlights: []HeadlineEntry{},
 	}
 	s.TotalPulls = len(pulls)
 	nonFree := 0
@@ -105,24 +110,61 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	// pools at a time, hiding recent characters. Sort by parsed Time desc; fall back
 	// to the ID compare when times tie or don't parse (preserves HoYoverse
 	// same-second 10-pull order and any odd format).
-	sort.SliceStable(allHits, func(i, j int) bool {
-		ti, oki := parseGachaTime(allHits[i].Pull.Time)
-		tj, okj := parseGachaTime(allHits[j].Pull.Time)
-		if oki && okj && !ti.Equal(tj) {
-			return ti.After(tj)
-		}
-		return numLess(allHits[j].Pull.ID, allHits[i].Pull.ID)
-	})
+	sort.SliceStable(allHits, func(i, j int) bool { return headlineNewer(allHits[i], allHits[j]) })
 	for i, h := range allHits {
 		if i >= 8 {
 			break
 		}
-		s.RecentHeadline = append(s.RecentHeadline, HeadlineEntry{
-			Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: h.Pull.BannerKey,
-			Time: h.Pull.Time, Count: h.Count,
-		})
+		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(h))
+	}
+
+	// Highlights: ALL top-two-rarity pulls (top = HeadlineRank, second = one below)
+	// with per-rank pity counts, newest-first — feeds the full high-star board where
+	// the user toggles which ranks to show. since1 (top) resets only on a top pull;
+	// since2 (second) resets on a top OR second pull (a top pull also satisfies the
+	// second-rank guarantee). Pulls below the second rank are skipped.
+	r1, r2 := cfg.HeadlineRank, cfg.HeadlineRank-1
+	var hlHits []PityHit
+	for _, b := range cfg.Banners {
+		group := byBanner[b.Key] // already sorted chronological by the pity loop above
+		since1, since2 := 0, 0
+		for _, p := range group {
+			since1++
+			since2++
+			switch {
+			case p.Rank >= r1:
+				hlHits = append(hlHits, PityHit{Pull: p, Count: since1})
+				since1, since2 = 0, 0
+			case p.Rank >= r2:
+				hlHits = append(hlHits, PityHit{Pull: p, Count: since2})
+				since2 = 0
+			}
+		}
+	}
+	sort.SliceStable(hlHits, func(i, j int) bool { return headlineNewer(hlHits[i], hlHits[j]) })
+	for _, h := range hlHits {
+		s.Highlights = append(s.Highlights, headlineEntry(h))
 	}
 	return s
+}
+
+// headlineNewer reports whether hit a is more recent than b: by parsed Time desc,
+// falling back to ID compare when times tie or don't parse (HoYo IDs are a global
+// increasing sequence; WuWa synthesizes per-pool IDs, so Time is the source of truth).
+func headlineNewer(a, b PityHit) bool {
+	ti, oki := parseGachaTime(a.Pull.Time)
+	tj, okj := parseGachaTime(b.Pull.Time)
+	if oki && okj && !ti.Equal(tj) {
+		return ti.After(tj)
+	}
+	return numLess(b.Pull.ID, a.Pull.ID)
+}
+
+func headlineEntry(h PityHit) HeadlineEntry {
+	return HeadlineEntry{
+		Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: h.Pull.BannerKey,
+		Time: h.Pull.Time, Count: h.Count, Rank: h.Pull.Rank,
+	}
 }
 
 // bucket maps a pull-count to a histogram index: 0=1-9,1=10-19,...,7=70-79,8=80+.

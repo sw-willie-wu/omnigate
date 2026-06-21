@@ -28,7 +28,13 @@ const base = {
   supported: true, uid: 'u1', totalPulls: 12, perBanner: { special: 8, standard: 4 }, spendEst: 1200, currency: 'primogem',
   headlineCnt: 2, headlineByType: { char: 2 }, avgPity: 6, expectedPity: 62.5, luckScore: 80, winRate5050: null, worstPull: 9,
   pity: [{ key: 'special', label: { en: 'Limited' }, current: 10, cap: 80, nearPity: false }],
-  distribution: [1, 0, 0, 0, 0, 0, 0, 0, 1], recentHeadline: [{ name: 'Alpha', itemType: 'char', bannerKey: 'special', time: '2026-06-01', count: 4 }],
+  distribution: [1, 0, 0, 0, 0, 0, 0, 0, 1],
+  recentHeadline: [{ name: 'Alpha', itemType: 'char', bannerKey: 'special', time: '2026-06-01', count: 4, rank: 5 }],
+  highlights: [
+    { name: 'Alpha', itemType: 'char', bannerKey: 'character', time: '2026-06-03', count: 12, rank: 5 },
+    { name: 'Blade', itemType: 'weapon', bannerKey: 'weapon', time: '2026-06-02', count: 28, rank: 5 },
+    { name: 'Pip', itemType: 'char', bannerKey: 'character', time: '2026-06-01', count: 7, rank: 4 },
+  ],
 };
 
 describe('GachaBoard', () => {
@@ -41,7 +47,7 @@ describe('GachaBoard', () => {
     expect(w.find('.donut').exists()).toBe(true);
     expect(w.find('.gacha-pity').exists()).toBe(true);
     expect(w.find('.gacha-dist').exists()).toBe(true);
-    expect(w.find('.gacha-recent').exists()).toBe(true);
+    expect(w.find('.gacha-hl').exists()).toBe(true);
     expect(w.text()).toContain('12');
     expect(w.text()).toContain('Alpha');
   });
@@ -55,12 +61,20 @@ describe('GachaBoard', () => {
     expect(w.find('.donut-score').text()).toBe('80');
   });
 
-  it('resolves recent-card banner label from pity[], not the raw key', async () => {
+  it('splits high-star records into character | weapon columns and toggles ranks', async () => {
     getSummary.mockResolvedValue(base);
     const w = mountBoard(); await flushPromises();
-    const banner = w.find('.recent-item .r-banner').text();
-    expect(banner).toBe('Limited');
-    expect(banner).not.toBe('special');
+    const cols = w.findAll('.hl-col');
+    expect(cols.length).toBe(2);
+    // default shows only the top rank (5★): Alpha (char) left, Blade (weapon) right; Pip (4★) hidden
+    expect(cols[0].text()).toContain('Alpha');
+    expect(cols[1].text()).toContain('Blade');
+    expect(w.text()).not.toContain('Pip');
+    // toggling 4★ on reveals the 4★ entry
+    const four = w.findAll('.hl-rank').find((b) => b.text() === '4★');
+    expect(four).toBeTruthy();
+    await four!.trigger('click'); await flushPromises();
+    expect(w.text()).toContain('Pip');
   });
 
   it('shows the universal donut trio and no 50/50 win-rate line', async () => {

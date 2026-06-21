@@ -160,6 +160,43 @@ func TestComputeSummaryRecentHeadlineByTime(t *testing.T) {
 	}
 }
 
+// Highlights = ALL top-two-rarity pulls, newest-first, each with its rank + the
+// per-rank pity distance (top resets on a top pull; second resets on top-or-second).
+// 3★ are excluded.
+func TestComputeSummaryHighlights(t *testing.T) {
+	cfg := GachaConfig{
+		HeadlineRank: 5,
+		RankLabels:   map[int]LocalizedString{5: {"en": "5★"}, 4: {"en": "4★"}},
+		Banners: []BannerConfig{
+			{Key: "character", Label: LocalizedString{"en": "Char"}, Pity: stdPity{cap: 90}},
+			{Key: "weapon", Label: LocalizedString{"en": "Weapon"}, Pity: stdPity{cap: 80}},
+		},
+		PullPrice: 160, Currency: "x", ExpectedPity: 62.5,
+	}
+	pulls := []GachaPull{
+		{ID: "1-1", BannerKey: "character", Rank: 3, Name: "c3a", Time: "2026-05-01 10:00:00"},
+		{ID: "1-2", BannerKey: "character", Rank: 4, Name: "c4", Time: "2026-05-02 10:00:00"}, // since2=2
+		{ID: "1-3", BannerKey: "character", Rank: 3, Name: "c3b", Time: "2026-05-03 10:00:00"},
+		{ID: "1-4", BannerKey: "character", Rank: 5, Name: "c5", Time: "2026-05-04 10:00:00"}, // since1=4
+		{ID: "2-1", BannerKey: "weapon", Rank: 4, Name: "w4", Time: "2026-05-05 10:00:00"},    // since2=1
+		{ID: "2-2", BannerKey: "weapon", Rank: 5, Name: "w5", Time: "2026-05-06 10:00:00"},    // since1=2
+	}
+	s := ComputeSummary("u1", pulls, cfg)
+	want := []struct {
+		name        string
+		rank, count int
+	}{{"w5", 5, 2}, {"w4", 4, 1}, {"c5", 5, 4}, {"c4", 4, 2}} // newest-first
+	if len(s.Highlights) != len(want) {
+		t.Fatalf("highlights len=%d want %d (%+v)", len(s.Highlights), len(want), s.Highlights)
+	}
+	for i, w := range want {
+		h := s.Highlights[i]
+		if h.Name != w.name || h.Rank != w.rank || h.Count != w.count {
+			t.Fatalf("highlights[%d]=%+v want name=%s rank=%d count=%d", i, h, w.name, w.rank, w.count)
+		}
+	}
+}
+
 func TestComputeSummaryFreeExcludedFromSpend(t *testing.T) {
 	pulls := []GachaPull{
 		{ID: "1", BannerKey: "special", Rank: 5, IsFree: true},

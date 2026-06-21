@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
+import { equipTypeKey, splitByType, distinctRanks } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -82,7 +83,54 @@ function pityPct(cur: number, cap: number): number {
 function remain(cur: number, cap: number): number {
   return Math.max(0, cap - cur);
 }
-const recent = computed(() => (sum.value?.recentHeadline ?? []).slice(0, 5));
+// --- High-star records: complete list, split character / weapon, rank-toggled, lazy ---
+const highlights = computed(() => sum.value?.highlights ?? []);
+const hlRanks = computed(() => distinctRanks(highlights.value)); // e.g. [5,4] or [6,5]
+const topRank = computed(() => hlRanks.value[0] ?? 0);
+const HL_PAGE = 50;
+const hlVisible = ref(HL_PAGE);
+const enabledRanks = ref<Set<number>>(new Set());
+// Default to showing only the top rank; re-seed when the rank set changes (game/account switch).
+watch(hlRanks, (ranks) => { enabledRanks.value = new Set(ranks[0] !== undefined ? [ranks[0]] : []); }, { immediate: true });
+function toggleRank(r: number) {
+  const s = new Set(enabledRanks.value);
+  if (s.has(r)) s.delete(r); else s.add(r);
+  enabledRanks.value = s;
+  hlVisible.value = HL_PAGE; // reset the lazy window on filter change
+}
+const hlSplit = computed(() => splitByType(highlights.value.filter((h) => enabledRanks.value.has(h.rank))));
+const hlChars = computed(() => hlSplit.value.chars.slice(0, hlVisible.value));
+const hlWeapons = computed(() => hlSplit.value.weapons.slice(0, hlVisible.value));
+const hlCharTotal = computed(() => hlSplit.value.chars.length);
+const hlWeaponTotal = computed(() => hlSplit.value.weapons.length);
+const hlHasMore = computed(() => hlVisible.value < Math.max(hlSplit.value.chars.length, hlSplit.value.weapons.length));
+const charHeading = computed(() => typeLabel('char'));
+// Weapon column heading = this game's equipment kind (武器 / 光錐 / 音擎), from its banner key.
+const weaponHeading = computed(() => typeLabel(equipTypeKey(hlSplit.value.weapons[0]?.bannerKey ?? 'weapon')));
+function bannerCap(key: string): number { return sum.value?.pity.find((p) => p.key === key)?.cap ?? 90; }
+// Bar fill: count vs the rank's pity — top rank uses the banner hard pity, lower
+// ranks a 10-pull soft guarantee; colour warms (green→amber→red) as pity deepens.
+function hlBarStyle(h: { count: number; rank: number; bannerKey: string }) {
+  const cap = h.rank >= topRank.value ? bannerCap(h.bannerKey) : 10;
+  const pct = cap > 0 ? Math.min(100, Math.round((h.count / cap) * 100)) : 0;
+  const bg = pct >= 80 ? '#f85149' : pct >= 50 ? 'var(--gold-hi)' : 'var(--ok)';
+  return { width: pct + '%', background: bg };
+}
+// Lazy loading: reveal +HL_PAGE rows when the sentinel nears the board's bottom.
+const boardEl = ref<HTMLElement | null>(null);
+const hlSentinel = ref<HTMLElement | null>(null);
+let hlObserver: IntersectionObserver | null = null;
+watch(hlSentinel, (el) => {
+  hlObserver?.disconnect();
+  hlObserver = null;
+  if (!el || typeof IntersectionObserver === 'undefined') return;
+  hlObserver = new IntersectionObserver(
+    (entries) => { if (entries.some((e) => e.isIntersecting) && hlHasMore.value) hlVisible.value += HL_PAGE; },
+    { root: boardEl.value, rootMargin: '300px' },
+  );
+  hlObserver.observe(el);
+});
+onUnmounted(() => hlObserver?.disconnect());
 // Hide pools the account never pulled on (no records).
 const visiblePity = computed(() => (sum.value?.pity ?? []).filter((b) => (sum.value?.perBanner?.[b.key] ?? 0) > 0));
 // Loading line: live "{banner} · page N (i/total)" when a progress tick has
@@ -118,7 +166,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 </script>
 
 <template>
-  <div class="gacha-board">
+  <div class="gacha-board" ref="boardEl">
     <!-- loading: spinner + live progress text, over a skeleton -->
     <div v-if="st.loading" class="gacha-skeleton" aria-busy="true">
       <div class="gacha-progress">
@@ -250,16 +298,36 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         </div>
       </div>
 
-      <!-- §2.5 recent top-rarity cards -->
-      <div class="panel gacha-recent">
-        <div class="panel-title">{{ t('gacha.recent_title') }}</div>
-        <div class="recent-row">
-          <div v-for="(h, i) in recent" :key="i" class="recent-item" :class="{ cool: h.count > 75 }">
-            <div class="r-top"><span class="r-star">✦</span><span class="r-banner">{{ bannerLabel(h.bannerKey) }}</span><span class="r-time mono">{{ h.time }}</span></div>
-            <div class="r-name">{{ h.name }}</div>
-            <div class="r-count">{{ t('gacha.pull_count', { n: h.count }) }}</div>
+      <!-- §2.5 complete high-star records: separate character + weapon panels, rank-toggled, lazy -->
+      <div class="gacha-hl">
+        <div class="hl-head">
+          <div class="panel-title">{{ t('gacha.recent_title') }}</div>
+          <div class="hl-toggle">
+            <button v-for="r in hlRanks" :key="r" type="button" class="hl-rank"
+              :class="{ on: enabledRanks.has(r) }" @click="toggleRank(r)">{{ r }}★</button>
           </div>
         </div>
+        <div class="hl-cols">
+          <div class="panel hl-col">
+            <div class="hl-col-title">{{ charHeading }}<span class="hl-n">{{ hlCharTotal }}</span></div>
+            <div v-if="hlChars.length === 0" class="hl-empty">—</div>
+            <div v-for="(h, i) in hlChars" :key="'c' + i" class="hl-row" :class="'r' + h.rank">
+              <span class="hl-name">{{ h.name }}</span>
+              <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
+              <span class="hl-count mono">{{ h.count }}</span>
+            </div>
+          </div>
+          <div class="panel hl-col">
+            <div class="hl-col-title">{{ weaponHeading }}<span class="hl-n">{{ hlWeaponTotal }}</span></div>
+            <div v-if="hlWeapons.length === 0" class="hl-empty">—</div>
+            <div v-for="(h, i) in hlWeapons" :key="'w' + i" class="hl-row" :class="'r' + h.rank">
+              <span class="hl-name">{{ h.name }}</span>
+              <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
+              <span class="hl-count mono">{{ h.count }}</span>
+            </div>
+          </div>
+        </div>
+        <div ref="hlSentinel" class="hl-sentinel" aria-hidden="true"></div>
       </div>
     </template>
   </div>
@@ -337,14 +405,25 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .dist-axis { display: flex; justify-content: space-between; font-size: .65rem; color: rgba(255,255,255,0.72); margin-top: 6px; }
 
 /* recent */
-.recent-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
-.recent-item { background: rgba(0,0,0,.25); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-.r-top { display: flex; align-items: center; gap: 6px; font-size: .7rem; color: rgba(255,255,255,0.72); }
-.r-star { color: var(--gold-hi); }
-.r-banner { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.r-name { font-weight: 700; font-size: .9rem; margin: 6px 0 4px; }
-.r-count { font-size: .75rem; color: var(--ok); font-weight: 600; }
-.recent-item.cool .r-count { color: var(--info); }
+.gacha-hl .hl-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.gacha-hl .panel-title { margin: 0; }
+.hl-toggle { display: flex; gap: 6px; }
+.hl-rank { font-size: .72rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  background: rgba(0,0,0,.25); border: 1px solid var(--border); color: rgba(255,255,255,.5); transition: background .12s, color .12s, border-color .12s; }
+.hl-rank.on { background: var(--gold-hi); border-color: var(--gold-hi); color: #1a1406; }
+.hl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.hl-col { display: flex; flex-direction: column; }
+.hl-col-title { font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.72); margin-bottom: 8px;
+  padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.hl-n { float: right; color: rgba(255,255,255,.45); font-weight: 600; }
+.hl-empty { color: rgba(255,255,255,.34); font-size: .8rem; padding: 4px 0; }
+.hl-row { display: grid; grid-template-columns: minmax(56px, 40%) 1fr auto; align-items: center; gap: 8px; padding: 3px 0; }
+.hl-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hl-row.r4 .hl-name { color: rgba(196,166,255,.92); }
+.hl-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+.hl-fill { display: block; height: 100%; border-radius: 3px; background: var(--ok); }
+.hl-count { font-size: .76rem; font-weight: 700; color: rgba(255,255,255,.78); min-width: 2ch; text-align: right; }
+.hl-sentinel { height: 1px; }
 
 /* states */
 .gacha-empty, .gacha-unsupported, .gacha-error { padding: 40px; text-align: center; color: rgba(255,255,255,0.85); }

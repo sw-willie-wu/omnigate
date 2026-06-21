@@ -49,7 +49,7 @@
     "dist_axis_low": "1-9",
     "dist_axis_mid": "pulls",
     "dist_axis_high": "80+",
-    "recent_title": "Recent top pulls",
+    "recent_title": "Top pulls",
     "error_other": "Failed to load. Try again.",
     "luck_band": {
       "superb": "Blessed",
