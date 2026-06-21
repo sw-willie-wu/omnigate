@@ -392,3 +392,36 @@ func TestFetchGachaNoAuthkeyInLogs(t *testing.T) {
 		t.Fatalf("authkey leaked into logs: %q", s)
 	}
 }
+
+// ── Task 3 (off-marker): Genshin StandardPool + DualCitizens + Limited ───────
+
+func TestGenshinStandardPoolDualCitizenLimited(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("hoyoverse/genshin")
+	for _, n := range []string{"Qiqi", "七七", "Tighnari", "提納里", "Amos' Bow", "阿莫斯之弓"} {
+		if !cfg.StandardPool[n] {
+			t.Errorf("StandardPool missing %q", n)
+		}
+	}
+	dc := map[string]bool{}
+	for _, d := range cfg.DualCitizens {
+		for _, n := range d.Names {
+			dc[n] = true
+		}
+	}
+	for _, n := range []string{"Tighnari", "Dehya", "Yumemizuki Mizuki"} {
+		if !dc[n] {
+			t.Errorf("DualCitizens missing %q", n)
+		}
+	}
+	lim := map[string]bool{}
+	for _, b := range cfg.Banners {
+		lim[b.Key] = b.Limited
+	}
+	if !lim["character"] || !lim["weapon"] {
+		t.Error("character/weapon must be Limited")
+	}
+	if lim["standard"] || lim["beginner"] || lim["chronicled"] {
+		t.Error("standard/beginner/chronicled must NOT be Limited")
+	}
+}

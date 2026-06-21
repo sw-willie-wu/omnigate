@@ -175,6 +175,56 @@ func loc(zhTW, zhCN, en string) core.LocalizedString {
 	return core.LocalizedString{"zh-TW": zhTW, "zh-CN": zhCN, "en": en}
 }
 
+// genshinStandardPool lists every top-rarity permanent item name in all stored
+// language forms. A limited-banner pull of any of these is a 50/50 loss (歪),
+// EXCEPT dual-citizens within their debut window (see genshinDualCitizens).
+var genshinStandardPool = map[string]bool{
+	// Characters
+	"Jean": true, "琴": true,
+	"Diluc": true, "迪盧克": true, "迪卢克": true,
+	"Mona": true, "莫娜": true,
+	"Qiqi": true, "七七": true,
+	"Keqing": true, "刻晴": true,
+	"Tighnari": true, "提納里": true, "提纳里": true,
+	"Dehya": true, "迪希雅": true,
+	"Yumemizuki Mizuki": true, "夢見月瑞希": true, "梦见月瑞希": true,
+	// Weapons
+	"Amos' Bow": true, "阿莫斯之弓": true,
+	"Skyward Harp": true, "天空之翼": true,
+	"Lost Prayer to the Sacred Winds": true, "四風原典": true, "四风原典": true,
+	"Skyward Atlas": true, "天空之卷": true,
+	"Wolf's Gravestone": true, "狼的末路": true,
+	"Skyward Pride": true, "天空之傲": true,
+	"Primordial Jade Winged-Spear": true, "和璞鳶": true, "和璞鸢": true,
+	"Skyward Spine": true, "天空之脊": true,
+	"Aquila Favonia": true, "風鷹劍": true, "风鹰剑": true,
+	"Skyward Blade": true, "天空之刃": true,
+}
+
+// genshinDualCitizens lists standard-pool 5★ units that were ALSO featured on a
+// limited Event Wish exactly once (their debut). A pull inside the debut window is
+// that win (not 歪); outside it is a 50/50 loss. Windows are padded ±1 day from
+// the banner's server-local calendar to absorb cross-server/timezone skew.
+// These units appear on a limited banner ONLY at debut, so padding cannot suppress
+// any later real 歪.  (Dates web-verified vs. wiki/game8.)
+var genshinDualCitizens = []core.DualCitizen{
+	{
+		Names: []string{"Tighnari", "提納里", "提纳里"},
+		Start: time.Date(2022, 8, 23, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2022, 9, 10, 23, 59, 59, 0, time.UTC),
+	},
+	{
+		Names: []string{"Dehya", "迪希雅"},
+		Start: time.Date(2023, 2, 28, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2023, 3, 22, 23, 59, 59, 0, time.UTC),
+	},
+	{
+		Names: []string{"Yumemizuki Mizuki", "夢見月瑞希", "梦见月瑞希"},
+		Start: time.Date(2025, 2, 11, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2025, 3, 5, 23, 59, 59, 0, time.UTC),
+	},
+}
+
 func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	rank := map[int]core.LocalizedString{5: loc("五星", "五星", "5★"), 4: loc("四星", "四星", "4★")}
 	// PullPrice 160 = premium currency consumed per pull (all HoYoverse games);
@@ -184,12 +234,14 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	case "hoyoverse/genshin":
 		cfg.Currency = "primogem"
 		cfg.Banners = []core.BannerConfig{
-			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}},
-			{Key: "weapon", Label: loc("武器", "武器", "Weapon"), Pity: hoyoPity{80, true}},
+			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}, Limited: true},
+			{Key: "weapon", Label: loc("武器", "武器", "Weapon"), Pity: hoyoPity{80, true}, Limited: true},
 			{Key: "standard", Label: loc("常駐", "常驻", "Standard"), Pity: hoyoPity{90, false}},
 			{Key: "beginner", Label: loc("新手", "新手", "Beginner"), Pity: hoyoPity{90, false}},
 			{Key: "chronicled", Label: loc("集錄", "集录", "Chronicled"), Pity: hoyoPity{90, false}},
 		}
+		cfg.StandardPool = genshinStandardPool
+		cfg.DualCitizens = genshinDualCitizens
 	case "hoyoverse/starrail":
 		cfg.Currency = "stellar_jade"
 		cfg.Banners = []core.BannerConfig{
