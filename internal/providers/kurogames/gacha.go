@@ -143,9 +143,13 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	return core.GachaConfig{
 		HeadlineRank: 5,
 		RankLabels:   map[int]core.LocalizedString{5: wuwaLoc("五星", "五星", "5★"), 4: wuwaLoc("四星", "四星", "4★")},
+		// Order drives both the dashboard pity-bar order and the high-star panel group
+		// order (per column, via pity[]). Collab sits right under its limited sibling.
 		Banners: []core.BannerConfig{
 			{Key: "character", Label: wuwaLoc("限定共鳴者", "限定共鸣者", "Featured Resonator"), Pity: wuwaPity{}, Limited: true},
+			{Key: "collab", Label: wuwaLoc("聯動共鳴者", "联动共鸣者", "Collab Resonator"), Pity: wuwaPity{}, Limited: true},
 			{Key: "weapon", Label: wuwaLoc("限定武器", "限定武器", "Featured Weapon"), Pity: wuwaPity{}, Limited: true},
+			{Key: "collab_weapon", Label: wuwaLoc("武器聯動", "武器联动", "Collab Weapon"), Pity: wuwaPity{}, Limited: true},
 			{Key: "standard_char", Label: wuwaLoc("常駐共鳴者", "常驻共鸣者", "Standard Resonator"), Pity: wuwaPity{}},
 			{Key: "standard_weapon", Label: wuwaLoc("常駐武器", "常驻武器", "Standard Weapon"), Pity: wuwaPity{}},
 			{Key: "beginner", Label: wuwaLoc("新手", "新手", "Beginner"), Pity: wuwaPity{}},
@@ -153,8 +157,6 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "other", Label: wuwaLoc("感恩定向", "感恩定向", "Other"), Pity: wuwaPity{}},
 			{Key: "char_exchange", Label: wuwaLoc("角色新旅換取", "角色新旅换取", "Character New-Journey"), Pity: wuwaPity{}, Limited: true},
 			{Key: "weapon_exchange", Label: wuwaLoc("武器新旅換取", "武器新旅换取", "Weapon New-Journey"), Pity: wuwaPity{}, Limited: true},
-			{Key: "collab", Label: wuwaLoc("聯動共鳴者", "联动共鸣者", "Collab Resonator"), Pity: wuwaPity{}, Limited: true},
-			{Key: "collab_weapon", Label: wuwaLoc("武器聯動", "武器联动", "Collab Weapon"), Pity: wuwaPity{}, Limited: true},
 		},
 		StandardPool: wuwaStandardPool,
 		PullPrice: 160, Currency: "astrite", ExpectedPity: 62.5,
