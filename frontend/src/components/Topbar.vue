@@ -42,7 +42,7 @@ async function toggleMax() {
       </button>
       <button class="icon-btn" :class="{active: view.viewMode === 'settings'}" @click="view.toggleSettings()" title="Settings"><span class="material-symbols-outlined">settings</span></button>
       <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize"><span class="material-symbols-outlined">remove</span></button>
-      <button class="icon-btn window-btn" @click="toggleMax" :title="maxed ? 'Restore' : 'Maximize'"><span class="material-symbols-outlined">{{ maxed ? 'filter_none' : 'crop_square' }}</span></button>
+      <button class="icon-btn window-btn maximize" @click="toggleMax" :title="maxed ? 'Restore' : 'Maximize'"><span class="material-symbols-outlined">{{ maxed ? 'filter_none' : 'crop_square' }}</span></button>
       <button class="icon-btn window-btn close" @click="Quit()" title="Close"><span class="material-symbols-outlined">close</span></button>
     </div>
     <Teleport to="body">
