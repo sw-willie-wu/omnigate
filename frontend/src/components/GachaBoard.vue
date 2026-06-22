@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { equipTypeKey, splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
+import { splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -25,12 +25,6 @@ function localize(m: Record<string, string> | undefined): string {
   return m[locale.value] ?? m['en'] ?? Object.values(m)[0] ?? '';
 }
 
-// headlineByType keys are raw item-type strings (already localized for HoYo,
-// literal "char" for Endfield); map known keys, pass through otherwise.
-function typeLabel(raw: string): string {
-  const k = `gacha.item_type.${raw}`;
-  return te(k) ? t(k) : raw;
-}
 // Currency is a stable code (primogem/stellar_jade/...); localize via i18n map.
 function currencyName(code: string): string {
   const k = `gacha.currency.${code}`;
@@ -61,7 +55,7 @@ function barPct(v: number): number {
 function pityPct(cur: number, cap: number): number {
   return cap > 0 ? Math.min(100, Math.round((cur / cap) * 100)) : 0;
 }
-// --- High-star records: complete list, split character / weapon, rank-toggled, lazy ---
+// --- High-star records: top-rank only, split character / weapon, per-pool panels, lazy ---
 const highlights = computed(() => sum.value?.highlights ?? []);
 const hlRanks = computed(() => distinctRanks(highlights.value)); // e.g. [5,4] or [6,5]
 const topRank = computed(() => hlRanks.value[0] ?? 0);
@@ -80,28 +74,15 @@ const charNote = computed(() => noteFor(metrics.value.avgChar, (sum.value?.expec
 const weaponNote = computed(() => noteFor(metrics.value.avgWeapon, sum.value?.expectedFeaturedWeapon ?? 0));
 const HL_PAGE = 50;
 const hlVisible = ref(HL_PAGE);
-const enabledRanks = ref<Set<number>>(new Set());
-// Default to showing only the top rank; re-seed when the rank set changes (game/account switch).
-watch(hlRanks, (ranks) => { enabledRanks.value = new Set(ranks[0] !== undefined ? [ranks[0]] : []); }, { immediate: true });
-function toggleRank(r: number) {
-  const s = new Set(enabledRanks.value);
-  if (s.has(r)) s.delete(r); else s.add(r);
-  enabledRanks.value = s;
-  hlVisible.value = HL_PAGE; // reset the lazy window on filter change
-}
-const hlSplit = computed(() => splitByType(highlights.value.filter((h) => enabledRanks.value.has(h.rank))));
+// Only the top rank is shown (no 4★/lower toggle); each pool group is its own titled panel.
+const hlSplit = computed(() => splitByType(highlights.value.filter((h) => h.rank === topRank.value)));
 const bannerOrder = computed(() => (sum.value?.pity ?? []).map((p) => ({ key: p.key, label: p.label })));
-const hlCharTotal = computed(() => hlSplit.value.chars.length);
-const hlWeaponTotal = computed(() => hlSplit.value.weapons.length);
 const hlHasMore = computed(() => hlVisible.value < Math.max(hlSplit.value.chars.length, hlSplit.value.weapons.length));
-const charHeading = computed(() => typeLabel('char'));
-// Weapon column heading = this game's equipment kind (武器 / 光錐 / 音擎), from its banner key.
-const weaponHeading = computed(() => typeLabel(equipTypeKey(hlSplit.value.weapons[0]?.bannerKey ?? 'weapon')));
 function bannerCap(key: string): number { return sum.value?.pity.find((p) => p.key === key)?.cap ?? 90; }
-// Bar fill: count vs the rank's pity — top rank uses the banner hard pity, lower
-// ranks a 10-pull soft guarantee; colour warms (green→amber→red) as pity deepens.
-function hlBarStyle(h: { count: number; rank: number; bannerKey: string }) {
-  const cap = h.rank >= topRank.value ? bannerCap(h.bannerKey) : 10;
+// Bar fill: count vs the pool's hard pity; colour warms (green→amber→red) as pity deepens.
+// (Only the top rank is rendered, so the cap is always the banner hard pity.)
+function hlBarStyle(h: { count: number; bannerKey: string }) {
+  const cap = bannerCap(h.bannerKey);
   const pct = cap > 0 ? Math.min(100, Math.round((h.count / cap) * 100)) : 0;
   const bg = pct >= 80 ? '#f85149' : pct >= 50 ? 'var(--gold-hi)' : 'var(--ok)';
   return { width: pct + '%', background: bg };
@@ -319,21 +300,13 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         </div>
       </div>
 
-      <!-- §2.5 complete high-star records: separate character + weapon panels, rank-toggled, lazy -->
+      <!-- §2.5 high-star records (top rank only): one titled panel per pool, char left / weapon right, lazy -->
       <div class="gacha-hl">
-        <div class="hl-head">
-          <div class="panel-title">{{ t('gacha.recent_title') }}</div>
-          <div class="hl-toggle">
-            <button v-for="r in hlRanks" :key="r" type="button" class="hl-rank"
-              :class="{ on: enabledRanks.has(r) }" @click="toggleRank(r)">{{ r }}★</button>
-          </div>
-        </div>
         <div class="hl-cols">
           <div class="hl-col">
-            <div class="hl-col-title">{{ charHeading }}<span class="hl-n">{{ hlCharTotal }}</span></div>
             <div v-if="charSections.length === 0" class="hl-empty">—</div>
             <div v-for="s in charSections" :key="'cs' + s.key" class="panel hl-pool">
-              <div class="hl-grp-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-grp-title__n">{{ s.total }}</span></div>
+              <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
               <div v-if="s.pity" class="hl-row hl-pity">
                 <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
                 <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
@@ -347,10 +320,9 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
             </div>
           </div>
           <div class="hl-col">
-            <div class="hl-col-title">{{ weaponHeading }}<span class="hl-n">{{ hlWeaponTotal }}</span></div>
             <div v-if="weaponSections.length === 0" class="hl-empty">—</div>
             <div v-for="s in weaponSections" :key="'ws' + s.key" class="panel hl-pool">
-              <div class="hl-grp-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-grp-title__n">{{ s.total }}</span></div>
+              <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
               <div v-if="s.pity" class="hl-row hl-pity">
                 <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
                 <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
@@ -407,6 +379,8 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 
 /* donut */
 .gacha-luck { display: flex; flex-direction: column; align-items: center; }
+/* panel titles are uniformly top-left; the luck panel centres its body but not its title */
+.gacha-luck .panel-title { align-self: flex-start; }
 .donut { position: relative; width: 150px; height: 150px; border-radius: 50%; }
 .donut-hole {
   position: absolute; inset: 14px; border-radius: 50%; background: var(--elev);
@@ -435,24 +409,13 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .dist-xaxis { grid-area: 2 / 2; display: flex; gap: 5px; margin-top: 5px; }
 .dist-xaxis span { flex: 1; text-align: center; font-size: .56rem; color: rgba(255,255,255,0.5); font-variant-numeric: tabular-nums; }
 
-/* recent */
-.gacha-hl .hl-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.gacha-hl .panel-title { margin: 0; }
-.hl-toggle { display: flex; gap: 6px; }
-.hl-rank { font-size: .72rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; cursor: pointer;
-  background: rgba(0,0,0,.25); border: 1px solid var(--border); color: rgba(255,255,255,.5); transition: background .12s, color .12s, border-color .12s; }
-.hl-rank.on { background: var(--gold-hi); border-color: var(--gold-hi); color: #1a1406; }
+/* high-star records: each pool group is its own titled .panel, char left / weapon right */
 .hl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
-/* each column is a transparent stack; each pool group is its own .panel (.hl-pool) */
 .hl-col { display: flex; flex-direction: column; gap: 10px; }
-.hl-col-title { font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.72);
-  padding-bottom: 4px; border-bottom: 1px solid var(--border); }
-/* opt the per-pool panels out of backdrop blur: up to ~11 stacked blurred layers jank WebView2,
-   and --glass-2 is 62% opaque so the blur is barely visible anyway. */
-.hl-pool { padding: 10px 12px; backdrop-filter: none; -webkit-backdrop-filter: none; }
-.hl-n { float: right; color: rgba(255,255,255,.45); font-weight: 600; }
-.hl-grp-title { font-size: .68rem; font-weight: 600; color: rgba(255,255,255,.5); margin: 0 0 6px; display: flex; align-items: center; gap: 6px; }
-.hl-grp-title__n { font-size: .62rem; color: rgba(255,255,255,.35); }
+.hl-pool { padding: 10px 12px; }
+/* pool title reuses .panel-title (unified with the luck/distribution titles), just tighter */
+.hl-pool-title { margin-bottom: 8px; }
+.hl-n { float: right; color: rgba(255,255,255,.45); font-weight: 600; letter-spacing: 0; }
 .hl-empty { color: rgba(255,255,255,.34); font-size: .8rem; padding: 4px 0; }
 .hl-row { display: grid; grid-template-columns: minmax(56px, 40%) 1fr auto; align-items: center; gap: 8px; padding: 3px 0; }
 .hl-name-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }

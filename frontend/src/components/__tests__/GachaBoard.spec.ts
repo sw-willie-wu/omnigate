@@ -63,20 +63,17 @@ describe('GachaBoard', () => {
     expect(w.find('.donut-score').text()).toBe('80');
   });
 
-  it('splits high-star records into character | weapon columns and toggles ranks', async () => {
+  it('splits high-star records into character | weapon columns, top rank only', async () => {
     getSummary.mockResolvedValue(base);
     const w = mountBoard(); await flushPromises();
     const cols = w.findAll('.hl-col');
     expect(cols.length).toBe(2);
-    // default shows only the top rank (5★): Alpha (char) left, Blade (weapon) right; Pip (4★) hidden
+    // only the top rank (5★) is shown: Alpha (char) left, Blade (weapon) right; Pip (4★) never shown
     expect(cols[0].text()).toContain('Alpha');
     expect(cols[1].text()).toContain('Blade');
     expect(w.text()).not.toContain('Pip');
-    // toggling 4★ on reveals the 4★ entry
-    const four = w.findAll('.hl-rank').find((b) => b.text() === '4★');
-    expect(four).toBeTruthy();
-    await four!.trigger('click'); await flushPromises();
-    expect(w.text()).toContain('Pip');
+    // no rank toggle exists anymore
+    expect(w.find('.hl-rank').exists()).toBe(false);
   });
 
   it('shows the universal donut trio', async () => {
@@ -327,7 +324,7 @@ describe('GachaBoard', () => {
       ],
     });
     const w = mountBoard(); await flushPromises();
-    const heads = w.findAll('.hl-grp-title').map((n) => n.text());
+    const heads = w.findAll('.hl-pool .panel-title').map((n) => n.text());
     expect(heads.some((t) => t.includes('Featured'))).toBe(true);
     expect(heads.some((t) => t.includes('Collab'))).toBe(true);
     expect(w.findAll('.hl-off').length).toBe(1); // the 歪 chip is under the collab group
