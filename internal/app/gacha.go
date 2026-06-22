@@ -134,7 +134,17 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 		if err != nil {
 			return core.GachaSummary{}, err
 		}
-		return core.ComputeSummary(res.UID, all, cfg), nil
+		// Best-effort SYNC warm so the just-refreshed board shows icons in the
+		// returned summary. WarmAsync is TTL-gated + in-flight-guarded and never
+		// blocks the refresh: a warm index lets decorate below resolve icons
+		// immediately; a cold/stale index refetches in the background and the
+		// SetOnWarm callback emits "gacha:icons" to repaint once it resolves.
+		if a.gachaIcons != nil {
+			a.gachaIcons.WarmAsync(gid)
+		}
+		sum := core.ComputeSummary(res.UID, all, cfg)
+		a.decorateGachaIcons(gid, &sum)
+		return sum, nil
 	}
 
 	// ── Existing URL/switcher path (UNCHANGED below) ──
@@ -179,7 +189,14 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 	if err != nil {
 		return core.GachaSummary{}, err
 	}
-	return core.ComputeSummary(res.UID, all, gp.GachaConfig(gid)), nil
+	// Async warm (see credential path above): TTL-gated, non-blocking; repaints via
+	// the gacha:icons event once the index is warm.
+	if a.gachaIcons != nil {
+		a.gachaIcons.WarmAsync(gid)
+	}
+	sum := core.ComputeSummary(res.UID, all, gp.GachaConfig(gid))
+	a.decorateGachaIcons(gid, &sum)
+	return sum, nil
 }
 
 // GetGachaSummary reads the store (no network) and computes the summary for the
@@ -218,5 +235,12 @@ func (a *App) GetGachaSummary(gameID, accountID string) (core.GachaSummary, erro
 	if err != nil {
 		return core.GachaSummary{}, err
 	}
-	return core.ComputeSummary(uid, all, gp.GachaConfig(gid)), nil
+	sum := core.ComputeSummary(uid, all, gp.GachaConfig(gid))
+	a.decorateGachaIcons(gid, &sum)
+	// Fire-and-forget warm; the SetOnWarm callback emits "gacha:icons" so the
+	// frontend reloads icons once the index becomes resolvable.
+	if a.gachaIcons != nil {
+		a.gachaIcons.WarmAsync(gid)
+	}
+	return sum, nil
 }

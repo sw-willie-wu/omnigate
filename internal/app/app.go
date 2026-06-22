@@ -14,6 +14,7 @@ import (
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"omnigate/internal/core"
+	"omnigate/internal/gachaicon"
 	"omnigate/internal/providers/hoyoverse"
 	"omnigate/internal/providers/hypergryph"
 	"omnigate/internal/providers/kurogames"
@@ -40,6 +41,7 @@ type App struct {
 	updateRegistry *UpdateStateRegistry
 	playState      *playState
 	gachaStore     store.GachaStore
+	gachaIcons     *gachaicon.Manager
 	uidCache       *uidCache
 	pendingElevate string // gid from --elevate-update; consumed once by PendingElevatedGame
 	gachaLinkMu    sync.Mutex
@@ -84,6 +86,11 @@ func New(dataDir string, logger *slog.Logger) *App {
 	if err := a.constructProviders(); err != nil {
 		logger.Error("provider construction failed", "err", err)
 	}
+
+	// Gacha icon manager: resolves headline records → /_asset icon URLs and warms
+	// per-game indices in the background. Its onWarm callback notifies the frontend.
+	a.gachaIcons = gachaicon.NewManager(dataDir, logger.With("comp", "gachaicon"))
+	a.gachaIcons.SetOnWarm(func(gid core.GameID) { a.emit("gacha:icons", string(gid)) })
 
 	// Construct update state registry; emitter writes to Wails event bus.
 	a.updateRegistry = NewUpdateStateRegistry(a.emit, realClock{})
