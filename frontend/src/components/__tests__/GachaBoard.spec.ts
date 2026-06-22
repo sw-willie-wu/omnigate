@@ -319,6 +319,53 @@ describe('GachaBoard', () => {
     expect(offChips.every((c) => c.text() === 'Off')).toBe(true); // en locale
   });
 
+  it('renders a circular icon when the entry has one, a placeholder when it does not', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      perBanner: { character: 5 },
+      pity: [{ key: 'character', label: { en: 'Featured' }, current: 10, cap: 80, nearPity: false }],
+      highlights: [
+        { name: 'IconChar', itemType: 'char', bannerKey: 'character', time: 't2', count: 70, rank: 5, off: false, limited: true, icon: '/_asset/x' },
+        { name: 'PlainChar', itemType: 'char', bannerKey: 'character', time: 't1', count: 60, rank: 5, off: false, limited: true, icon: '' },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    const rows = w.findAll('.hl-col')[0].findAll('.hl-row.r5'); // record rows only (pity row is .hl-pity)
+    expect(rows[0].find('img.hl-ic').exists()).toBe(true);       // [0] has an icon → <img>
+    expect(rows[0].find('.hl-ic--ph').exists()).toBe(false);
+    expect(rows[1].find('img.hl-ic').exists()).toBe(false);      // [1] icon '' → placeholder
+    expect(rows[1].find('.hl-ic--ph').exists()).toBe(true);
+  });
+
+  it('falls back to the placeholder when an icon fails to load (@error)', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      perBanner: { character: 5 },
+      pity: [{ key: 'character', label: { en: 'Featured' }, current: 10, cap: 80, nearPity: false }],
+      highlights: [
+        { name: 'IconChar', itemType: 'char', bannerKey: 'character', time: 't1', count: 70, rank: 5, off: false, limited: true, icon: '/_asset/x' },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    await w.find('img.hl-ic').trigger('error');
+    const row = w.findAll('.hl-col')[0].findAll('.hl-row.r5')[0];
+    expect(row.find('img.hl-ic').exists()).toBe(false);   // img gone after the error
+    expect(row.find('.hl-ic--ph').exists()).toBe(true);   // replaced by the placeholder
+  });
+
+  it('renders a neutral icon slot on the pity row so left edges align', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      perBanner: { character: 5 },
+      pity: [{ key: 'character', label: { en: 'Featured' }, current: 10, cap: 80, nearPity: false }],
+      highlights: [
+        { name: 'IconChar', itemType: 'char', bannerKey: 'character', time: 't1', count: 70, rank: 5, off: false, limited: true, icon: '/_asset/x' },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('.hl-pity .hl-ic--pity').exists()).toBe(true);
+  });
+
   it('has the gacha keys non-empty in every locale (i18n parity)', async () => {
     const en = (await import('../../locales/en.json')).default as Record<string, any>;
     const tw = (await import('../../locales/zh-TW.json')).default as Record<string, any>;

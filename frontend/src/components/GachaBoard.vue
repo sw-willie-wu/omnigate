@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
@@ -12,6 +13,18 @@ const gacha = useGachaStore();
 const account = useAccountStore();
 // The board reflects the SELECTED account (switcher games); '' = active/LatestUID.
 const accountID = computed(() => account.selectedFor(props.gid)?.id ?? '');
+
+// Per-row icons: backend sets HeadlineEntry.icon ('/_asset/...' URL, or ''). Track URLs
+// that 404/fail to load so we fall back to the rarity-tinted placeholder for those.
+const failedIcons = reactive(new Set<string>());
+function onIconErr(url: string) { failedIcons.add(url); }
+function showIcon(h: { icon?: string }) { return !!h.icon && !failedIcons.has(h.icon); }
+// Re-load THIS board when the backend finishes warming its icon index. EventsOn
+// returns an unsubscribe fn — clean it up on unmount (no leaked listeners).
+const offIcons = EventsOn('gacha:icons', (gid: string) => {
+  if (gid === props.gid) gacha.reload(props.gid, accountID.value);
+});
+onUnmounted(() => { offIcons?.(); });
 
 const st = computed(() => gacha.stateFor(props.gid));
 const sum = computed(() => st.value.summary);
@@ -318,12 +331,19 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
             <div v-for="s in charSections" :key="'cs' + s.key" class="panel hl-pool">
               <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
               <div v-if="s.pity" class="hl-row hl-pity">
-                <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
+                <span class="hl-name-wrap">
+                  <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
+                  <span class="hl-name">{{ t('gacha.pity_title') }}</span>
+                </span>
                 <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
                 <span class="hl-count mono">{{ s.pity.current }}</span>
               </div>
               <div v-for="(h, i) in s.entries" :key="'c' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
-                <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
+                <span class="hl-name-wrap">
+                  <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
+                  <span v-else class="hl-ic hl-ic--ph"></span>
+                  <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
+                </span>
                 <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
@@ -334,12 +354,19 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
             <div v-for="s in weaponSections" :key="'ws' + s.key" class="panel hl-pool">
               <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
               <div v-if="s.pity" class="hl-row hl-pity">
-                <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
+                <span class="hl-name-wrap">
+                  <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
+                  <span class="hl-name">{{ t('gacha.pity_title') }}</span>
+                </span>
                 <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
                 <span class="hl-count mono">{{ s.pity.current }}</span>
               </div>
               <div v-for="(h, i) in s.entries" :key="'w' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
-                <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
+                <span class="hl-name-wrap">
+                  <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
+                  <span v-else class="hl-ic hl-ic--ph"></span>
+                  <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
+                </span>
                 <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
@@ -429,6 +456,12 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .hl-empty { color: rgba(255,255,255,.34); font-size: .8rem; padding: 4px 0; }
 .hl-row { display: grid; grid-template-columns: minmax(56px, 40%) 1fr auto; align-items: center; gap: 8px; padding: 3px 0; }
 .hl-name-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hl-ic { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; background: rgba(255,255,255,.06); }
+.hl-ic--ph { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.14); }
+.hl-row.r5 .hl-ic--ph { background: rgba(255,196,77,.22); border-color: rgba(255,196,77,.45); }
+.hl-row.r6 .hl-ic--ph { background: rgba(255,140,90,.22); border-color: rgba(255,140,90,.45); }
+.hl-row.r4 .hl-ic--ph { background: rgba(196,166,255,.20); border-color: rgba(196,166,255,.40); }
+.hl-ic--pity { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.10); }
 .hl-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .hl-off { font-size: .68rem; font-weight: 700; color: #f85149; border: 1px solid #f85149; border-radius: 4px; padding: 0 4px; flex: none; }
 .hl-row.r4 .hl-name { color: rgba(196,166,255,.92); }
