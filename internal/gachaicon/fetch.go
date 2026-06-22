@@ -9,9 +9,34 @@ import (
 	"omnigate/internal/core"
 )
 
-// yattaLangs are the languages keyed into the GI/HSR (Amber/Yatta) indices.
-// Traditional + Simplified + English so record names in any of them resolve.
-var yattaLangs = []string{"cht", "chs", "en"}
+// amberLangs / yattaLangs are the languages keyed into the GI / HSR indices
+// (Traditional + Simplified + English so record names in any of them resolve).
+// The two sites use DIFFERENT simplified-Chinese codes: Amber (GI, gi.yatta.moe)
+// serves "chs", Yatta (HSR, sr.yatta.moe) serves "cn" — requesting "chs" on
+// sr.yatta.moe 404s. They must not share one list.
+var amberLangs = []string{"cht", "chs", "en"}
+var yattaLangs = []string{"cht", "cn", "en"}
+
+// fetchAYLangs GETs {base}/api/v2/{lang}/{ep} for each lang, SKIPPING langs that
+// fail rather than aborting: a single language's outage (or a renamed lang code)
+// must not zero the whole index. Returns the bodies that succeeded, and errors
+// only when none did (so a total outage still surfaces as a warm failure).
+func (m *Manager) fetchAYLangs(base string, langs []string, ep string) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	var lastErr error
+	for _, l := range langs {
+		b, err := m.httpGet(base + "/api/v2/" + l + "/" + ep)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		out[l] = b
+	}
+	if len(out) == 0 {
+		return nil, lastErr
+	}
+	return out, nil
+}
 
 // httpGet does a GET via the Manager's client and returns the body on HTTP 200.
 func (m *Manager) httpGet(url string) ([]byte, error) {
@@ -59,19 +84,13 @@ func fetchSources(m *Manager, gid core.GameID) (*Index, error) {
 	idx := NewIndex()
 	switch gid {
 	case "hoyoverse/genshin":
-		avatar := map[string][]byte{}
-		weapon := map[string][]byte{}
-		for _, l := range yattaLangs {
-			b, err := m.httpGet("https://gi.yatta.moe/api/v2/" + l + "/avatar")
-			if err != nil {
-				return nil, err
-			}
-			avatar[l] = b
-			b, err = m.httpGet("https://gi.yatta.moe/api/v2/" + l + "/weapon")
-			if err != nil {
-				return nil, err
-			}
-			weapon[l] = b
+		avatar, err := m.fetchAYLangs("https://gi.yatta.moe", amberLangs, "avatar")
+		if err != nil {
+			return nil, err
+		}
+		weapon, err := m.fetchAYLangs("https://gi.yatta.moe", amberLangs, "weapon")
+		if err != nil {
+			return nil, err
 		}
 		if err := buildFromAmber(idx, "char", 5, avatar); err != nil {
 			return nil, err
@@ -80,19 +99,13 @@ func fetchSources(m *Manager, gid core.GameID) (*Index, error) {
 			return nil, err
 		}
 	case "hoyoverse/starrail":
-		avatar := map[string][]byte{}
-		equip := map[string][]byte{}
-		for _, l := range yattaLangs {
-			b, err := m.httpGet("https://sr.yatta.moe/api/v2/" + l + "/avatar")
-			if err != nil {
-				return nil, err
-			}
-			avatar[l] = b
-			b, err = m.httpGet("https://sr.yatta.moe/api/v2/" + l + "/equipment")
-			if err != nil {
-				return nil, err
-			}
-			equip[l] = b
+		avatar, err := m.fetchAYLangs("https://sr.yatta.moe", yattaLangs, "avatar")
+		if err != nil {
+			return nil, err
+		}
+		equip, err := m.fetchAYLangs("https://sr.yatta.moe", yattaLangs, "equipment")
+		if err != nil {
+			return nil, err
 		}
 		if err := buildFromYatta(idx, "char", 5, avatar); err != nil {
 			return nil, err
