@@ -125,6 +125,10 @@ describe('GachaBoard', () => {
     const w = mountBoard();
     await flushPromises(); // let onMounted's load() set loading + re-render (fetch stays pending)
     expect(w.find('.gacha-skeleton').exists()).toBe(true);
+    // the skeleton covers the whole panel: cards, mid row, AND the records area
+    expect(w.findAll('.sk-card').length).toBe(8);
+    expect(w.find('.sk-mid').exists()).toBe(true);
+    expect(w.findAll('.sk-pool').length).toBeGreaterThan(0);
   });
 
   it('shows empty state when no data', async () => {
@@ -189,6 +193,27 @@ describe('GachaBoard', () => {
     const w = mountBoard(); await flushPromises();
     expect(w.findAll('.hl-pity').length).toBe(1); // off (歪) is NOT the closing win → pity still shows
     expect(w.find('.gacha-hl').text()).toContain('New Journey');
+  });
+
+  it('renders a pity-cost bar on one-shot records; 感恩定向 shows a full 1/1 bar', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      perBanner: { beginner: 50, other: 1 },
+      highlights: [
+        { name: 'Bwin', itemType: 'char', bannerKey: 'beginner', time: 't', count: 41, rank: 5, off: false, limited: false },
+        { name: 'Gift', itemType: 'char', bannerKey: 'other', time: 't', count: 1, rank: 5, off: false, limited: false },
+      ],
+      pity: [
+        { key: 'beginner', label: { en: 'Beginner' }, current: 0, cap: 50, nearPity: false },
+        { key: 'other', label: { en: 'Gratitude' }, current: 0, cap: 80, nearPity: false },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    const rows = w.findAll('.hl-row');
+    const bwin = rows.find((r) => r.text().includes('Bwin'))!;
+    const gift = rows.find((r) => r.text().includes('Gift'))!;
+    expect(bwin.find('.hl-fill').exists()).toBe(true);                   // one-shot record now has a bar (was empty)
+    expect(gift.find('.hl-fill').attributes('style')).toContain('100%'); // 感恩定向 = full 1/1
   });
 
   it('renders a pity row in the weapon column too', async () => {

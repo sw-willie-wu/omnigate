@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
+import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -86,6 +86,12 @@ function hlBarStyle(h: { count: number; bannerKey: string }) {
   const pct = cap > 0 ? Math.min(100, Math.round((h.count / cap) * 100)) : 0;
   const bg = pct >= 80 ? '#f85149' : pct >= 50 ? 'var(--gold-hi)' : 'var(--ok)';
   return { width: pct + '%', background: bg };
+}
+// Record-row bar. 感恩定向 (other) is a 1-pull gift, not a pity grind → show it as a full
+// "complete" green bar (1/1) instead of a meaningless 1/80 sliver.
+function recBarStyle(h: { count: number; bannerKey: string }) {
+  if (h.bannerKey === 'other') return { width: '100%', background: 'var(--ok)' };
+  return hlBarStyle(h);
 }
 // Pity-row bar: fill = current/cap, colour warms green→amber→red as pity deepens (same
 // thresholds as hlBarStyle). No gold near-pity highlight here (per design).
@@ -174,6 +180,10 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
       <div class="sk-mid">
         <div class="sk sk-panel"></div>
         <div class="sk sk-panel wide"></div>
+      </div>
+      <div class="sk-hl">
+        <div class="sk-hl-col"><div class="sk sk-pool"></div><div class="sk sk-pool"></div></div>
+        <div class="sk-hl-col"><div class="sk sk-pool"></div><div class="sk sk-pool"></div></div>
       </div>
     </div>
 
@@ -314,7 +324,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
               </div>
               <div v-for="(h, i) in s.entries" :key="'c' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
                 <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
-                <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
+                <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
             </div>
@@ -330,7 +340,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
               </div>
               <div v-for="(h, i) in s.entries" :key="'w' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
                 <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
-                <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
+                <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
             </div>
@@ -448,5 +458,9 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
   background-size: 200% 100%; animation: gacha-shimmer 1.3s ease-in-out infinite; }
 .sk-card { height: 96px; }
 .sk-panel { height: 200px; }
+/* records skeleton: two columns of pool-panel placeholders (matches the real .hl-cols) */
+.sk-hl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.sk-hl-col { display: flex; flex-direction: column; gap: 10px; }
+.sk-pool { height: 96px; }
 @keyframes gacha-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 </style>
