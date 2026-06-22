@@ -128,13 +128,15 @@ watch(hlSentinel, (el) => {
   hlObserver.observe(el);
 });
 onUnmounted(() => hlObserver?.disconnect());
-// Hide pools the account never pulled on (no records), and hide one-shot/finite pools
-// that have already produced their guaranteed headline 5★ (pity is spent — bar is moot).
+// Hide pools the account never pulled on (no records), and hide one-shot/finite pools whose
+// CLOSING win has landed (pity is spent — bar is moot). The closing win is the FEATURED
+// (non-off) top-rank pull: a 歪 (off, standard 5★) on a 50/50 one-shot like 角色新旅 does NOT
+// close it, so its pity keeps showing until the limited character drops.
 const visiblePity = computed(() => {
   const top = topRank.value;
   const hls = highlights.value;
   return (sum.value?.pity ?? []).filter((b) =>
-    shouldShowPity(b.key, sum.value?.perBanner?.[b.key] ?? 0, hls.some((h) => h.bannerKey === b.key && h.rank === top)),
+    shouldShowPity(b.key, sum.value?.perBanner?.[b.key] ?? 0, hls.some((h) => h.bannerKey === b.key && h.rank === top && !h.off)),
   );
 });
 // Pity rows per column. visiblePity (via shouldShowPity) already drops zero-pull pools and

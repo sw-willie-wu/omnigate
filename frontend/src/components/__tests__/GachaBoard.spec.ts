@@ -177,6 +177,23 @@ describe('GachaBoard', () => {
     expect(txt).toContain('Beginner');               // spent one-shot still shows its 5★ record (no pity row)
   });
 
+  it('keeps an open 歪 char_exchange (新旅) pity until the FEATURED win (off does not close it)', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      perBanner: { char_exchange: 50 },
+      highlights: [
+        // 歪'd to a standard char (off:true) — the 50/50 pool stays OPEN until the featured win
+        { name: 'Std', itemType: 'char', bannerKey: 'char_exchange', time: 't', count: 50, rank: 5, off: true, limited: true },
+      ],
+      pity: [
+        { key: 'char_exchange', label: { en: 'New Journey' }, current: 20, cap: 80, nearPity: false },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    expect(w.findAll('.hl-pity').length).toBe(1); // off (歪) is NOT the closing win → pity still shows
+    expect(w.find('.gacha-hl').text()).toContain('New Journey');
+  });
+
   it('renders a pity row in the weapon column too', async () => {
     getSummary.mockResolvedValue({
       ...base,
