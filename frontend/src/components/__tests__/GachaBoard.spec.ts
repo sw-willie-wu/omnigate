@@ -156,23 +156,25 @@ describe('GachaBoard', () => {
     expect(w.text()).not.toContain('NT$');
   });
 
-  it('shows a pity row per pulled pool but never for one-shot pools', async () => {
+  it('shows a pity row for an OPEN one-shot pool but not a CLOSED (spent) one', async () => {
     getSummary.mockResolvedValue({
       ...base,
-      perBanner: { special: 8, beginner: 30 },
-      highlights: [], // no high-star records at all
+      perBanner: { special: 8, beginner_choice: 30, beginner: 50 },
+      highlights: [
+        // beginner already produced its guaranteed 5★ → closed → no pity row, just the record
+        { name: 'Bwin', itemType: 'char', bannerKey: 'beginner', time: 't', count: 40, rank: 5, off: false, limited: false },
+      ],
       pity: [
         { key: 'special', label: { en: 'Limited' }, current: 10, cap: 80, nearPity: false },
-        { key: 'beginner', label: { en: 'Beginner' }, current: 30, cap: 50, nearPity: false }, // one-shot, mid-progress
+        { key: 'beginner_choice', label: { en: 'Novice Choice' }, current: 30, cap: 80, nearPity: false }, // open: pulled, no 5★ yet
+        { key: 'beginner', label: { en: 'Beginner' }, current: 0, cap: 50, nearPity: false },               // closed: got its 5★
       ],
     });
     const w = mountBoard(); await flushPromises();
-    expect(w.findAll('.hl-pity').length).toBe(1); // 'special' shows; one-shot 'beginner' excluded
     const txt = w.find('.gacha-hl').text();
-    expect(txt).toContain('Limited');
-    expect(txt).not.toContain('Beginner');
-    // a pity-only section (no records, total 0) hides its sub-header count
-    expect(w.find('.gacha-hl').findAll('.hl-grp-title__n').length).toBe(0);
+    expect(w.findAll('.hl-pity').length).toBe(2);   // special + open beginner_choice; spent beginner has none
+    expect(txt).toContain('Novice Choice');          // open one-shot DOES show its pity now
+    expect(txt).toContain('Beginner');               // spent one-shot still shows its 5★ record (no pity row)
   });
 
   it('renders a pity row in the weapon column too', async () => {

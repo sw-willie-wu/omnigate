@@ -94,9 +94,15 @@ func xorDecryptClientLog(b []byte) []byte {
 }
 
 // wuwaPity: every pull counts, reset on a headline; WuWa has no 50/50.
-type wuwaPity struct{}
+// hard is the per-banner hard-pity cap (0 → default 80); the beginner banner caps at 50.
+type wuwaPity struct{ hard int }
 
-func (wuwaPity) HardPity() int { return 80 }
+func (p wuwaPity) HardPity() int {
+	if p.hard > 0 {
+		return p.hard
+	}
+	return 80
+}
 func (wuwaPity) Has5050() bool { return false }
 func (wuwaPity) Walk(sorted []core.GachaPull, headline int) ([]core.PityHit, int) {
 	hits, pity := []core.PityHit{}, 0
@@ -152,7 +158,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "collab_weapon", Label: wuwaLoc("武器聯動", "武器联动", "Collab Weapon"), Pity: wuwaPity{}, Limited: true},
 			{Key: "standard_char", Label: wuwaLoc("常駐共鳴者", "常驻共鸣者", "Standard Resonator"), Pity: wuwaPity{}},
 			{Key: "standard_weapon", Label: wuwaLoc("常駐武器", "常驻武器", "Standard Weapon"), Pity: wuwaPity{}},
-			{Key: "beginner", Label: wuwaLoc("新手", "新手", "Beginner"), Pity: wuwaPity{}},
+			{Key: "beginner", Label: wuwaLoc("新手", "新手", "Beginner"), Pity: wuwaPity{hard: 50}},
 			{Key: "beginner_choice", Label: wuwaLoc("新手自選", "新手自选", "Beginner Choice"), Pity: wuwaPity{}},
 			{Key: "other", Label: wuwaLoc("感恩定向", "感恩定向", "Other"), Pity: wuwaPity{}},
 			{Key: "char_exchange", Label: wuwaLoc("角色新旅換取", "角色新旅换取", "Character New-Journey"), Pity: wuwaPity{}, Limited: true},

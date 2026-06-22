@@ -137,11 +137,12 @@ const visiblePity = computed(() => {
     shouldShowPity(b.key, sum.value?.perBanner?.[b.key] ?? 0, hls.some((h) => h.bannerKey === b.key && h.rank === top)),
   );
 });
-// Pity rows per column, one-shot pools excluded (their pity is meaningless). visiblePity
-// already drops zero-pull and spent one-shot pools; the extra guard makes "one-shots never
-// show pity" explicit (a one-shot still mid-progress would otherwise slip through).
-const charPity = computed(() => visiblePity.value.filter((b) => !isEquip(b.key) && !isOneShotPool(b.key)));
-const weaponPity = computed(() => visiblePity.value.filter((b) => isEquip(b.key) && !isOneShotPool(b.key)));
+// Pity rows per column. visiblePity (via shouldShowPity) already drops zero-pull pools and
+// SPENT one-shot pools (那些已出 5★ 關閉的) but keeps an OPEN one-shot pool still accruing
+// toward its guarantee (e.g. WuWa 新手自選: pity to 80, closes on 出貨) — so we just split by
+// equip kind, no blanket one-shot exclusion.
+const charPity = computed(() => visiblePity.value.filter((b) => !isEquip(b.key)));
+const weaponPity = computed(() => visiblePity.value.filter((b) => isEquip(b.key)));
 const charSections = computed(() => buildPoolSections(hlSplit.value.chars, charPity.value, bannerOrder.value, hlVisible.value));
 const weaponSections = computed(() => buildPoolSections(hlSplit.value.weapons, weaponPity.value, bannerOrder.value, hlVisible.value));
 // Loading line: live "{banner} · page N (i/total)" when a progress tick has
@@ -326,10 +327,10 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
           </div>
         </div>
         <div class="hl-cols">
-          <div class="panel hl-col">
+          <div class="hl-col">
             <div class="hl-col-title">{{ charHeading }}<span class="hl-n">{{ hlCharTotal }}</span></div>
             <div v-if="charSections.length === 0" class="hl-empty">—</div>
-            <template v-for="s in charSections" :key="'cs' + s.key">
+            <div v-for="s in charSections" :key="'cs' + s.key" class="panel hl-pool">
               <div class="hl-grp-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-grp-title__n">{{ s.total }}</span></div>
               <div v-if="s.pity" class="hl-row hl-pity">
                 <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
@@ -341,12 +342,12 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
                 <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
-            </template>
+            </div>
           </div>
-          <div class="panel hl-col">
+          <div class="hl-col">
             <div class="hl-col-title">{{ weaponHeading }}<span class="hl-n">{{ hlWeaponTotal }}</span></div>
             <div v-if="weaponSections.length === 0" class="hl-empty">—</div>
-            <template v-for="s in weaponSections" :key="'ws' + s.key">
+            <div v-for="s in weaponSections" :key="'ws' + s.key" class="panel hl-pool">
               <div class="hl-grp-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-grp-title__n">{{ s.total }}</span></div>
               <div v-if="s.pity" class="hl-row hl-pity">
                 <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
@@ -358,7 +359,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
                 <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
-            </template>
+            </div>
           </div>
         </div>
         <div ref="hlSentinel" class="hl-sentinel" aria-hidden="true"></div>
@@ -440,12 +441,15 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
   background: rgba(0,0,0,.25); border: 1px solid var(--border); color: rgba(255,255,255,.5); transition: background .12s, color .12s, border-color .12s; }
 .hl-rank.on { background: var(--gold-hi); border-color: var(--gold-hi); color: #1a1406; }
 .hl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
-.hl-col { display: flex; flex-direction: column; }
-.hl-col-title { font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.72); margin-bottom: 8px;
+/* each column is a transparent stack; each pool group is its own .panel (.hl-pool) */
+.hl-col { display: flex; flex-direction: column; gap: 10px; }
+.hl-col-title { font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.72);
   padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+/* opt the per-pool panels out of backdrop blur: up to ~11 stacked blurred layers jank WebView2,
+   and --glass-2 is 62% opaque so the blur is barely visible anyway. */
+.hl-pool { padding: 10px 12px; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .hl-n { float: right; color: rgba(255,255,255,.45); font-weight: 600; }
-.hl-grp-title { font-size: .68rem; font-weight: 600; color: rgba(255,255,255,.5); margin: 10px 0 4px; display: flex; align-items: center; gap: 6px; }
-.hl-grp-title:first-child { margin-top: 0; }
+.hl-grp-title { font-size: .68rem; font-weight: 600; color: rgba(255,255,255,.5); margin: 0 0 6px; display: flex; align-items: center; gap: 6px; }
 .hl-grp-title__n { font-size: .62rem; color: rgba(255,255,255,.35); }
 .hl-empty { color: rgba(255,255,255,.34); font-size: .8rem; padding: 4px 0; }
 .hl-row { display: grid; grid-template-columns: minmax(56px, 40%) 1fr auto; align-items: center; gap: 8px; padding: 3px 0; }
