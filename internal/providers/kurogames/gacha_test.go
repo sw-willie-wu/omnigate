@@ -90,7 +90,7 @@ func TestWuwaConfigAndBanners(t *testing.T) {
 	if cfg.HeadlineRank != 5 {
 		t.Fatalf("headline=%d want 5", cfg.HeadlineRank)
 	}
-	for _, k := range []string{"character", "weapon", "standard_char", "beginner"} {
+	for _, k := range []string{"character", "weapon", "standard_char", "beginner", "char_exchange", "weapon_exchange", "collab", "collab_weapon"} {
 		if cfg.BannerOf(k) == nil {
 			t.Fatalf("missing banner %q", k)
 		}
@@ -101,8 +101,18 @@ func TestWuwaConfigAndBanners(t *testing.T) {
 }
 
 func TestWuwaPoolBanner(t *testing.T) {
-	if poolBanner(1) != "character" || poolBanner(2) != "weapon" || poolBanner(7) != "other" {
-		t.Fatalf("pool→banner map wrong")
+	want := map[int]string{
+		1: "character", 2: "weapon", 3: "standard_char", 4: "standard_weapon",
+		5: "beginner", 6: "beginner_choice", 7: "other",
+		8: "char_exchange", 9: "weapon_exchange", 10: "collab", 11: "collab_weapon",
+	}
+	for pt, w := range want {
+		if poolBanner(pt) != w {
+			t.Errorf("poolBanner(%d)=%q want %q", pt, poolBanner(pt), w)
+		}
+	}
+	if poolBanner(99) != "other" {
+		t.Errorf("unknown pool must fall back to other")
 	}
 }
 
@@ -210,10 +220,14 @@ func TestWuwaStandardPoolAndLimited(t *testing.T) {
 	for _, b := range cfg.Banners {
 		lim[b.Key] = b.Limited
 	}
-	if !lim["character"] || !lim["weapon"] {
-		t.Error("character/weapon must be Limited")
+	for _, k := range []string{"character", "weapon", "char_exchange", "weapon_exchange", "collab", "collab_weapon"} {
+		if !lim[k] {
+			t.Errorf("%q must be Limited", k)
+		}
 	}
-	if lim["standard_char"] || lim["standard_weapon"] || lim["beginner"] {
-		t.Error("standard/beginner must NOT be Limited")
+	for _, k := range []string{"standard_char", "standard_weapon", "beginner", "beginner_choice", "other"} {
+		if lim[k] {
+			t.Errorf("%q must NOT be Limited", k)
+		}
 	}
 }

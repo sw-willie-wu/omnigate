@@ -113,6 +113,7 @@ func (wuwaPity) Walk(sorted []core.GachaPull, headline int) ([]core.PityHit, int
 var wuwaPoolBanner = map[int]string{
 	1: "character", 2: "weapon", 3: "standard_char", 4: "standard_weapon",
 	5: "beginner", 6: "beginner_choice", 7: "other",
+	8: "char_exchange", 9: "weapon_exchange", 10: "collab", 11: "collab_weapon",
 }
 
 // wuwaStandardPool is the fixed set of standard 5★ resonators in WuWa.
@@ -150,6 +151,10 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "beginner", Label: wuwaLoc("新手", "新手", "Beginner"), Pity: wuwaPity{}},
 			{Key: "beginner_choice", Label: wuwaLoc("新手自選", "新手自选", "Beginner Choice"), Pity: wuwaPity{}},
 			{Key: "other", Label: wuwaLoc("感恩定向", "感恩定向", "Other"), Pity: wuwaPity{}},
+			{Key: "char_exchange", Label: wuwaLoc("角色新旅換取", "角色新旅换取", "Character New-Journey"), Pity: wuwaPity{}, Limited: true},
+			{Key: "weapon_exchange", Label: wuwaLoc("武器新旅換取", "武器新旅换取", "Weapon New-Journey"), Pity: wuwaPity{}, Limited: true},
+			{Key: "collab", Label: wuwaLoc("聯動共鳴者", "联动共鸣者", "Collab Resonator"), Pity: wuwaPity{}, Limited: true},
+			{Key: "collab_weapon", Label: wuwaLoc("武器聯動", "武器联动", "Collab Weapon"), Pity: wuwaPity{}, Limited: true},
 		},
 		StandardPool: wuwaStandardPool,
 		PullPrice: 160, Currency: "astrite", ExpectedPity: 62.5,
