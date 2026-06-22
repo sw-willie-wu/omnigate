@@ -27,6 +27,7 @@ type HeadlineEntry struct {
 	Rank      int    `json:"rank"`    // the pull's rarity (e.g. 4 or 5; Endfield 5 or 6)
 	Off       bool   `json:"off"`     // lost the 50/50 (歪): a standard-pool item on a limited banner
 	Limited   bool   `json:"limited"` // pulled on a Limited (featured/collab) banner
+	Icon      string `json:"icon"`    // /_asset/... icon URL; set by the app-layer decorator (core stays pure → ""), "" when unresolved
 }
 
 // GachaSummary is the full dashboard payload.
