@@ -36,3 +36,55 @@ export function splitByType(list: HeadlineEntry[]): SplitHighlights {
 export function distinctRanks(list: HeadlineEntry[]): number[] {
   return [...new Set(list.map((h) => h.rank))].sort((a, b) => b - a);
 }
+
+export interface BannerGroup {
+  key: string;
+  label: Record<string, string>;
+  entries: HeadlineEntry[];
+  total: number; // un-truncated count (for the sub-header), preserved through capGroups
+}
+
+// groupByBanner partitions one column's highlights (newest-first) into per-banner
+// groups, ordered by `order` (the summary `pity[]`, in Banners order). Each group keeps
+// input order. Any bannerKey absent from `order` lands in a trailing catch-all group so
+// no entry is ever dropped (forward-guard for an unmapped future cardPoolType).
+export function groupByBanner(
+  list: HeadlineEntry[],
+  order: { key: string; label: Record<string, string> }[],
+): BannerGroup[] {
+  const byKey = new Map<string, HeadlineEntry[]>();
+  for (const h of list) {
+    const arr = byKey.get(h.bannerKey);
+    if (arr) arr.push(h);
+    else byKey.set(h.bannerKey, [h]);
+  }
+  const groups: BannerGroup[] = [];
+  const seen = new Set<string>();
+  for (const o of order) {
+    const entries = byKey.get(o.key);
+    if (entries && entries.length) {
+      groups.push({ key: o.key, label: o.label, entries, total: entries.length });
+      seen.add(o.key);
+    }
+  }
+  for (const [key, entries] of byKey) {
+    if (!seen.has(key)) groups.push({ key, label: {}, entries, total: entries.length });
+  }
+  return groups;
+}
+
+// capGroups spends a per-column visible budget across groups in order: render each
+// group fully until the budget runs out, truncating the group it runs out in. `total`
+// is preserved so the sub-header still shows the real group size. This caps WITHIN a
+// dominant group (e.g. 角色) too, so the lazy window isn't defeated by one big group.
+export function capGroups(groups: BannerGroup[], budget: number): BannerGroup[] {
+  const out: BannerGroup[] = [];
+  let left = budget;
+  for (const g of groups) {
+    if (left <= 0) break;
+    const entries = g.entries.slice(0, left);
+    left -= entries.length;
+    out.push({ key: g.key, label: g.label, entries, total: g.total });
+  }
+  return out;
+}
