@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity } from '../utils/gachaHighlights';
+import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool } from '../utils/gachaHighlights';
 import type { HeadlineEntry } from '../stores/gacha';
 
 const mk = (bannerKey: string, rank: number, name = 'x'): HeadlineEntry => ({
@@ -95,5 +95,18 @@ describe('shouldShowPity', () => {
   it('keeps a one-shot pool still mid-progress (no headline yet)', () => {
     expect(shouldShowPity('beginner', 30, false)).toBe(true);
     expect(shouldShowPity('char_exchange', 40, false)).toBe(true);
+  });
+});
+
+describe('isOneShotPool', () => {
+  it('flags one-shot/finite pools', () => {
+    for (const k of ['beginner', 'beginner_choice', 'other', 'char_exchange', 'weapon_exchange']) {
+      expect(isOneShotPool(k)).toBe(true);
+    }
+  });
+  it('does not flag ongoing banners', () => {
+    for (const k of ['character', 'weapon', 'standard_char', 'standard_weapon', 'collab', 'collab_weapon', 'chronicled', 'lightcone', 'wengine']) {
+      expect(isOneShotPool(k)).toBe(false);
+    }
   });
 });

@@ -80,13 +80,20 @@ const ONE_SHOT_BANNERS = new Set([
   'beginner', 'beginner_choice', 'other', 'char_exchange', 'weapon_exchange',
 ]);
 
+// isOneShotPool reports whether a banner is a one-shot / finite pool with no ongoing
+// pity: the beginner banner, the 新手自選 selector, the 感恩定向 gift, and the new-account
+// 新旅換取 pools. Their per-pull pity count has no hard-pity cap to fill a bar against.
+export function isOneShotPool(key: string): boolean {
+  return ONE_SHOT_BANNERS.has(key);
+}
+
 // shouldShowPity decides whether to show a banner's pity-progress bar. Show it for any
 // banner the account has pulled on, EXCEPT a one-shot/finite pool that has ALREADY
 // produced its guaranteed headline 5★ — its pity is spent, so the bar is meaningless.
 // A one-shot pool still mid-progress (no headline yet) keeps its bar.
 export function shouldShowPity(key: string, pulls: number, hasHeadline: boolean): boolean {
   if (pulls <= 0) return false;
-  if (ONE_SHOT_BANNERS.has(key) && hasHeadline) return false;
+  if (isOneShotPool(key) && hasHeadline) return false;
   return true;
 }
 

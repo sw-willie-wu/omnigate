@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity } from '../utils/gachaHighlights';
+import { equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -323,7 +323,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
               <div class="hl-grp-title">{{ localize(g.label) || g.key }}<span class="hl-grp-title__n">{{ g.total }}</span></div>
               <div v-for="(h, i) in g.entries" :key="'c' + g.key + '-' + i" class="hl-row" :class="'r' + h.rank">
                 <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
-                <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
+                <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
             </template>
@@ -335,7 +335,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
               <div class="hl-grp-title">{{ localize(g.label) || g.key }}<span class="hl-grp-title__n">{{ g.total }}</span></div>
               <div v-for="(h, i) in g.entries" :key="'w' + g.key + '-' + i" class="hl-row" :class="'r' + h.rank">
                 <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
-                <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
+                <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
                 <span class="hl-count mono">{{ h.count }}</span>
               </div>
             </template>
