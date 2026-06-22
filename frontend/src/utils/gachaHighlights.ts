@@ -168,3 +168,43 @@ export function buildPoolSections(
   }
   return out;
 }
+
+export interface CardMetrics {
+  limCharCnt: number;        // top-rank, featured, character
+  limWeaponCnt: number;      // top-rank, featured, weapon
+  avgAll: number | null;     // mean pity-count, top-rank, excl ALL one-shot pools
+  avgChar: number | null;    // mean pity-count, top-rank featured character
+  avgWeapon: number | null;  // mean pity-count, top-rank featured weapon
+  hitWins: number;           // top-rank featured (char+weapon), off===false
+  hitTotal: number;          // top-rank featured (char+weapon)
+  hitRate: number | null;    // hitWins/hitTotal in [0,1], null when hitTotal===0
+}
+
+// computeCardMetrics derives the eight stat-card numbers from the complete top-rarity
+// highlight list. Only rank===top pulls count. A "featured" pull is on a Limited (featured
+// or collab) banner that is not a one-shot/finite pool (so WuWa's limited-but-one-shot
+// 新旅換取 pools are excluded). avgAll averages all top-rank pity counts except one-shot
+// pools; the per-type averages and the hit rate are over featured pulls only.
+export function computeCardMetrics(highlights: HeadlineEntry[], top: number): CardMetrics {
+  let limCharCnt = 0, limWeaponCnt = 0;
+  let allSum = 0, allN = 0, charSum = 0, charN = 0, weaponSum = 0, weaponN = 0;
+  let hitWins = 0, hitTotal = 0;
+  for (const h of highlights) {
+    if (h.rank !== top) continue;
+    const featured = h.limited && !isOneShotPool(h.bannerKey);
+    const weapon = isEquip(h.bannerKey);
+    if (!isOneShotPool(h.bannerKey)) { allSum += h.count; allN++; }
+    if (featured) {
+      hitTotal++;
+      if (!h.off) hitWins++;
+      if (weapon) { limWeaponCnt++; weaponSum += h.count; weaponN++; }
+      else { limCharCnt++; charSum += h.count; charN++; }
+    }
+  }
+  const mean = (sum: number, n: number) => (n > 0 ? sum / n : null);
+  return {
+    limCharCnt, limWeaponCnt,
+    avgAll: mean(allSum, allN), avgChar: mean(charSum, charN), avgWeapon: mean(weaponSum, weaponN),
+    hitWins, hitTotal, hitRate: hitTotal > 0 ? hitWins / hitTotal : null,
+  };
+}

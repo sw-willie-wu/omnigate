@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections } from '../utils/gachaHighlights';
+import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections, computeCardMetrics } from '../utils/gachaHighlights';
 import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
-const mk = (bannerKey: string, rank: number, name = 'x'): HeadlineEntry => ({
-  name, itemType: '', bannerKey, time: '', count: 1, rank, off: false,
+const mk = (bannerKey: string, rank: number, name = 'x', extra: Partial<HeadlineEntry> = {}): HeadlineEntry => ({
+  name, itemType: '', bannerKey, time: '', count: 1, rank, off: false, limited: false, ...extra,
 });
 
 describe('gachaHighlights', () => {
@@ -178,5 +178,57 @@ describe('buildPoolSections', () => {
     expect(s[1].pity).toBeNull();
     expect(s[1].label).toEqual({});
     expect(s[1].entries.map((e) => e.name)).toEqual(['z']);
+  });
+});
+
+describe('computeCardMetrics', () => {
+  // top rank = 5. featured = limited && !isOneShotPool.
+  const hl = [
+    mk('character', 5, 'a', { limited: true, count: 60 }),       // featured char
+    mk('collab', 5, 'b', { limited: true, count: 40 }),          // featured char (collab)
+    mk('weapon', 5, 'c', { limited: true, count: 50 }),          // featured weapon
+    mk('standard_char', 5, 'd', { limited: false, count: 10 }),  // standard → not featured, in avgAll
+    mk('char_exchange', 5, 'e', { limited: true, count: 1 }),    // limited BUT one-shot → not featured, excl from avgAll
+    mk('other', 5, 'f', { limited: false, count: 1 }),           // one-shot gift → excl from avgAll
+    mk('character', 4, 'g', { limited: true, count: 5 }),        // second rank → ignored
+  ];
+
+  it('counts featured char/weapon top-rank pulls, excluding standard and one-shot', () => {
+    const m = computeCardMetrics(hl, 5);
+    expect(m.limCharCnt).toBe(2);    // a + b
+    expect(m.limWeaponCnt).toBe(1);  // c
+  });
+
+  it('averages avgAll over all top-rank pulls except one-shot pools', () => {
+    const m = computeCardMetrics(hl, 5);
+    // a60 b40 c50 d10 → (60+40+50+10)/4 = 40; e(char_exchange) + f(other) excluded; g is rank 4
+    expect(m.avgAll).toBe(40);
+  });
+
+  it('averages featured char and featured weapon separately', () => {
+    const m = computeCardMetrics(hl, 5);
+    expect(m.avgChar).toBe(50);   // (60+40)/2
+    expect(m.avgWeapon).toBe(50); // 50/1
+  });
+
+  it('computes the featured hit rate over char+weapon, off counting as a loss', () => {
+    const m = computeCardMetrics([
+      mk('character', 5, 'a', { limited: true, off: false }),
+      mk('character', 5, 'b', { limited: true, off: true }),   // 歪
+      mk('weapon', 5, 'c', { limited: true, off: false }),
+      mk('standard_char', 5, 'd', { limited: false, off: false }), // excluded from rate
+    ], 5);
+    expect(m.hitTotal).toBe(3);
+    expect(m.hitWins).toBe(2);
+    expect(m.hitRate).toBeCloseTo(2 / 3, 5);
+  });
+
+  it('returns null averages/rate on empty or zero-denominator input', () => {
+    const m = computeCardMetrics([], 0);
+    expect(m.avgAll).toBeNull();
+    expect(m.avgChar).toBeNull();
+    expect(m.avgWeapon).toBeNull();
+    expect(m.hitRate).toBeNull();
+    expect(m.limCharCnt).toBe(0);
   });
 });
