@@ -7,7 +7,7 @@ export interface HeadlineEntry { name: string; itemType: string; bannerKey: stri
 export interface GachaSummary {
   supported: boolean; uid: string; activeUnknown: boolean; totalPulls: number; perBanner: Record<string, number>;
   spendEst: number; currency: string; headlineCnt: number; headlineByType: Record<string, number>;
-  avgPity: number; expectedPity: number; luckScore: number; winRate5050: number | null; worstPull: number;
+  avgPity: number; expectedPity: number; expectedFeaturedWeapon: number; luckScore: number; winRate5050: number | null; worstPull: number;
   pity: BannerPity[]; distribution: number[]; recentHeadline: HeadlineEntry[]; highlights: HeadlineEntry[];
 }
 // One pagination progress tick streamed from the backend during refresh.

@@ -159,7 +159,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			{Key: "weapon_exchange", Label: wuwaLoc("武器新旅換取", "武器新旅换取", "Weapon New-Journey"), Pity: wuwaPity{}, Limited: true},
 		},
 		StandardPool: wuwaStandardPool,
-		PullPrice: 160, Currency: "astrite", ExpectedPity: 62.5,
+		PullPrice:    160, Currency: "astrite", ExpectedPity: 54.1, ExpectedFeaturedWeapon: 54.1,
 	}
 }
 

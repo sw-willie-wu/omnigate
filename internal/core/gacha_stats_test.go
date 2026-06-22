@@ -67,7 +67,7 @@ func testConfig() GachaConfig {
 		HeadlineRank: 6,
 		RankLabels:   map[int]LocalizedString{6: {"en": "6★"}},
 		Banners:      []BannerConfig{{Key: "special", Label: LocalizedString{"en": "Limited"}, Pity: stdPity{cap: 80}}},
-		PullPrice:    100, Currency: "NT$", ExpectedPity: 60,
+		PullPrice:    100, Currency: "NT$", ExpectedPity: 60, ExpectedFeaturedWeapon: 50,
 	}
 }
 
@@ -114,6 +114,9 @@ func TestComputeSummaryBasics(t *testing.T) {
 	}
 	if s.ExpectedPity != 60 {
 		t.Fatalf("expectedPity=%v want 60 (from cfg)", s.ExpectedPity)
+	}
+	if s.ExpectedFeaturedWeapon != 50 {
+		t.Fatalf("expectedFeaturedWeapon=%v want 50 (from cfg)", s.ExpectedFeaturedWeapon)
 	}
 	if s.WorstPull != 4 {
 		t.Fatalf("worst=%d want 4", s.WorstPull)

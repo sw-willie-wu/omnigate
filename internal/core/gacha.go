@@ -61,14 +61,15 @@ type DualCitizen struct {
 
 // GachaConfig is a game's rarity/banner/pricing config for the stats engine.
 type GachaConfig struct {
-	HeadlineRank int                     // top rarity (Endfield 6)
-	RankLabels   map[int]LocalizedString // display labels per rank
-	Banners      []BannerConfig
-	PullPrice    int     // estimated price per (non-free) pull
-	Currency     string  // e.g. "NT$"
-	ExpectedPity float64 // theoretical avg pulls-per-headline (for the luck score)
-	StandardPool map[string]bool  // top-rarity standard/permanent item names (all stored langs); a limited-banner pull of one = 歪
-	DualCitizens []DualCitizen    // standard-pool units that were also featured once (Genshin); 歪 only OUTSIDE the debut window
+	HeadlineRank           int                     // top rarity (Endfield 6)
+	RankLabels             map[int]LocalizedString // display labels per rank
+	Banners                []BannerConfig
+	PullPrice              int             // estimated price per (non-free) pull
+	Currency               string          // e.g. "NT$"
+	ExpectedPity           float64         // theoretical avg pulls-per-headline (出金 expectation; luck score + card note)
+	ExpectedFeaturedWeapon float64         // theoretical avg pulls per featured weapon (出限定武器期望); 0 = unknown
+	StandardPool           map[string]bool // top-rarity standard/permanent item names (all stored langs); a limited-banner pull of one = 歪
+	DualCitizens           []DualCitizen   // standard-pool units that were also featured once (Genshin); 歪 only OUTSIDE the debut window
 }
 
 // BannerOf returns the BannerConfig for key, or nil.

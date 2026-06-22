@@ -93,6 +93,22 @@ describe('GachaBoard', () => {
     expect(w.text()).toContain('0%'); // base: 2 featured top-rank, both off → 0%
   });
 
+  it('shows expected-value notes on the limited average cards (7/8)', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      expectedPity: 54.1,
+      expectedFeaturedWeapon: 50, // distinct from char/avg expectations so card 8 is uniquely attributable
+      highlights: [
+        { name: 'C', itemType: 'char', bannerKey: 'character', time: '2026-06-02', count: 60, rank: 5, off: false, limited: true },
+        { name: 'W', itemType: 'weapon', bannerKey: 'weapon', time: '2026-06-01', count: 48, rank: 5, off: false, limited: true },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    const txt = w.find('.gacha-cards').text();
+    expect(txt).toContain('81.2'); // card 7: 限定角色平均(60) vs 出金×1.5 = 81.15 → "below avg 81.2"
+    expect(txt).toContain('50.0'); // card 8: 限定武器平均(48) vs 出限定武器期望 50 → "below avg 50.0" (unique)
+  });
+
   it('dashes empty averages/rate when there are no highlights', async () => {
     getSummary.mockResolvedValue({ ...base, highlights: [] });
     const w = mountBoard(); await flushPromises();

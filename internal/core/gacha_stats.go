@@ -31,24 +31,25 @@ type HeadlineEntry struct {
 
 // GachaSummary is the full dashboard payload.
 type GachaSummary struct {
-	Supported      bool            `json:"supported"`
-	UID            string          `json:"uid"`
-	ActiveUnknown  bool            `json:"activeUnknown"` // switcher-only: active account uid not yet known (play-first)
-	TotalPulls     int             `json:"totalPulls"`
-	PerBanner      map[string]int  `json:"perBanner"`
-	SpendEst       int             `json:"spendEst"`
-	Currency       string          `json:"currency"`
-	HeadlineCnt    int             `json:"headlineCnt"`
-	HeadlineByType map[string]int  `json:"headlineByType"`
-	AvgPity        float64         `json:"avgPity"`
-	ExpectedPity   float64         `json:"expectedPity"`
-	LuckScore      int             `json:"luckScore"`
-	WinRate5050    *float64        `json:"winRate5050"`
-	WorstPull      int             `json:"worstPull"`
-	Pity           []BannerPity    `json:"pity"`
-	Distribution   []int           `json:"distribution"`
-	RecentHeadline []HeadlineEntry `json:"recentHeadline"` // recent top-rank only (cap 8)
-	Highlights     []HeadlineEntry `json:"highlights"`     // ALL top-two-rarity pulls, newest-first
+	Supported              bool            `json:"supported"`
+	UID                    string          `json:"uid"`
+	ActiveUnknown          bool            `json:"activeUnknown"` // switcher-only: active account uid not yet known (play-first)
+	TotalPulls             int             `json:"totalPulls"`
+	PerBanner              map[string]int  `json:"perBanner"`
+	SpendEst               int             `json:"spendEst"`
+	Currency               string          `json:"currency"`
+	HeadlineCnt            int             `json:"headlineCnt"`
+	HeadlineByType         map[string]int  `json:"headlineByType"`
+	AvgPity                float64         `json:"avgPity"`
+	ExpectedPity           float64         `json:"expectedPity"`
+	ExpectedFeaturedWeapon float64         `json:"expectedFeaturedWeapon"` // 出限定武器期望; 0 = unknown (no card-8 note)
+	LuckScore              int             `json:"luckScore"`
+	WinRate5050            *float64        `json:"winRate5050"`
+	WorstPull              int             `json:"worstPull"`
+	Pity                   []BannerPity    `json:"pity"`
+	Distribution           []int           `json:"distribution"`
+	RecentHeadline         []HeadlineEntry `json:"recentHeadline"` // recent top-rank only (cap 8)
+	Highlights             []HeadlineEntry `json:"highlights"`     // ALL top-two-rarity pulls, newest-first
 }
 
 // ComputeSummary builds the dashboard from one (uid)'s pulls + config. Pure.
@@ -103,6 +104,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 		s.AvgPity = float64(sumCount) / float64(len(allHits))
 	}
 	s.ExpectedPity = cfg.ExpectedPity
+	s.ExpectedFeaturedWeapon = cfg.ExpectedFeaturedWeapon
 	s.LuckScore = luckScore(s.AvgPity, cfg.ExpectedPity, len(allHits))
 
 	// limited maps banner-key → Limited, the per-banner lookup for the 歪 (50/50-loss)

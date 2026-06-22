@@ -63,15 +63,18 @@ const highlights = computed(() => sum.value?.highlights ?? []);
 const hlRanks = computed(() => distinctRanks(highlights.value)); // e.g. [5,4] or [6,5]
 const topRank = computed(() => hlRanks.value[0] ?? 0);
 const metrics = computed(() => computeCardMetrics(highlights.value, topRank.value));
-// 平均出貨 vs the theoretical expected pulls/5★ — compares avgAll (not the global avgPity).
-const expectedNote = computed(() => {
-  const s = sum.value;
-  const avg = metrics.value.avgAll;
-  if (!s || avg === null || s.expectedPity <= 0) return '';
-  const n = s.expectedPity.toFixed(1);
-  const key = avg < s.expectedPity ? 'below_expected' : avg > s.expectedPity ? 'above_expected' : 'at_expected';
+// "比期望高/低 {expected}" note for an average vs its theoretical expectation; '' when N/A.
+function noteFor(value: number | null, expected: number): string {
+  if (value === null || !expected || expected <= 0) return '';
+  const n = expected.toFixed(1);
+  const key = value < expected ? 'below_expected' : value > expected ? 'above_expected' : 'at_expected';
   return t(`gacha.${key}`, { n });
-});
+}
+// card 5 平均出貨 vs 出金期望; card 7 限定角色 vs 出限定角色期望 (出金×1.5, char 50/50);
+// card 8 限定武器 vs 出限定武器期望 (per-game; 0 → no note).
+const avgNote = computed(() => noteFor(metrics.value.avgAll, sum.value?.expectedPity ?? 0));
+const charNote = computed(() => noteFor(metrics.value.avgChar, (sum.value?.expectedPity ?? 0) * 1.5));
+const weaponNote = computed(() => noteFor(metrics.value.avgWeapon, sum.value?.expectedFeaturedWeapon ?? 0));
 const HL_PAGE = 50;
 const hlVisible = ref(HL_PAGE);
 const enabledRanks = ref<Set<number>>(new Set());
@@ -257,7 +260,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         <div class="card">
           <div class="cap">{{ t('gacha.avg_pity') }}</div>
           <div class="num mono">{{ fmt1(metrics.avgAll) }}<span class="unit" v-if="metrics.avgAll !== null">{{ u.pull() }}</span></div>
-          <div class="sub" v-if="expectedNote">{{ expectedNote }}</div>
+          <div class="sub" v-if="avgNote">{{ avgNote }}</div>
         </div>
         <div class="card">
           <div class="cap">{{ t('gacha.hit_rate') }}</div>
@@ -267,10 +270,12 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         <div class="card">
           <div class="cap">{{ t('gacha.avg_char') }}</div>
           <div class="num mono">{{ fmt1(metrics.avgChar) }}<span class="unit" v-if="metrics.avgChar !== null">{{ u.pull() }}</span></div>
+          <div class="sub" v-if="charNote">{{ charNote }}</div>
         </div>
         <div class="card">
           <div class="cap">{{ t('gacha.avg_weapon') }}</div>
           <div class="num mono">{{ fmt1(metrics.avgWeapon) }}<span class="unit" v-if="metrics.avgWeapon !== null">{{ u.pull() }}</span></div>
+          <div class="sub" v-if="weaponNote">{{ weaponNote }}</div>
         </div>
       </div>
 
