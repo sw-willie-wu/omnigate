@@ -177,6 +177,13 @@ watch(() => props.gid, (g) => gacha.load(g, accountID.value));
 watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
   if (old !== undefined) gacha.reload(props.gid, accountID.value);
 });
+// A global (titlebar) refresh calls gacha.reset(), clearing the store. If this
+// board is the one on screen, none of the watchers above fire (gid/account
+// unchanged), so it would go blank. Reload when our cached state is cleared out
+// from under us. No loop: load() always ends with loaded=true (incl. on error).
+watch(() => st.value.loaded, (loaded) => {
+  if (!loaded && !st.value.loading) gacha.load(props.gid, accountID.value);
+});
 </script>
 
 <template>

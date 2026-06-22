@@ -31,6 +31,13 @@ function reload() {
 // reload on game change AND on UI language change (news is language-specific).
 watch([() => props.gid, locale], reload);
 onMounted(reload);
+// A global (titlebar) refresh calls news.reset(), clearing the cache. If this
+// panel is on screen the watchers above don't fire (gid/locale unchanged), so it
+// would go blank. Reload when our cached state is cleared. No loop: load() always
+// ends with loaded=true (incl. on error).
+watch(() => state.value.loaded, (loaded) => {
+  if (!loaded && !state.value.loading) reload();
+});
 </script>
 
 <template>

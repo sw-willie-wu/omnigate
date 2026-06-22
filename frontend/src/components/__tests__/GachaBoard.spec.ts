@@ -54,6 +54,18 @@ describe('GachaBoard', () => {
     expect(w.text()).toContain('Alpha');
   });
 
+  it('self-reloads after a global refresh clears the store (titlebar-refresh blank fix)', async () => {
+    getSummary.mockResolvedValue(base);
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('.gacha-cards').exists()).toBe(true);
+    const callsAfterMount = getSummary.mock.calls.length;
+    useGachaStore().reset(); // what the titlebar refreshAll() does
+    await flushPromises();
+    expect(getSummary.mock.calls.length).toBeGreaterThan(callsAfterMount); // reloaded, not blank
+    expect(w.find('.gacha-cards').exists()).toBe(true);
+    expect(w.text()).toContain('Alpha');
+  });
+
   it('binds the luck donut via inline conic-gradient + score', async () => {
     getSummary.mockResolvedValue(base);
     const w = mountBoard(); await flushPromises();
