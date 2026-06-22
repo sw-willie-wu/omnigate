@@ -175,6 +175,100 @@ func loc(zhTW, zhCN, en string) core.LocalizedString {
 	return core.LocalizedString{"zh-TW": zhTW, "zh-CN": zhCN, "en": en}
 }
 
+// genshinStandardPool lists every top-rarity permanent item name in all stored
+// language forms. A limited-banner pull of any of these is a 50/50 loss (歪),
+// EXCEPT dual-citizens within their debut window (see genshinDualCitizens).
+var genshinStandardPool = map[string]bool{
+	// Characters
+	"Jean": true, "琴": true,
+	"Diluc": true, "迪盧克": true, "迪卢克": true,
+	"Mona": true, "莫娜": true,
+	"Qiqi": true, "七七": true,
+	"Keqing": true, "刻晴": true,
+	"Tighnari": true, "提納里": true, "提纳里": true,
+	"Dehya": true, "迪希雅": true,
+	"Yumemizuki Mizuki": true, "夢見月瑞希": true, "梦见月瑞希": true,
+	// Weapons
+	"Amos' Bow": true, "阿莫斯之弓": true,
+	"Skyward Harp": true, "天空之翼": true,
+	"Lost Prayer to the Sacred Winds": true, "四風原典": true, "四风原典": true,
+	"Skyward Atlas": true, "天空之卷": true,
+	"Wolf's Gravestone": true, "狼的末路": true,
+	"Skyward Pride": true, "天空之傲": true,
+	"Primordial Jade Winged-Spear": true, "和璞鳶": true, "和璞鸢": true,
+	"Skyward Spine": true, "天空之脊": true,
+	"Aquila Favonia": true, "風鷹劍": true, "风鹰剑": true,
+	"Skyward Blade": true, "天空之刃": true,
+}
+
+// starrailStandardPool lists every top-rarity permanent item name in all stored
+// language forms. A limited-banner pull of any of these is a 50/50 loss (歪).
+// Star Rail has no dual-citizens (standard-pool units were never re-run on limited).
+var starrailStandardPool = map[string]bool{
+	// Characters
+	"Bailu": true, "白露": true,
+	"Bronya": true, "布洛妮婭": true, "布洛妮娅": true,
+	"Clara": true, "克拉拉": true,
+	"Gepard": true, "傑帕德": true, "杰帕德": true,
+	"Himeko": true, "姬子": true,
+	"Welt": true, "瓦爾特": true, "瓦尔特": true,
+	"Yanqing": true, "彥卿": true, "彦卿": true,
+	// Light Cones
+	"Night on the Milky Way": true, "銀河鐵道之夜": true, "银河铁道之夜": true,
+	"Something Irreplaceable": true, "無可取代的東西": true, "无可取代的东西": true,
+	"But the Battle Isn't Over": true, "但戰鬥還未結束": true, "但战斗还未结束": true,
+	"In the Name of the World": true, "以世界之名": true,
+	"Moment of Victory": true, "制勝的瞬間": true, "制胜的瞬间": true,
+	"Sleep Like the Dead": true, "如泥酣眠": true,
+	"Time Waits for No One": true, "時節不居": true, "时节不居": true,
+}
+
+// zzzStandardPool lists every top-rarity permanent item name in all stored
+// language forms. A limited-banner pull of any of these is a 50/50 loss (歪).
+// ZZZ has no dual-citizens (standard-pool agents were never re-run on limited).
+// Soldier 11 is stored UNBRACKETED — the form the API returns ("11號"/"11号"),
+// NOT "[11]號" — so the lookup must use the same unbracketed string.
+var zzzStandardPool = map[string]bool{
+	// Agents
+	"Nekomata": true, "貓又": true, "猫又": true,
+	"Soldier 11": true, "11號": true, "11号": true,
+	"Koleda": true, "珂蕾妲": true,
+	"Lycaon": true, "萊卡恩": true, "莱卡恩": true,
+	"Grace Howard": true, "格莉絲": true, "格莉丝": true,
+	"Rina": true, "麗娜": true, "丽娜": true,
+	// W-Engines
+	"Steel Cushion": true, "鋼鐵肉墊": true, "钢铁肉垫": true,
+	"The Brimstone": true, "硫磺石": true,
+	"Hellfire Gears": true, "燃獄齒輪": true, "燃狱齿轮": true,
+	"The Restrained": true, "拘縛者": true, "拘缚者": true,
+	"Fusion Compiler": true, "嵌合編譯器": true, "嵌合编译器": true,
+	"Weeping Cradle": true, "啜泣搖籃": true, "啜泣摇篮": true,
+}
+
+// genshinDualCitizens lists standard-pool 5★ units that were ALSO featured on a
+// limited Event Wish exactly once (their debut). A pull inside the debut window is
+// that win (not 歪); outside it is a 50/50 loss. Windows are padded ±1 day from
+// the banner's server-local calendar to absorb cross-server/timezone skew.
+// These units appear on a limited banner ONLY at debut, so padding cannot suppress
+// any later real 歪.  (Dates web-verified vs. wiki/game8.)
+var genshinDualCitizens = []core.DualCitizen{
+	{
+		Names: []string{"Tighnari", "提納里", "提纳里"},
+		Start: time.Date(2022, 8, 23, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2022, 9, 10, 23, 59, 59, 0, time.UTC),
+	},
+	{
+		Names: []string{"Dehya", "迪希雅"},
+		Start: time.Date(2023, 2, 28, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2023, 3, 22, 23, 59, 59, 0, time.UTC),
+	},
+	{
+		Names: []string{"Yumemizuki Mizuki", "夢見月瑞希", "梦见月瑞希"},
+		Start: time.Date(2025, 2, 11, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2025, 3, 5, 23, 59, 59, 0, time.UTC),
+	},
+}
+
 func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	rank := map[int]core.LocalizedString{5: loc("五星", "五星", "5★"), 4: loc("四星", "四星", "4★")}
 	// PullPrice 160 = premium currency consumed per pull (all HoYoverse games);
@@ -184,28 +278,32 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	case "hoyoverse/genshin":
 		cfg.Currency = "primogem"
 		cfg.Banners = []core.BannerConfig{
-			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}},
-			{Key: "weapon", Label: loc("武器", "武器", "Weapon"), Pity: hoyoPity{80, true}},
+			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}, Limited: true},
+			{Key: "weapon", Label: loc("武器", "武器", "Weapon"), Pity: hoyoPity{80, true}, Limited: true},
 			{Key: "standard", Label: loc("常駐", "常驻", "Standard"), Pity: hoyoPity{90, false}},
 			{Key: "beginner", Label: loc("新手", "新手", "Beginner"), Pity: hoyoPity{90, false}},
 			{Key: "chronicled", Label: loc("集錄", "集录", "Chronicled"), Pity: hoyoPity{90, false}},
 		}
+		cfg.StandardPool = genshinStandardPool
+		cfg.DualCitizens = genshinDualCitizens
 	case "hoyoverse/starrail":
 		cfg.Currency = "stellar_jade"
 		cfg.Banners = []core.BannerConfig{
-			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}},
-			{Key: "lightcone", Label: loc("光錐", "光锥", "Light Cone"), Pity: hoyoPity{80, true}},
+			{Key: "character", Label: loc("限定角色", "限定角色", "Character"), Pity: hoyoPity{90, true}, Limited: true},
+			{Key: "lightcone", Label: loc("光錐", "光锥", "Light Cone"), Pity: hoyoPity{80, true}, Limited: true},
 			{Key: "standard", Label: loc("常駐", "常驻", "Standard"), Pity: hoyoPity{90, false}},
 			{Key: "beginner", Label: loc("新手", "新手", "Beginner"), Pity: hoyoPity{90, false}},
 		}
+		cfg.StandardPool = starrailStandardPool
 	case "hoyoverse/zzz":
 		cfg.Currency = "polychrome"
 		cfg.Banners = []core.BannerConfig{
-			{Key: "character", Label: loc("限定代理人", "限定代理人", "Character"), Pity: hoyoPity{90, true}},
-			{Key: "wengine", Label: loc("音擎", "音擎", "W-Engine"), Pity: hoyoPity{80, true}},
+			{Key: "character", Label: loc("限定代理人", "限定代理人", "Character"), Pity: hoyoPity{90, true}, Limited: true},
+			{Key: "wengine", Label: loc("音擎", "音擎", "W-Engine"), Pity: hoyoPity{80, true}, Limited: true},
 			{Key: "standard", Label: loc("常駐", "常驻", "Standard"), Pity: hoyoPity{90, false}},
 			{Key: "bangboo", Label: loc("邦布", "邦布", "Bangboo"), Pity: hoyoPity{80, false}},
 		}
+		cfg.StandardPool = zzzStandardPool
 	}
 	return cfg
 }

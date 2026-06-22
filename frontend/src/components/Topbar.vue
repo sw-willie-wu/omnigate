@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useViewStore } from '../stores/view';
-import { WindowMinimise, Quit } from '../../wailsjs/runtime/runtime';
+import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, Quit } from '../../wailsjs/runtime/runtime';
 import { useResumePrompt } from '../composables/useResumePrompt';
 import { refreshAll } from '../composables/useRefreshAll';
 
@@ -21,6 +21,15 @@ const onRefresh = async () => {
     console.error('refresh failed', e);
   }
 };
+
+// maxed drives the maximize/restore glyph; it syncs on each button click. Maximizing
+// via Windows aero-snap / Win+Up bypasses toggleMax and leaves the glyph stale until
+// the next click (Wails v2 exposes no window-state event to sync against).
+const maxed = ref(false);
+async function toggleMax() {
+  WindowToggleMaximise();
+  maxed.value = await WindowIsMaximised();
+}
 </script>
 
 <template>
@@ -33,6 +42,7 @@ const onRefresh = async () => {
       </button>
       <button class="icon-btn" :class="{active: view.viewMode === 'settings'}" @click="view.toggleSettings()" title="Settings"><span class="material-symbols-outlined">settings</span></button>
       <button class="icon-btn window-btn" @click="WindowMinimise()" title="Minimize"><span class="material-symbols-outlined">remove</span></button>
+      <button class="icon-btn window-btn maximize" @click="toggleMax" :title="maxed ? 'Restore' : 'Maximize'"><span class="material-symbols-outlined">{{ maxed ? 'filter_none' : 'crop_square' }}</span></button>
       <button class="icon-btn window-btn close" @click="Quit()" title="Close"><span class="material-symbols-outlined">close</span></button>
     </div>
     <Teleport to="body">

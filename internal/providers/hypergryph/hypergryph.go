@@ -24,7 +24,8 @@ type Provider struct {
 	resolvedPaths map[core.GameID]string
 	recordAPIBase string
 	pageDelay     time.Duration
-	logPathFn     func() string
+	oauthBase     string // as.gryphline.com
+	bindingBase   string // binding-api-account-prod.gryphline.com
 	tempRootFn    func(core.GameID) string
 }
 
@@ -40,7 +41,8 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 	}
 	p.recordAPIBase = "https://ef-webview.gryphline.com"
 	p.pageDelay = 700 * time.Millisecond
-	p.logPathFn = defaultEndfieldLogPath
+	p.oauthBase = "https://as.gryphline.com"
+	p.bindingBase = "https://binding-api-account-prod.gryphline.com"
 	return p
 }
 

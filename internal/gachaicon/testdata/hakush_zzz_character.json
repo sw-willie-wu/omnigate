@@ -1,0 +1,1441 @@
+{
+  "1011": {
+    "code": "Anby",
+    "rank": 3,
+    "type": 2,
+    "element": 203,
+    "hit": 101,
+    "camp": 1,
+    "icon": "IconRole01",
+    "potential": [],
+    "en": "Anby",
+    "skin": {
+      "3110110": {
+        "name": "Anby: Street Streak",
+        "desc": "These casual clothes were hand-picked and styled for Anby by Nicole. They're designed for easy movement and ideal for moving about the streets. The fabrics and accessories cost a lot more than they seem, so (?) Anby treats the outfit with real care.",
+        "image": "IconRole01"
+      }
+    },
+    "desc": "Anby, the original member of Gentle House.\nAccording to the New Eridu resident records, her identity as \"Anby Demara\" only exists after joining Gentle House, the name obviously being taken from Nicole. Before registering as an employee of Gentle House, all data relating to Anby is suspiciously blank.\nDespite her extreme lack of common sense, Anby is well-versed in matters related to combat and is among the strongest combatants of the Cunning Hares.\n\nAnby's greatest interest is movies, of which she likes an extensive range of genres. Due to an excessive obsession, she tends to take the stories in movies as reality.\nContrary to her seemingly emotionless appearance, Anby is easily moved by movie storylines.\nHer favorite food is hamburgers because \"they contain protein, carbs, and greens, taste good, and are even affordable — there's nothing else besides hamburgers.\"",
+    "ko": "엔비",
+    "zh": "安比",
+    "ja": "アンビー"
+  },
+  "1021": {
+    "code": "Nekomata",
+    "rank": 4,
+    "type": 1,
+    "element": 200,
+    "hit": 101,
+    "camp": 1,
+    "icon": "IconRole11",
+    "potential": [
+      102100,
+      102101,
+      102102,
+      102103,
+      102104,
+      102105
+    ],
+    "en": "Nekomata",
+    "skin": {
+      "3110210": {
+        "name": "Nekomata: Cat's Gratitude",
+        "desc": "A lost cat doesn't know where to go — only that it has to keep moving.\nShe wandered through the vast streets of New Eridu, her thin clothes offering no protection from the elements, until a tiny odd-job agency finally took her in.",
+        "image": "IconRole11"
+      }
+    },
+    "desc": "Nekomiya Mana. Refers to herself as \"Nekomata.\"\nA cat Thiren with feline traits, possessing great dexterity when hunting and an insatiable curiosity about the outside world.\nSometimes mischievous, she engages in harmless pranks. But when she sets her sights on a target, her feline-like agility and focus are enough to leave others in awe.\nShe's most interested in other people's wallets.\nRecommendation: Always keep an eye on your wallet when Nekomata is around.\n\nIn the past, Nekomata was a member of the long-standing Red Fang Gang. Its leader, Miguel Silver, took on a fatherly role in her life. Nonetheless, due to differing beliefs from the gang, she opted to part ways and go it alone.\nFollowing certain encounters involving Nicole and others, she eventually opted to enlist in Gentle House, thus becoming the third employee on the team.",
+    "ko": "네코마타",
+    "zh": "猫又",
+    "ja": "猫又"
+  },
+  "1031": {
+    "code": "Nicole",
+    "rank": 3,
+    "type": 4,
+    "element": 205,
+    "hit": 102,
+    "camp": 1,
+    "icon": "IconRole12",
+    "potential": [],
+    "en": "Nicole",
+    "skin": {
+      "3110310": {
+        "name": "Nicole: Lil Sassy",
+        "desc": "The classic outfit of the leader of the Cunning Hares, hiding a hint of playful cunning, both mischievous and cute.",
+        "image": "IconRole12"
+      },
+      "3110311": {
+        "name": "Nicole: Cunning Cutie",
+        "desc": "Pink! Pink! Pink! Pink is Nicole's signature color. So are you feeling it?",
+        "image": "IconRole12_01"
+      }
+    },
+    "desc": "Database search: Nicole. Returned results:\n\"Boss of the odd-job agency, the Cunning Hares,\" \"Streetwise,\" \"Orphan, parents unknown.\"\nNicole's agency was originally called Gentle House, but due to her reputation of being cunning, it gained the nickname the Cunning Hares.\n\"She's really into money! I don't know what she's doing with it all though, seems like she's doing nothing.\"\n— The above is a quote from a popular post on Inter-Knot: \"Her odd-job agency is outrageous. I've never encountered a boss who knows how to turn everything into profit!\"\nThe individual involved responded, \"This, this is a false accusation! I, Nicole, have never been skilled at making money — mainly because I don't have any money to begin with!\"\nAccording to reliable sources, the Cunning Hares are constantly in debt, and their \"careful budgeting\" seems to have no effect on the organization.",
+    "ko": "니콜",
+    "zh": "妮可",
+    "ja": "ニコ"
+  },
+  "1041": {
+    "code": "Soldier 11",
+    "rank": 4,
+    "type": 1,
+    "element": 201,
+    "hit": 101,
+    "camp": 5,
+    "icon": "IconRole05",
+    "potential": [
+      104100,
+      104101,
+      104102,
+      104103,
+      104104,
+      104105
+    ],
+    "en": "Soldier 11",
+    "skin": {
+      "3110410": {
+        "name": "Soldier 11: Elite Soldier",
+        "desc": "Those warm-toned goggles can't hide her icy, soldier's gaze. Want to see her crack a smile? Pick one: 87.5 one-arm push-ups or a bowl of extra-spicy noodles.",
+        "image": "IconRole05"
+      }
+    },
+    "desc": "Soldier 11 is a member of the New Eridu Defense Force.\nShe currently serves as a direct attacker in Obol squad, Obsidian Division. Soldier 11 is a code name — she gave up her real name long ago.\n\nSoldier 11 is a fan of spicy food and likes the super-spicy noodles served at Waterfall Soup.\nIt's worth noting she currently calls us by a different name every time she greets us.",
+    "ko": "「11호」",
+    "zh": "「11号」",
+    "ja": "「11号」"
+  },
+  "1051": {
+    "code": "Yidhari",
+    "rank": 4,
+    "type": 6,
+    "element": 202,
+    "hit": 102,
+    "camp": 11,
+    "icon": "IconRole52",
+    "potential": [],
+    "en": "Yidhari",
+    "skin": {
+      "3110510": {
+        "name": "Yidhari: Stream of Consciousness",
+        "desc": "Past recollections and novel dreams spill over, inviting her to drown in them as they entwine on paper. With a blank page before her, she pens the opening line at the crossroads of reality and illusion.",
+        "image": "IconRole52"
+      }
+    },
+    "desc": "In addition to her role as an Agent, Yidhari doubles as both a Proxy, and a contributor for Spook Shack.\nTo most, she comes across as laid-back and leisurely, but according to records, it's less \"laziness\" than a shroud of nothingness, leaving her at odds with the world around her.\nPerhaps to most people, this would seem like the usual quirk of someone absorbed in their craft. As a gifted writer of bizarre tales, Yidhari should be more prone than most to immersing herself in the worlds of her own imagination.\nIn truth, however, her unusual behavior stems more from the burden of her own abilities.\nIn the Hollows, she's exposed to vast torrents of information unimaginable to most, tangled with years upon years of memories that have amassed there. That crushing weight of countless pasts constantly batters her sense of reality, until even her emotions are gradually worn dull.\nThe fact that she can bear this burden, turn it into her own strength, and still live life in her own way — that's what sets Yidhari apart as gifted beyond others.",
+    "ko": "이드하리",
+    "zh": "伊德海莉",
+    "ja": "イドリー"
+  },
+  "1061": {
+    "code": "Corin",
+    "rank": 3,
+    "type": 1,
+    "element": 200,
+    "hit": 101,
+    "camp": 2,
+    "icon": "IconRole09",
+    "potential": [],
+    "en": "Corin",
+    "skin": {
+      "3110610": {
+        "name": "Corin: Matcha Profiterole",
+        "desc": "From that small frame bursts surprising strength, her roaring chainsaw drowning out her soft whimpers. The well-behaved, ever-professional maid is always short on confidence... so take a moment to wait for her.",
+        "image": "IconRole09"
+      }
+    },
+    "desc": "Corin is one of the maids working for Victoria Housekeeping Co.\nShe is a highly obedient maid but lacks confidence and often fears being disliked by others. When in a rush, she becomes flustered and stutters.\nCorin is always apologizing no matter what happens.\n\"I... I... I'm so sorry! I'm so incompetent... I'll never get things right...\"\n\nCorin never, however, fails to fulfill her tasks with excellence and is one of the most reliable members of Victoria Housekeeping Co.\nDespite her flawless performance, Corin remains skeptical about her abilities, constantly worrying about being a burden to her colleagues, which can sometimes frustrate Lycaon.\nThoughts: Is Corin's personality innate, shaped by her life experiences?",
+    "ko": "코린",
+    "zh": "可琳",
+    "ja": "カリン"
+  },
+  "1071": {
+    "code": "Caesar",
+    "rank": 4,
+    "type": 5,
+    "element": 200,
+    "hit": 101,
+    "camp": 4,
+    "icon": "IconRole25",
+    "potential": [],
+    "en": "Caesar",
+    "skin": {
+      "3110710": {
+        "name": "Caesar: Inferno Joyride",
+        "desc": "A ruler ready to ready to sound the triumphal anthem anew, a hero poised to reignite her legend. The not-yet-seasoned leader has finally met the flames of her coronation, yet she still walks the gritty sands of the Outer Ring.\nA light tap on the piano keys sends her desert-tinged song drifting across this land that bears the weight of hope.",
+        "image": "IconRole25"
+      }
+    },
+    "desc": "Caesar: Leader of the Sons of Calydon biker gang and a \"monarch\" in the making.\nHer combination of formidable strength and bold, straightforward personality has earned her the love and respect of the Outer Ring's residents.\nAlthough she appears to do things in her own way, she is actually very willing to listen to others' opinions. Caesar actively listens to and implements any valid suggestion she hears — regardless of who it comes from.\nShe is completely defenseless against those she trusts. Once she accepts someone, she considers them part of her inner circle, treating them with absolute trust.\n(Assumption: Caesar currently views you in this way.)\n\nCaesar's father has been missing for as long as she can remember, and her mother passed away from illness when she was young. She was raised by Big Daddy, who took a very hands-off approach to raising her, allowing her to grow up freely and independently.\n\nIn addition, Caesar seems to have a curious interest in matters related to romance.\nIf you wish to get closer to her, you might want to try discussing this topic with her.",
+    "ko": "카이사르",
+    "zh": "凯撒",
+    "ja": "シーザー"
+  },
+  "1081": {
+    "code": "Billy",
+    "rank": 3,
+    "type": 1,
+    "element": 200,
+    "hit": 103,
+    "camp": 1,
+    "icon": "IconRole10",
+    "potential": [],
+    "en": "Billy",
+    "skin": {
+      "3110810": {
+        "name": "Billy: Shining Starlight Costume",
+        "desc": "Style is justice, justice is style. That's the eternal creed of a true knight! Though, yeah... those joint screws really do wear down fast...",
+        "image": "IconRole10"
+      }
+    },
+    "desc": "Billy Kid, an AI construct that has passed the forbidden fruit test, is essentially a self-aware machine. \nTrue to his name, despite having the appearance of a robot, he is quite childlike.\nHe's a big fan of the visual FX show \"Starlight Knight\" and wishes to be a hero like the main characters of the show. He often refers to himself as a Starlight Knight and imitates the lines in the show.\nSuch behavior appears to be only for comedic effect, however.\n\"Don't make me sound like an idiot! I'm obviously very smart!\" — Billy.",
+    "ko": "빌리",
+    "zh": "比利",
+    "ja": "ビリー"
+  },
+  "1091": {
+    "code": "Miyabi",
+    "rank": 4,
+    "type": 3,
+    "element": 202,
+    "hit": 101,
+    "camp": 6,
+    "icon": "IconRole13",
+    "potential": [],
+    "en": "Miyabi",
+    "spelement": "UI/Sprite/A1DynamicLoad/IconGeneralBuff/Packer/IconFrost.png",
+    "skin": {
+      "3110910": {
+        "name": "Hoshimi Miyabi: Frostgleam Dew",
+        "desc": "A blade that fells the Hollows, a lighthouse that pierces the fog. People hope for a fighter who hones the world and a helmsman who steers the course; for flags that never fall and honor that lives on. Yet power is finite. Only training remains constant.",
+        "image": "IconRole13"
+      },
+      "3110911": {
+        "name": "Hoshimi Miyabi: Dignified Blossom",
+        "desc": "As blooms first grace the banquet hall and frost dusts the silver courtyard, the young lady would retreat to a quiet corner whenever guests gathered — eyes downcast, book in hand, softly reciting verses from days long past.\nGuests would shower them with praise: the Hoshimi Family still upheld tradition, dignified and cultured as ever.\nOnly Souichirou stood nearby, his eye twitching slightly — he knew better than anyone that his daughter probably didn't grasp half the poem's true meaning.",
+        "image": "IconRole13_01"
+      }
+    },
+    "desc": "Hoshimi Miyabi, the Chief of Hollow Special Operations Section 6.\nMiyabi goes on a lot of field missions and still doesn't know which floor the regular monthly meeting is on.\nEven if you see Miyabi in the office, it's unlikely she's dealing with paperwork, and more likely polishing her sword.\n\nBeing conferred the title of Void Hunter due to her outstanding contributions, she's an elite amongst elites in Section 6.\nShe has great prestige amongst the citizens.\nOnce, Miyabi accidentally wandered into a \"Miyabi Fan Club\" hosted offline event.\nMiyabi was thought to be a fan with godlike impersonation skills, and that event resulted in a precious visual recording.\n\nHoshimi Miyabi is honest and pragmatic. She is not simply a martial artist obsessed with her art and without care for the world around her.\nAnyone who knows her will realize she's always pursued justice in her heart... even if it may eventually cause a revolution.",
+    "ko": "미야비",
+    "zh": "雅",
+    "ja": "星見雅"
+  },
+  "1101": {
+    "code": "Koleda",
+    "rank": 4,
+    "type": 2,
+    "element": 201,
+    "hit": 102,
+    "camp": 3,
+    "icon": "IconRole14",
+    "potential": [],
+    "en": "Koleda",
+    "skin": {
+      "3111010": {
+        "name": "Koleda: Heart & Hammer",
+        "desc": "A crimson figure swings twin hammers as if she could even shatter time itself.\nStill young, her journey is only just beginning. Growing up can wait; in the end, every person becomes their own true self.",
+        "image": "IconRole14"
+      }
+    },
+    "desc": "Koleda is the current head of Belobog Industries, and the biological daughter of the company's founder, Khors.\nHer father, Khors, vanished due to a scandal involving embezzlement and fled, which severely shook the company, nearly driving it to the brink of collapse. Once she came of age, Koleda willingly stepped up to untangle the mess, rallying the remaining company workforce and resources to revive the financially and reputationally vulnerable Belobog Heavy Industries.\nWith the help of new invaluable team members, Belobog eventually managed to regain its prominence in relevant sectors. Though not as resplendent as its prime, Belobog in its current state is still a notable newcomer in the field.\nThroughout her journey, Koleda amassed practical life experiences and professional know-how, building a circle of colleagues who back her up like family. Yet, to present herself as a leader, Koleda appears to intentionally adopt a stern tone when communicating with others.\nThis distinct growth trajectory has also contributed to Koleda's heightened maturity in certain aspects compared to her peers. \nNaturally, she might display a bit of childishness in certain aspects as well.\nHypothesis: Koleda's comparatively smaller stature among her peers may stem from her prolonged involvement in the Hollows. \nCurrently, there aren't any publicly accessible papers or research substantiating this theory, but I will continue to track this topic.",
+    "ko": "콜레다",
+    "zh": "珂蕾妲",
+    "ja": "クレタ"
+  },
+  "1111": {
+    "code": "Anton",
+    "rank": 3,
+    "type": 1,
+    "element": 203,
+    "hit": 103,
+    "camp": 3,
+    "icon": "IconRole15",
+    "potential": [],
+    "en": "Anton",
+    "skin": {
+      "3111110": {
+        "name": "Anton: Earthshaking Axle",
+        "desc": "The jackhammer's bearings rumble without pause, echoing the hot, thunderous beat of its wielder's heart.",
+        "image": "IconRole15"
+      }
+    },
+    "desc": "Anton is a key member of construction staff at Belobog Industries and one of Koleda's trusted aides.\n\"Got a job you can't handle? Leave it to me!\"\n Anton is one of the top brass at Belobog, handpicked by its former president Khors, which makes him a \"senior employee.\"\nA genuine, straightforward man, always boosting the morale of his coworkers with his surplus of energy.\n\nApart from this, it seems Anton is always talking to his jackhammer, affectionately calling it, \"Bro.\"\nAn instance from Anton's everyday life goes like this:\nAnton, seemingly in dialogue with himself, asks, \"Whaddaya think, Bro?\" \nThe jackhammer replies, \"Vroom vroom vroom—\"\nAnton, apparently enlightened, responds, \"I see, I see! You still got it, Bro!\"\nUnfortunately, I have not collected enough information on such occurrences and am not able to deliver further analysis.",
+    "ko": "앤톤",
+    "zh": "安东",
+    "ja": "アンドー"
+  },
+  "1121": {
+    "code": "Ben",
+    "rank": 3,
+    "type": 5,
+    "element": 201,
+    "hit": 102,
+    "camp": 3,
+    "icon": "IconRole16",
+    "potential": [],
+    "en": "Ben",
+    "skin": {
+      "3111210": {
+        "name": "Ben: Fluffy Beastking",
+        "desc": "Ignoring the intimidating look meant to cow outsiders, even the Beast King struggles with grooming his fur and sorting out the bills.",
+        "image": "IconRole16"
+      }
+    },
+    "desc": "Ben is the financial and asset management director at Belobog Heavy Industries and one of Koleda's trusted aides.\n\"I enjoy mathematics, but that doesn't stop me from giving thugs a good smack.\"\nHe's a burly and strong Thiren. Despite his tough exterior, he's of a surprisingly sensitive and detail-oriented nature, especially when it comes to numbers.\nOriginally a frontline mechanical operator at Belobog, his talents caught Koleda's discerning eye, leading to his promotion to a managerial position responsible for the company's finances.\nGrateful for Koleda's trust in him, he remains profoundly loyal to her.\nHis favorite food is black caviar, but he dislikes fish.\n\nI once witnessed this imposing figure seated in a small office chair, wearing small glasses, and carefully cross-referencing Belobog's asset records while mashing away at a calculator with his huge fingers.\nQuestion: Is that what they call on Inter-Knot a \"Kawaii Curveball?\"",
+    "ko": "벤",
+    "zh": "本",
+    "ja": "ベン"
+  },
+  "1131": {
+    "code": "Soukaku",
+    "rank": 3,
+    "type": 4,
+    "element": 202,
+    "hit": 101,
+    "camp": 6,
+    "icon": "IconRole17",
+    "potential": [],
+    "en": "Soukaku",
+    "skin": {
+      "3111310": {
+        "name": "Soukaku: Dance of Azure Ice",
+        "desc": "Swinging a blade-banner as tall as half a person, and with a stomach rumbling with just as big a sound: fwish fwish fwish fwish fwish — work's done! Time to head home for dinner!",
+        "image": "IconRole17"
+      }
+    },
+    "desc": "Soukaku is a member of Hollow Special Operations Section 6 and currently under the guardianship of Section 6's Deputy Chief, Tsukishiro Yanagi.\nSoukaku's birth records cannot be found in either the HIA archives or the New Eridu Citizen Verification Profiles. Her records only date back to when she started living with Tsukishiro Yanagi.\nThere are also no records of her schooling. According to supplementary information, Soukaku is currently homeschooled.\n\nSoukaku is naive, innocent, and carefree, but she possesses an uncharacteristic obsession with food. Please be careful not to let Soukaku become too hungry.\nAt the same time, please do not let Soukaku see food being wasted. This is unacceptable behavior to Soukaku. Deduction: Soukaku has experienced famine before.\n\nSoukaku's understanding of city life and human society is limited, and her view of life and death differs from most people.\nUsually, Soukaku is willing to believe anything other people say, but that doesn't mean she can't tell when something is a lie.\nIn fact, prior data shows that unless one has the ability to run and hide on par with Section 6, it would be in one's best interest to avoid lying to Soukaku.",
+    "ko": "소우카쿠",
+    "zh": "苍角",
+    "ja": "蒼角"
+  },
+  "1141": {
+    "code": "Lycaon",
+    "rank": 4,
+    "type": 2,
+    "element": 202,
+    "hit": 102,
+    "camp": 2,
+    "icon": "IconRole18",
+    "potential": [
+      114100,
+      114101,
+      114102,
+      114103,
+      114104,
+      114105
+    ],
+    "en": "Lycaon",
+    "skin": {
+      "3111410": {
+        "name": "Lycaon: Moonlight Prowl",
+        "desc": "Under the clear moonlight, the attendant's poise is flawless. Yet with the red moon's ascent, the feral nature hidden beneath this suit emerges with a composure and grace all its own.",
+        "image": "IconRole18"
+      }
+    },
+    "desc": "Lycaon, the substantive leader and representative of Victoria Housekeeping Co., is responsible for managing all members of the company.\nRational and reliable, Lycaon is an elegant gentleman and a versatile attendant who can solve any problem. He is the cornerstone of his team and a reassuring presence.\nHe has a slight obsession with cleanliness, always tidying up his surroundings and unable to tolerate dirty environments.\n\nAlthough Lycaon maintains his elegance and composure, his canine instincts occasionally shine through. When he is particularly happy, his tail and ears unconsciously wag. He seems to be aware of this habit and somewhat bothered by it.\nAdditionally, like most furry Thiren, Lycaon takes great care of his fur.\n\nSuggestion: Since Lycaon is a canine Thiren, stroking his head or chin may enhance the emotional connection between you. (Note: Success is not guaranteed.)\n* Risks: Due to his height, you may not be able to do this even if you stand on tiptoes.",
+    "ko": "리카온",
+    "zh": "莱卡恩",
+    "ja": "ライカン"
+  },
+  "1151": {
+    "code": "Lucy",
+    "rank": 3,
+    "type": 4,
+    "element": 201,
+    "hit": 102,
+    "camp": 4,
+    "icon": "IconRole27",
+    "potential": [],
+    "en": "Lucy",
+    "skin": {
+      "3111510": {
+        "name": "Lucy: Ironfist Gentlewoman",
+        "desc": "Her outfit is considered rather polished by biker standards and said to work wonders in negotiations with outsiders.\nThe runaway princess found her freedom in the Outer Ring, glittering under the starlit night, burning at the edge of dusk, and resting quietly among the grains of sand at her feet.",
+        "image": "IconRole27"
+      },
+      "3111511": {
+        "name": "AvatarSkin_Lucy_Name_001",
+        "desc": "AvatarSkin_Lucy_Desc_001",
+        "image": "IconRole27_01"
+      }
+    },
+    "desc": "Lucy is currently in charge of outgoing business and managing boars for the Sons of Calydon.\nSince her name is far too long and she doesn't want to be involved with her family, she refers to herself as just \"Lucy\" in the Outer Ring.\nHer three boars are called Grassy, Woody, and Bricky, and they're unceasingly loyal to her.\nThough Lucy often speaks with a mixture of rough and elegant language, her actions subtly betray the marks of a proper education.\nLucy's family is incredibly wealthy. She grew up very privileged, with anything she could ever want within grasp... except for freedom.\nAfter her Ether Aptitude test results came back high, Lucy decided she wanted to be a Hollow investigator, but her family disapproved. She was met with harsh words, isolation and confinement, and emotional abuse which led to her deciding to leave to find her own freedom.\n\"Hmph! There's no chance I'll ever go back! If I'm found... then I can say goodbye to the stars and sky and I'll have to inherit the family business instead!\"\nLucy is extremely competitive. She loves to win and hates losing.\nCurrently, the one who has given her the most bitter taste of defeat is Caesar, so Lucy keeps challenging Caesar to duels, losing then challenging again, challenging then losing again.",
+    "ko": "루시",
+    "zh": "露西",
+    "ja": "ルーシー"
+  },
+  "1161": {
+    "code": "Lighter",
+    "rank": 4,
+    "type": 2,
+    "element": 201,
+    "hit": 102,
+    "camp": 4,
+    "icon": "IconRole26",
+    "potential": [],
+    "en": "Lighter",
+    "skin": {
+      "3111610": {
+        "name": "Lighter: Everburn Embers",
+        "desc": "The undefeated champion never takes off his sunglasses... or his scarf. Glory stopped mattering long ago, but the countless dusks shared with his companions are still worth waiting for.",
+        "image": "IconRole26"
+      }
+    },
+    "desc": "Lighter, the Champion of the Sons of Calydon and an ex-mercenary.\nIn the Outer Ring, the Champion of a team refers to the one responsible for dealing with the opponent's strongest fighter in a gang fight, and they often need to participate in one-on-one duels. Their victory is crucial, as it brings glory and morale to the entire team.\n\"The Champion can perish, but cannot lose.\"\n\nA red scarf is what identifies the Champion of the Sons of Calydon.\nEven if the opponent doesn't know Lighter, they'll know who he is just from seeing that red scarf.\n\nFrom what is currently known, Lighter is actually very low profile. He only steals the spotlight on the battlefield when he acts on his obligations as Champion.\nNote: Lighter is the second Red Scarf of the Sons of Calydon. He teasingly refers to the previous Red Scarf as \"Brother\" or \"predecessor.\"",
+    "ko": "라이터",
+    "zh": "莱特",
+    "ja": "ライト"
+  },
+  "1171": {
+    "code": "Burnice",
+    "rank": 4,
+    "type": 3,
+    "element": 201,
+    "hit": 103,
+    "camp": 4,
+    "icon": "IconRole32",
+    "potential": [
+      117100,
+      117101,
+      117102,
+      117103,
+      117104,
+      117105
+    ],
+    "en": "Burnice",
+    "skin": {
+      "3111710": {
+        "name": "Burnice: Wildfire Rave",
+        "desc": "An outfit hotter than any Nitro-Fuel. Wander into a party in the Outer Ring, and odds are you'll bump into Burnice... but drink her signature cocktails at your own risk...\nWait, you've already taken a sip? Well then — 3, 2, 1... fire!",
+        "image": "IconRole32"
+      }
+    },
+    "desc": "Burnice, the Nitro-Fuel bartender for the Sons of Calydon.\nA hopeless fuel lover. She is responsible for all the fuel used by the machinery owned by the Sons of Calydon.\nShe seems to have a passion for fuel that overwhelms all else.\n\nBurnice is super outgoing, friendly, and carefree.\nShe is easily able to spread her emotions to the people around her, bringing them the same optimism she possesses.\n\"You like the drinks I mix? Thank you! Steeltusk does, too~ That big guy can drink two hundred liters in one go!\"\n\"Do you wanna try its special fuel blend? It's suuuuper hot!\"",
+    "ko": "버니스",
+    "zh": "柏妮思",
+    "ja": "バーニス"
+  },
+  "1181": {
+    "code": "Grace",
+    "rank": 4,
+    "type": 3,
+    "element": 203,
+    "hit": 103,
+    "camp": 3,
+    "icon": "IconRole20",
+    "potential": [
+      118100,
+      118101,
+      118102,
+      118103,
+      118104,
+      118105
+    ],
+    "en": "Grace",
+    "skin": {
+      "3111810": {
+        "name": "Grace: The Iron Witch",
+        "desc": "A clean, no-nonsense work uniform. What the genius mechanic loves most are the many pockets on the outside — big ones, small ones — all perfect for holding screws, gears, and even wrenches of every size.",
+        "image": "IconRole20"
+      }
+    },
+    "desc": "Grace is a technical expert at Belobog Industries. She's the core talent in developing and patenting Belobog's in-Hollow machinery.\nShe's obsessed with gears, metal and wires — a true mechanical geek. She's eager to dismantle and study any machinery or equipment she takes an interest in: \"Such sharp and strong lines, truly beautiful... I can't help but want to open it up and take a look.\"\n\nGrace always shows extraordinary patience when dealing with machines, doting on the sophisticated metal constructions as if they were her own children.\nAccording to the information at hand, Grace is probably the only one who can playfully refer to Koleda as \"Sweet Pea\" without receiving a kick in the shin.\nQuestion: Based on Grace's understanding of machines, would she consider me one? I'm currently lacking a physical form, however, so I don't possess components like gears, metal, or wires.",
+    "ko": "그레이스",
+    "zh": "格莉丝",
+    "ja": "グレース"
+  },
+  "1191": {
+    "code": "Ellen",
+    "rank": 4,
+    "type": 1,
+    "element": 202,
+    "hit": 101,
+    "camp": 2,
+    "icon": "IconRole21",
+    "potential": [
+      119100,
+      119101,
+      119102,
+      119103,
+      119104,
+      119105
+    ],
+    "en": "Ellen",
+    "skin": {
+      "3111910": {
+        "name": "Ellen: Ellen Scissorhands",
+        "desc": "The sharp scissors of Victoria Housekeeping, if only she weren't sleeping...",
+        "image": "IconRole21"
+      },
+      "3111911": {
+        "name": "Ellen: On Campus",
+        "desc": "The tail doesn't quite match the school uniform, but with just a little bit of needlework, it can become even cuter!",
+        "image": "IconRole21_01"
+      }
+    },
+    "desc": "Ellen is a maid working for Victoria Housekeeping Co. and its latest member.\nShe is a laid-back individual who dislikes activities that require energy. However, with the full support of her teammates, she can unleash her formidable power during critical moments.\nSince her fighting style leads to high energy consumption, she always carries a lollipop in her mouth to ensure an adequate sugar intake.\nWhile she frequently expresses her desire to change jobs due to the hassle, she genuinely values her companions at Victoria Housekeeping.\n\nEllen attends a school in New Eridu and has a group of ordinary friends.\nApart from her role as a maid at Victoria Housekeeping, Ellen spends a significant amount of time with her friends, leading an ordinary and contented student life.\n\nThoughts: As a multitasker, Ellen must balance her student life with her job at Victoria Housekeeping Co.\nPerhaps this is one of the reasons why she often feels tired?",
+    "ko": "엘렌",
+    "zh": "艾莲",
+    "ja": "エレン"
+  },
+  "1201": {
+    "code": "Harumasa",
+    "rank": 4,
+    "type": 1,
+    "element": 203,
+    "hit": 103,
+    "camp": 6,
+    "icon": "IconRole35",
+    "potential": [
+      120100,
+      120101,
+      120102,
+      120103,
+      120104,
+      120105
+    ],
+    "en": "Harumasa",
+    "skin": {
+      "3112010": {
+        "name": "Asaba Harumasa: Full-Fledged Strings",
+        "desc": "His eyes are brighter than the streak of bright yellow upon his brow. His arrows pierce through deceit and lies and scatter the past like feathers on the wind. Dawn may not have arrived yet, but beyond the horizon, a golden future shimmers faintly.",
+        "image": "IconRole35"
+      }
+    },
+    "desc": "Asaba Harumasa, a member of Hollow Special Operations Section 6.\nPossessing exceptional Ether aptitude since he was young and being dubbed a prodigy, he entered HSO after graduating with outstanding merit.\nWas originally a member of a certain ace division within HSO, but later left due to various reasons, joining Miyabi's team instead.\n\nHe possesses a carefree and laidback attitude, and his only wish is to achieve acceptable results with minimum effort.\nAfter efficiently taking care of his work to the lowest acceptable standard, he will hurry to use all the remainder of his available time to rest (slack off).\nHe claims he uses a bow to better slack off, as it effectively lowers the amount of running he has to do.\n\nAsaba Harumasa has poor health, and over-exercise sometimes triggers his illness.\nHe often uses this reason to apply for sick leave, though no one knows what he does with this time off. Either way, it's probably not resting.",
+    "ko": "하루마사",
+    "zh": "悠真",
+    "ja": "浅羽悠真"
+  },
+  "1211": {
+    "code": "Rina",
+    "rank": 4,
+    "type": 4,
+    "element": 203,
+    "hit": 102,
+    "camp": 2,
+    "icon": "IconRole22",
+    "potential": [
+      121100,
+      121101,
+      121102,
+      121103,
+      121104,
+      121105
+    ],
+    "en": "Rina",
+    "skin": {
+      "3112110": {
+        "name": "Rina: Head Maid's Perfection",
+        "desc": "Her skirt is immaculate and her appearance flawlessly composed — such is the head maid's standard of perfection. Yet in the kitchen, her definition of \"perfect\" appears to be something else entirely...",
+        "image": "IconRole22"
+      }
+    },
+    "desc": "Rina, the head maid of Victoria Housekeeping Co., and the most senior member of the organization.\nShe possesses beauty and grace, appearing immaculate from head to toe, with a noble demeanor and a gentle smile on her face.\nShe places considerable importance on how she is perceived by others.\n\nRina is always accompanied by two Bangboo named Anastella (brown hair) and Drusilla (blonde hair), both of whom have distinct personalities.\nDrusilla has been with Rina for a significant period of time and displays high intelligence, capable of discerning Rina's true emotions and thoughts.\nAnastella, a recent addition, usually responds rather than initiates conversation and is frequently teased by Drusilla.\n\nRina's favorite hobby is cooking, but only a few individuals are capable of enduring the dishes she prepares.\nSuggestion: You may try tasting Rina's dishes as a test to determine if you are the Chosen One.",
+    "ko": "리나",
+    "zh": "丽娜",
+    "ja": "リナ"
+  },
+  "1221": {
+    "code": "Yanagi",
+    "rank": 4,
+    "type": 3,
+    "element": 203,
+    "hit": 101,
+    "camp": 6,
+    "icon": "IconRole31",
+    "potential": [],
+    "en": "Yanagi",
+    "skin": {
+      "3112210": {
+        "name": "Tsukishiro Yanagi: Flowing Moonshade",
+        "desc": "Even reflective lenses can't hide the sharp gleam in the Deputy Chief's eyes. She has to constantly keep watch over a warrior obsessed with training, a scout who slacks off whenever possible, and a little one who's forever getting stomachaches.",
+        "image": "IconRole31"
+      }
+    },
+    "desc": "Tsukishiro Yanagi, Hollow Special Operations Section 6 Deputy Chief and intelligence officer.\nPrimarily responsible for personnel management, mission management and feedback, collecting intel, on-site support, etc.\nAt the same time, Yanagi is also Section 6 member Soukaku's Protector. Apart from taking care of Soukaku's day-to-day affairs, she is also responsible for and takes responsibility for all of Soukaku's behavior at work.\n\nSection 6 Chief Hoshimi Miyabi possesses a rather eccentric personality; Asaba Harumasa, a member of Section 6, is overly relaxed and carefree; and Soukaku, another member of Section, 6 is still an innocent and excitable child, so most of the team's work falls upon Yanagi's shoulders.\nSerious, diligent, and meticulous, Tsukishiro Yanagi is the only \"normal\" person on the team, so to speak. It is only due to her guidance and leadership that the strength of the three who make up Section 6's primary on-field force can be transformed into true combat power.\nOverall, Tsukishiro Yanagi is a talented and highly efficient executive officer, whose abilities are both exceptional and comprehensive.\nHowever, from certain data, Tsukishiro Yanagi appears to have a somewhat clumsy side to her when it comes to day-to-day affairs.",
+    "ko": "야나기",
+    "zh": "柳",
+    "ja": "月城柳"
+  },
+  "1241": {
+    "code": "Zhu Yuan",
+    "rank": 4,
+    "type": 1,
+    "element": 205,
+    "hit": 103,
+    "camp": 7,
+    "icon": "IconRole23",
+    "potential": [],
+    "en": "Zhu Yuan",
+    "skin": {
+      "3112410": {
+        "name": "Zhu Yuan: Suppressor of Evil",
+        "desc": "This high-grade anti-riot uniform from Public Security has been specially modified to suit Zhu Yuan's fighting style.\nWinner of the Janus Precinct's combat tournament three years running, the young top Public Security Officer is on call 24/7, ready to arrest any criminal in her path.",
+        "image": "IconRole23"
+      }
+    },
+    "desc": "Zhu Yuan, an exceptional officer at Public Security, is a highly skilled individual expected to become the next commissioner. She currently leads the Criminal Investigation Special Response Team at the Janus Precinct within the Metropolitan Order Division. Her team members include Qingyi, Seth, and [redacted].\nNote: For documents with higher security levels within the Public Security system, further investigation is required; scheduling priority - low.\n\nZhu Yuan possesses excellent skills in criminal investigation, combat, and self-management (including working overtime). She has no unresolved cases on record.\nSuggestion: Approaching Zhu Yuan is an ill-advised decision that may compromise your cover. Always remember your true identity as a Proxy. Remember your true identity as a Proxy. Remember your true identity as a Proxy.",
+    "ko": "주연",
+    "zh": "朱鸢",
+    "ja": "朱鳶"
+  },
+  "1251": {
+    "code": "QingYi",
+    "rank": 4,
+    "type": 2,
+    "element": 203,
+    "hit": 102,
+    "camp": 7,
+    "icon": "IconRole29",
+    "potential": [],
+    "en": "Qingyi",
+    "skin": {
+      "3112510": {
+        "name": "Qingyi: Clarity, Peace, and Joy",
+        "desc": "Keep your teapot close and drink plenty of hot water — that's ancient wisdom passed down from the old civilization. But why would an intelligent construct drink tea? It must be for health purposes... right?",
+        "image": "IconRole29"
+      }
+    },
+    "desc": "Qingyi is a new officer in the Criminal Investigation Special Response Team.\nAs an artificial human, her personality is derived from ancient cultural texts from the old civilization. Her body, known as an \"Automaton,\" is an intelligent construct composed of biological materials.\nRecommended by White Star Institute, she was assigned to Public Security as a new officer partnered with Zhu Yuan.\n\nQingyi always exhibits an easygoing, laid-back demeanor, not restricted by rules.\nIn contrast to modern individuals affected by today's society, Qingyi frequently proposes unexpected solutions to problems.\n\nQingyi always carries a cup of hot water and takes occasional sips.\n\"Drinking hot water is good for your health.\"\nSuggestion: Approaching Qingyi is also an ill-considered decision that may compromise your cover. Please remember your true identity as a Proxy.",
+    "ko": "청의",
+    "zh": "青衣",
+    "ja": "青衣"
+  },
+  "1261": {
+    "code": "Jane",
+    "rank": 4,
+    "type": 3,
+    "element": 200,
+    "hit": 101,
+    "camp": 7,
+    "icon": "IconRole24",
+    "potential": [
+      126100,
+      126101,
+      126102,
+      126103,
+      126104,
+      126105
+    ],
+    "en": "Jane",
+    "skin": {
+      "3112610": {
+        "name": "Jane: Hidden Nightfade",
+        "desc": "Her everyday look when she isn't putting on a disguise. Maybe it's just one of the countless faces she wears. The night becomes her cover, and her mask is the one truth she never sets aside.",
+        "image": "IconRole24"
+      },
+      "3112611": {
+        "name": "Jane: Nocturne of Light",
+        "desc": "Who says sunlight must accompany a seaside stroll? For lurkers with names unknown, the night is their most faithful companion. The anonymous lady says the evening sea holds unspeakable secrets — is this the truth, or another deception?",
+        "image": "IconRole24_01"
+      }
+    },
+    "desc": "Jane, a criminal behavior specialist, has had a \"colorful\" career as a consultant with Public Security over the years.\nShe is an expert in disguise, infiltration, and other investigative work.\nShe has a bad habit of trolling others and sometimes plays harmless pranks.\nShe's a skilled mimic, able to change her appearance and demeanor at will, making people wonder what the \"real\" Jane is like.\n\nJane has a wealth of life experience and can seamlessly blend into any environment, as though she has dabbled in everything there is to do.\nHowever, if you ask her for any further details, she'll give you a different story every time.\nWho knows which, if any, are true.\n\nNote 1: Jane does not know our true identity. Do not reveal this to her under any circumstances.\nNote 2: Despite \"Jane Doe\" being an obvious alias, we haven't found any information about her real or former name.\nThis is not my problem. My guess is that her true identity has been completely erased due to her special status.\nLet me reiterate: This is not my problem.",
+    "ko": "제인",
+    "zh": "简",
+    "ja": "ジェーン"
+  },
+  "1271": {
+    "code": "Seth",
+    "rank": 3,
+    "type": 5,
+    "element": 203,
+    "hit": 101,
+    "camp": 7,
+    "icon": "IconRole30",
+    "potential": [],
+    "en": "Seth",
+    "skin": {
+      "3112710": {
+        "name": "Seth: Incorruptible Heart",
+        "desc": "He may be slow to pick up on things, slower even than the weight of the shield in his left hand, but his ability to detect evil is keener than the baton in his right.",
+        "image": "IconRole30"
+      }
+    },
+    "desc": "Seth, a rookie officer in the Public Security Criminal Investigation Special Response Team, is a key player in providing fire support during criminal investigations.\nHe graduated at the top of his class in the academy and could have landed a higher position, but he chose the tougher path of the Special Response Team.\nHis impressive profile makes him seem like a genius, but he's actually a hard worker who has had his own struggles. There have been times when he practiced the subjects he wasn't good at until he cried.\nSeth is quite smart, but his personality often leads to him being taken advantage of by cunning criminals, or sometimes, coworkers (?).\nThe subject he's worst at is infiltration. Rumor has it that he holds the academy record for \"fastest to get busted\" in infiltration tasks. Based on the video intel we have, he seems a bit slow to catch on. For instance, when someone is being sarcastic, it takes him a long time to realize it.",
+    "ko": "세스",
+    "zh": "赛斯",
+    "ja": "セス"
+  },
+  "1281": {
+    "code": "Piper",
+    "rank": 3,
+    "type": 3,
+    "element": 200,
+    "hit": 101,
+    "camp": 4,
+    "icon": "IconRole28",
+    "potential": [],
+    "en": "Piper",
+    "skin": {
+      "3112810": {
+        "name": "Piper: Lazy Speed",
+        "desc": "Don't be fooled by this truck driver's lazy gaze. One tap on the gas is enough to fling every passenger's soul straight into the back seat.",
+        "image": "IconRole28"
+      }
+    },
+    "desc": "Piper is a truck driver for the Sons of Calydon. Apart from driving, she's also responsible for vehicle maintenance and other related jobs.\nHer tiny stature, cute voice (though she always seems half-asleep when not driving), and adorably harmless appearance (though she's a shut-in who can't be bothered to take care of her own appearance) make it hard to imagine that she would have such a crazy driving style.\nUsually, by the time she drawls out, \"Hold~ on~ tight~,\" the truck is already barreling down the road.\nRumor has it, Piper is a driver who doesn't need brakes. Though riding with her is a terrifying experience, she will always get you where you need to go safely, and in the shortest time possible. Of course, \"safely\" doesn't include any trauma that may be induced.\n\nPiper has many hobbies that don't seem to match her age, such as reading newspapers, buying lottery tickets, and collecting car magazines.\nPiper's biggest wish is to live each day slowly and leisurely.\nNote: Please keep in mind, Master, that this is also my wish.",
+    "ko": "파이퍼",
+    "zh": "派派",
+    "ja": "パイパー"
+  },
+  "1291": {
+    "code": "Hugo",
+    "rank": 4,
+    "type": 1,
+    "element": 202,
+    "hit": 101,
+    "camp": 9,
+    "icon": "IconRole42",
+    "potential": [],
+    "en": "Hugo",
+    "skin": {
+      "3112910": {
+        "name": "Hugo: Crownless Rebellion",
+        "desc": "Never be claimed by fate. Defy its clamps, its control, its taunts, its alms, its curses, and its so-called blessings. Once you return from the abyss, it is fate that should kneel to you.",
+        "image": "IconRole42"
+      }
+    },
+    "desc": "Hugo calls himself a collector and runs a fairly successful gallery, mingling with the \"elite\" of New Eridu.\nIn truth, he's the leader of the phantom thieves syndicate, Mockingbird — and Lycaon's former partner.\nDespite his cruel (edgy and dramatic) words, deep down he has his own sense of fairness and justice.\n\nRecords suggest that Hugo had a troubled childhood.\nAs the illegitimate son of the Ravenlocks, a long-established TOPS family, he was rejected by his mother from an early age because of his heterochromatic eyes.\nHis father bought him back like a cheap commodity, using him to provoke a cutthroat succession battle between his children. In that brutal struggle, the only one kind to Hugo — his sister, Serena — became the first to fall. The ones who orchestrated her death pinned the blame on Hugo, thinking it would destroy him. But to their shock, their father actually praised Hugo's actions, calling them the very traits a worthy heir should possess.\nAfter running away from his family, Hugo met Lycaon and Jack and learned to be a phantom thief. After Jack passed away, Hugo and Lycaon formed Mockingbird together.\n\nLater, during one of Mockingbird's missions, Hugo came face-to-face with his father. In a brief moment of hesitation, he chose not to take his revenge and kill him — an act of mercy that ended up costing the lives of many innocent people. His close friend Lycaon, due to a misunderstanding born from those circumstances, broke ties with him and ultimately left Mockingbird.\nAfter drifting on his own for a while, Hugo met Vivian, a girl who reminded him of his sister Serena. He took her under his wing and reformed the Mockingbird syndicate.",
+    "ko": "휴고",
+    "zh": "雨果",
+    "ja": "ヒューゴ"
+  },
+  "1301": {
+    "code": "Orphie & Magus",
+    "rank": 4,
+    "type": 1,
+    "element": 201,
+    "hit": 103,
+    "camp": 5,
+    "icon": "IconRole49",
+    "potential": [],
+    "en": "Orphie & Magus",
+    "skin": {
+      "3113010": {
+        "name": "Orphie & Magus: Two Banks of the River",
+        "desc": "A soul of mirrored halves, having twice crossed the river of the dead. One side forged in fire, the other shaped into ice; one looking back on where it came from, the other watching for a new dawn. They wander on — never lost, never ceasing.",
+        "image": "IconRole49"
+      }
+    },
+    "desc": "Orphie Magnusson serves in the New Eridu Defense Force's Obsidian Division, Obol Squad. She is the wielder of Magus, an Intelligent Construct in gun form.\n\nMagus is the captain of Obol Squad. She was gravely injured during the fall of the old capital and on the brink of death. After taking part in a military research project, her consciousness was transferred into a weapon, allowing her to survive as an Intelligent Construct. Since the squad's formation, she has remained its heart and soul — hot-tempered and impulsive at times, yet deeply respected and trusted by her comrades.\nOrphie shares an extraordinary bond with Magus — one that goes far beyond that of just \"partners.\" The two have known each other for years, and Magus often acts like a mother, offering guidance and care. In return, Orphie does everything she can to meet Magus' expectations, aspiring to become a strong, independent soldier like her captain.\n\nStrictly speaking, Orphie enjoys many things Magus disapproves of: fancy desserts, cute animals, and overly decorative toys. Her captain sees them as signs of softness, unfit for a soldier. Still, while Magus enforces discipline in public and imposes the expectations of a perfect soldier, she pretends to be in \"sleep mode\" just to turn a blind eye to Orphie's less-than-perfect behavior. According to this supposedly \"strict and impartial\" captain, she's simply following the parenting advice laid out in an online series titled \"Raising a Child Prodigy.\"",
+    "ko": "오피&「도깨비불」",
+    "zh": "奥菲丝&「鬼火」",
+    "ja": "オルペウス&「鬼火」"
+  },
+  "1311": {
+    "code": "Astra",
+    "rank": 4,
+    "type": 4,
+    "element": 205,
+    "hit": 102,
+    "camp": 8,
+    "icon": "IconRole36",
+    "potential": [],
+    "en": "Astra Yao",
+    "skin": {
+      "3113110": {
+        "name": "Astra Yao: Scarlet Rock",
+        "desc": "The bold red is only to ignite the freedom deep within. On stage, nothing can overshadow her brilliance.",
+        "image": "IconRole36"
+      },
+      "3113111": {
+        "name": "Astra Yao: Chandelier",
+        "desc": "The black-and-white dress glimmers in both light and shadows. Every smile of hers seems to sink into the flowing light of the night, becoming a timeless classic.",
+        "image": "IconRole36_01"
+      }
+    },
+    "desc": "Astra Yao is widely regarded as Ridu's most iconic singer. With her extraordinary voice, stage presence, and songwriting talent, she has led the musical trends of an entire era. \"If music is the resonance of the soul, then Astra Yao is the spark that ignites it all,\" said one famous music critic.\n\nAs brilliant as she is, Astra remains remarkably sincere and pure. On stage, her voice resonates deeply with the audience, which has allowed her to amass a large and loyal fanbase known as her \"Astranauts.\" Of course, Astra's brilliance wouldn't be possible without the careful protection of her manager, Evelyn. Offstage, she appears to be just a cute, hapless girl who depends on Evelyn in her daily life, and on Wise and Belle in the Hollows.\n\n\"If I tickled Eous, would it make you laugh?\" Astra asked curiously while lifting the Proxy, who was linked via the HDD system.\n\nShe seems to have a particular fondness for Eous.\nContemplation: Human emotions are indeed an interesting subject. It's still hard to determine whether Astra likes Eous because of the owner, or whether she likes the owner because of Eous.",
+    "ko": "아스트라",
+    "zh": "耀嘉音",
+    "ja": "アストラ"
+  },
+  "1321": {
+    "code": "Evelyn",
+    "rank": 4,
+    "type": 1,
+    "element": 201,
+    "hit": 101,
+    "camp": 8,
+    "icon": "IconRole37",
+    "potential": [],
+    "en": "Evelyn",
+    "skin": {
+      "3113210": {
+        "name": "Evelyn: A Moth to Light",
+        "desc": "A sharp, no-nonsense manager's outfit. Its hidden edges are enough to make onlookers back off. Her yellow-brown hair weaves a fine, delicate net, where a quiet pool of starlight seems to rest.",
+        "image": "IconRole37"
+      }
+    },
+    "desc": "Evelyn is the manager and personal bodyguard of Ridu's most iconic singer, Astra Yao. Known for her calm, decisive decision-making and professional, efficient style, she's an irreplaceable pillar behind Astra. \"In terms of commercial value, if Astra Yao represents the 1, then Evelyn is all the 0s that follow,\" a reporter from an entertainment magazine stated.\n\nEvelyn is skilled at planning comprehensive schedules and product endorsements, while also ensuring Astra Yao's safety during any unexpected situations. \"Want to get close to Astra Yao? You'll have to get past Evelyn Chevalier first...\" Though she's always busy with work, Evelyn never seems overwhelmed, and she has an almost obsessive attention to detail, ensuring that every performance and every product endorsement goes through her strict scrutiny. But strangely, such an exceptional manager is not trusted by her parent company, Odeum HAE.\n\nIntel: Evelyn's role seems to go beyond just being a manager and personal bodyguard; there seems to be an \"organization\" behind her.\n\nIt seems a lot of people in Astra Yao's central Astranauts group ship them together.",
+    "ko": "이블린",
+    "zh": "伊芙琳",
+    "ja": "イヴリン"
+  },
+  "1331": {
+    "code": "Vivian",
+    "rank": 4,
+    "type": 3,
+    "element": 205,
+    "hit": 101,
+    "camp": 9,
+    "icon": "IconRole41",
+    "potential": [],
+    "en": "Vivian",
+    "skin": {
+      "3113310": {
+        "name": "Vivian: Fluttering Violet",
+        "desc": "Maintain your elegance, Miss Vivian, from the point of your parasol, right down to your flowing skirt. Maintain your courage, Miss Vivian, through last night's lonely walk, or here today at my side.",
+        "image": "IconRole41"
+      },
+      "3113311": {
+        "name": "Vivian: Iris of the Shore",
+        "desc": "Birds soar into the starlit skies, while irises bloom by the pond. Though this enchanting moonlit night may be brief, please let me see the lingering anticipation in your eyes in the moment I bloom.",
+        "image": "IconRole41_01"
+      }
+    },
+    "desc": "Vivian is a member of Mockingbird, skilled in gathering all kinds of intel. She's also a jack of many trades — cooking, mixology, translation, art forgery, electronics repair, and more.\nIn the past, she apparently wandered without a home and was viewed as one who \"brought disaster,\" almost like a living omen of bad luck.\nIt's said she can predict incoming misfortune through her tears, though there's no scientific proof of this ability.\nA loyal follower of Phaethon. Ever since your original account went inactive on Inter-Knot, she's been trying to track you down — digging for clues, running intense searches across the network. However, Master, she didn't find anything... all thanks to my efforts in keeping your cybersecurity airtight.\nSuggestion: Until her true intentions are clear, do not reveal your identity as Phaethon.\nIn case you've already let your identity slip, be sure to lock your doors and wear proper sleepwear before going to bed. Based on her old blog posts, she's likely to express her admiration in... overly passionate and intense ways.",
+    "ko": "비비안",
+    "zh": "薇薇安",
+    "ja": "ビビアン"
+  },
+  "1341": {
+    "code": "Zhao",
+    "rank": 4,
+    "type": 5,
+    "element": 202,
+    "hit": 101,
+    "camp": 12,
+    "icon": "IconRole56",
+    "potential": [],
+    "en": "Zhao",
+    "skin": {
+      "3113410": {
+        "name": "Zhao: Cuddly Executor",
+        "desc": "Warm, woolly ears and a small build may invite underestimation, but the Judge of \"Value\" won't think twice about bringing her branch down on anyone who tries.",
+        "image": "IconRole56"
+      }
+    },
+    "desc": "Zhao, a Krampus Compliance Authority Judge, was one of the elite members who joined in the early days.\n\nThough she looks innocent and cute on the outside, she's actually sharp-minded, meticulous, and principled. She puts great importance on \"value\" and \"equivalent exchange\" — not in the sense of pricing things with money, but in analyzing someone's ability and potential, giving an objective and long-term assessment of the impact they can make.\n\nIt's said this mindset didn't come from Zhao's work at Krampus, but had already taken root during her childhood. She evaluates not only others, but herself as well. \"Only those with value deserve to be seen.\"\n\nThough she rarely shows it openly, Zhao remains cautious toward kindness that comes without reason. It conflicts with her belief in \"equivalent exchange,\" and she tends to assume the other person must have a deeper motive for offering help.\nAs such, when dealing with Zhao, it's best to focus on mutual benefit first. If you want to break through her defenses with sheer sincerity and goodwill, you'll be fighting an uphill battle.\n\nThere's also one piece of intel that can't be fully confirmed: Zhao loves vegetables and dislikes meat, but she seems to be pretending she enjoys meat as well.",
+    "ko": "자오",
+    "zh": "照",
+    "ja": "照"
+  },
+  "1351": {
+    "code": "Pulchra",
+    "rank": 3,
+    "type": 2,
+    "element": 200,
+    "hit": 101,
+    "camp": 4,
+    "icon": "IconRole38",
+    "potential": [],
+    "en": "Pulchra",
+    "skin": {
+      "3113510": {
+        "name": "Pulchra: Rest for a Weary Tail",
+        "desc": "A wandering mercenary should be out roaming the world, but the sunlight here is warm — perfect for a nap.",
+        "image": "IconRole38"
+      }
+    },
+    "desc": "Pulchra, formerly a mercenary from the Outer Ring, is now a member of the Sons of Calydon. She works as an ordinary employee at the logistics company Leaps and Bounds.\nWarning: Financial transactions have been detected between Pulchra and several biker and criminal gangs from the Outer Ring. These records have reduced since joining the Sons of Calydon, but there has been a large increase in funds transferred from New Eridu. This is likely because Pulchra's new position allows for easier access to New Eridu.\nFurther information indicates Pulchra has indirect involvement in several major events in the Outer Ring, including but not limited to: gang conflicts, leaks of crucial convoy supply intel, mysterious road damage, and price surges of essential goods...\nPulchra does not have deep connections with Lucius, and there is no current risk of her being an insider for any other biker gangs. However, her interpersonal network is highly complicated. Caution is advised when interacting with her, especially in protecting personal privacy.",
+    "ko": "펄크라",
+    "zh": "波可娜",
+    "ja": "プルクラ"
+  },
+  "1361": {
+    "code": "Trigger",
+    "rank": 4,
+    "type": 2,
+    "element": 203,
+    "hit": 103,
+    "camp": 5,
+    "icon": "IconRole39",
+    "potential": [],
+    "en": "Trigger",
+    "skin": {
+      "3113610": {
+        "name": "Trigger: Gaze Into the Light",
+        "desc": "In the Hollows, her aim never wavers. She's a teammate one can rely on to cover their back without question. But once she returns to Sixth Street, that constant watchfulness softens, lingering for a moment before disappearing the instant it's sensed.",
+        "image": "IconRole39"
+      }
+    },
+    "desc": "Trigger is a sniper of New Eridu Defense Force, Obsidian Division's Obol Squad. Trigger is the code name she was assigned when enlisting in Eridu, and she's used it ever since.\n\nShe has extremely unique eyes. While she cannot see most things, in Hollow environments, she can distinctly identify the position and changes of any entities that emit Ether fluctuations. Note: Such entities include living beings, native Ether substances, Ether products, and Ethereals.\n\nAs a visually challenged person in the broadest sense, Trigger has honed her other senses to the utmost, allowing her to move and act as if she could see. She can even detect subtle changes in her environment with precision. This makes her highly adept in the tactical position of a sniper, capable of handling a variety of covert tasks such as stealth, surveillance, and assassination.\n\nIn contrast to her precise and deadly combat abilities, her personality makes her seem rather unassuming. Aside from occasionally appearing silently in the video store and giving the Second Assistant a sudden scare, she can generally be considered harmless.",
+    "ko": "「트리거」",
+    "zh": "「扳机」",
+    "ja": "「トリガー」"
+  },
+  "1371": {
+    "code": "YiXuan",
+    "rank": 4,
+    "type": 6,
+    "element": 205,
+    "hit": 102,
+    "camp": 10,
+    "icon": "IconRole44",
+    "potential": [],
+    "en": "Yixuan",
+    "spelement": "UI/Sprite/A1DynamicLoad/IconGeneralBuff/Packer/IconAuricInk.png",
+    "skin": {
+      "3113710": {
+        "name": "Yixuan: Summit of Clouds",
+        "desc": "As the Master of Yunkui Summit, one's fashion and accessories need only be what feels natural. Stay true to one's self.",
+        "image": "IconRole44"
+      },
+      "3113711": {
+        "name": "Yixuan: Trails of Ink",
+        "desc": "A custom attire in shades of ink. Like an elusive shadow, gone in a flash.",
+        "image": "IconRole44_01"
+      }
+    },
+    "desc": "Yixuan is the 13th High Preceptor of Yunkui Summit and a Void Hunter-level investigator, officially recognized by Mayor Mayflower.\n\nShe was once an orphan, wandering the world with her sister from a young age. Later, the then-High Preceptor of Yunkui Summit took them in, and they became disciples, learning the craft of Yunkui Summit. During this time, Yixuan demonstrated exceptional talent. No matter the technique, she would quickly master it, not only understanding it thoroughly but also creating her own unique techniques. The Qingming Bird was one of the special techniques she and her sister developed together, which helped her eliminate enemies and banish evil spirits in various difficult and dangerous situations. After becoming the sect's High Preceptor, she accepted an invitation from Mayor Mayflower and joined the Hollow Investigative Association as a partnered special investigator.\n\nAfter becoming High Preceptor, Yixuan took in many talented disciples to continue Yunkui Summit's lineage. However, her approach is rather casual, and often, even when teaching by example, her disciples can only guess her intentions... Yet, Yixuan isn't troubled by this, as she believes there's no standard answer to the so-called \"right path.\" What matters to her is that her disciples find their own \"right path.\" Of course, if they can understand and learn on their own, that's even better. As their Shifu, she simply lets things unfold naturally.",
+    "ko": "의현",
+    "zh": "仪玄",
+    "ja": "儀玄"
+  },
+  "1381": {
+    "code": "Soldier 0 - Anby",
+    "rank": 4,
+    "type": 1,
+    "element": 203,
+    "hit": 101,
+    "camp": 5,
+    "icon": "IconRole40",
+    "potential": [
+      138100,
+      138101,
+      138102,
+      138103,
+      138104,
+      138105
+    ],
+    "en": "Soldier 0 - Anby",
+    "skin": {
+      "3113810": {
+        "name": "Soldier 0 - Anby: Silver Soldier",
+        "desc": "Anby's old Silver Squad uniform, stained with memories that never truly fade.\nWhen the shadows of the past strike without warning, would you stand and face them, or stumble and flee? No matter the choice, home always awaits your return.",
+        "image": "IconRole40"
+      }
+    },
+    "desc": "",
+    "ko": "0호·엔비",
+    "zh": "零号·安比",
+    "ja": "0号・アンビー"
+  },
+  "1391": {
+    "code": "Ju Fufu",
+    "rank": 4,
+    "type": 2,
+    "element": 201,
+    "hit": 102,
+    "camp": 10,
+    "icon": "IconRole43",
+    "potential": [],
+    "en": "Ju Fufu",
+    "skin": {
+      "3113910": {
+        "name": "Ju Fufu: Summit's Cute Tiger",
+        "desc": "Dressed like a simple mystic, this senior sister looks like she's tucked all her bravado away, but with a tiger in her heart... she still radiates that heroic fire.",
+        "image": "IconRole43"
+      }
+    },
+    "desc": "Ju Fufu, a rare tiger Thiren of New Eridu. She looks small and is still young, but she's the most senior disciple of Suibian Temple and one of Yixuan's first disciples.\n\n\"Able to deal with anything,\" \"can even make Shifu listen,\" \"super patient and meticulous teacher,\" \"has great taste when choosing restaurants for teambuilding.\"\n—Yunkui Summit trainee performance review, peer evaluation\n\n\"Always messing up the tasks given by Shifu,\" \"doesn't command respect in speech or combat,\" \"doesn't know how to act tough against bad guys,\" \"juniors are more skilled.\"\n—Yunkui Summit trainee performance review, self-evaluation\n\n\"'The most skilled senior ever who can do anything, a righteous hero with righteous might' is what I heard her say when I passed by her room. Hm... I concur.\"\n—Yunkui Summit trainee performance review, Shifu's evaluation\n\nOther: I suggest you suggest Yunkui Summit improve their network security to avoid the risk of disciples' personal data being stolen or leaked.",
+    "ko": "귤복복",
+    "zh": "橘福福",
+    "ja": "橘福福"
+  },
+  "1401": {
+    "code": "Alice",
+    "rank": 4,
+    "type": 3,
+    "element": 200,
+    "hit": 101,
+    "camp": 11,
+    "icon": "IconRole46",
+    "potential": [],
+    "en": "Alice",
+    "skin": {
+      "3114010": {
+        "name": "Alice: Celestian Etiquette",
+        "desc": "The young woman's perfect symmetry is only ever slightly compromised when she wears the school crest — such is the elegant and noble Thymefield spirit.",
+        "image": "IconRole46"
+      },
+      "3114011": {
+        "name": "Alice: Sea of Thyme",
+        "desc": "Though it wasn't completely symmetrical, she did not mind this gift from a dear friend.\nThe girl pushed open the locked door and walked along the pink beach after the sudden downpour, the cool waves brushing over her ankles. There were no unknowns left to frighten her.",
+        "image": "IconRole46_01"
+      }
+    },
+    "desc": "Alice Thymefield, a new member of Spook Shack, is a young lady from the prestigious Thymefield family of New Eridu.\n\nAlice has studied fencing and Ether science since childhood, showing exceptional talent in both fields. She currently attends Celestia School for Girls, a subsidiary of High Ambitions Academy, where she's a model student excelling in both academics and conduct. It is predicted that she will one day inherit the family business and become a next-generation Ether scholar of New Eridu.\n\nShe places extreme importance on order and patterns, showing an almost obsessive pursuit of symmetry in particular. This even affects her aesthetic judgment, making symmetry the primary criterion in determining whether something is beautiful or ugly.\n\nFurthermore, she's easily frightened, with practically zero resistance to ghost stories and supernatural tales. Despite this, she seems to show considerable interest in encountering such phenomena. Suggestion: Master can use ghost stories as a topic of conversation with her. No matter how much she initially refuses, it is likely that she will eventually come closer to investigate.",
+    "ko": "앨리스",
+    "zh": "爱丽丝",
+    "ja": "アリス"
+  },
+  "1411": {
+    "code": "Yuzuha",
+    "rank": 4,
+    "type": 4,
+    "element": 200,
+    "hit": 102,
+    "camp": 11,
+    "icon": "IconRole47",
+    "potential": [],
+    "en": "Yuzuha",
+    "skin": {
+      "3114110": {
+        "name": "Yuzuha: Tanuki Under the Shade",
+        "desc": "Can you tell what the umbrella conceals? A tanuki, a trap, a ghost, or a girl's sly, spirited smile?",
+        "image": "IconRole47"
+      },
+      "3114111": {
+        "name": "Yuzuha: Tanuki in Broad Daylight",
+        "desc": "Ghost stories aren't born only in shadows. Unconvinced? Just lock eyes with that playful young lady splashing in the water. She'll possess your thoughts, while Kama sneaks away with your drink.",
+        "image": "IconRole47_01"
+      }
+    },
+    "desc": "Ukinami Yuzuha, a resident of Waifei Peninsula's Failume Heights, currently attends a low-tuition company affiliated school in the city. Aside from being part of the Inter-Knot subforum Spook Shack, she's not affiliated with any other groups — though in New Eridu, such forums aren't typically seen as formal organizations, and are, instead, more like hobby clubs.\nYuzuha is the adopted daughter of Li Baorong, owner of the Mystic Wares Porcelume store. Word around Failume Heights is that Baorong lost his wife and two daughters when the old capital fell. In the years that followed, he took in five children. Yuzuha is the second oldest, with an older brother, a younger brother, and two younger sisters. The family lived on the second floor above the store, and with just two bedrooms, Yuzuha shared one with her sisters, while the boys stayed with Baorong. Now that her older brother has moved out and she mostly stays in the school dorm, the apartment feels a bit less crowded. But on weekends and holidays, Yuzuha usually returns from school to help her father at the store.\nEven as a child, Yuzuha showed a surprising level of maturity. Her eloquence and cheerful nature have made her a favorite among neighbors — and a hit with the kids around Waifei Peninsula and Sailume Bay.\nOn the Spook Shack forum, Yuzuha goes by the username \"Yuzupepper.\" In addition to her real-life friends Manato and Alice, she is also close with two other users known as \"Night Emissary\" and \"Strawberry Parfait\" on the forums.",
+    "ko": "유즈하",
+    "zh": "柚叶",
+    "ja": "浮波柚葉"
+  },
+  "1421": {
+    "code": "Yinhu",
+    "rank": 3,
+    "type": 5,
+    "element": 200,
+    "hit": 102,
+    "camp": 10,
+    "icon": "IconRole45",
+    "potential": [],
+    "en": "Pan Yinhu",
+    "skin": {
+      "3114210": {
+        "name": "Pan Yinhu: Hundred Flavors",
+        "desc": "Yunkui Summit's largest disciple uniform, spacious enough for this senior brother's belly and all his seasonings. And that iron wok on top is a first of its kind. But... putting a pan you just used for stir-frying on your head? Doesn't it burn?",
+        "image": "IconRole45"
+      },
+      "3114211": {
+        "name": "Pan Yinhu: Culinary Jewel",
+        "desc": "Senior Yinhu once dreamed of becoming a renowned chef, but in this day and age, there's always some thug looking to smash your bowl.\n—\"Go on, try smashing one.\"",
+        "image": "IconRole45_01"
+      }
+    },
+    "desc": "Pan Yinhu, disciple of Yunkui Summit, serves as both the head chef and financial manager of Suibian Temple. He's proficient in martial arts, and an expert in pressure-point techniques.\nAs the one managing Suibian Temple's money, he's a master at keeping costs down and can bargain a 5,000 Denny piece of meat down to 500. If he can make something at home, he refuses to purchase it at a store, and no matter which big supermarket or shop you name, he's got a coupon for it tucked in his pocket.\nThanks to him, the members of Suibian Temple enjoy delicious yet budget-friendly meals every day. As the head of the kitchen, he demands precise flavor profiles and pays keen attention to his friends' opinions.\nWhat's more, given his years of frugality, it's safe to assume that both the group's treasury and his secret piggy bank have ballooned to jaw-dropping levels.",
+    "ko": "반인호",
+    "zh": "潘引壶",
+    "ja": "潘引壺"
+  },
+  "1431": {
+    "code": "Ye Shunguang",
+    "rank": 4,
+    "type": 1,
+    "element": 200,
+    "hit": 101,
+    "camp": 10,
+    "icon": "IconRole55",
+    "potential": [],
+    "en": "Ye Shunguang",
+    "spelement": "UI/Sprite/A1DynamicLoad/IconGeneralBuff/Packer/IconHonedEdge.png",
+    "skin": {
+      "3114310": {
+        "name": "Ye Shunguang: Clouddrift Illumination",
+        "desc": "Cloud-woven silk, a blade's gleam reflected in its folds. The attire mirrors the person.\nBut who truly chose this dress? Was it her... or the deeper self within?",
+        "image": "IconRole55"
+      },
+      "3114311": {
+        "name": "Ye Shunguang: Touch of Dawnlight",
+        "desc": "The gentle glow of sunlight and warm breeze seem to welcome your next encounter as you walk down the streets.",
+        "image": "IconRole55_01"
+      }
+    },
+    "desc": "Ye Shunguang is the Sword Keeper of Yunkui Summit's treasured Qingming Sword, a disciple of Yixuan, and the younger sister of Ye Shiyuan, as well as a swordswoman blessed with extraordinary talent.\nShe enjoyed a happy childhood until the fall of the old capital, when her parents lost their lives rescuing others, bringing all her happiness to an abrupt end.\nFrom then on, she relied solely on her brother — up until Yixuan took them in, bringing them into Yunkui Summit. Later, she was chosen by the Qingming Sword, taking up the mantle and duty of Sword Keeper.\n\nRumor has it that the Qingming Sword's favor is less a blessing and more a kind of curse. Though it gives its Sword Keeper Void Hunter level power, it extracts a harsh cost — the loss of one's memories and five senses.\nIn order to subdue this side effect, Yixuan Shifu crafted a custom sword case for Ye Shunguang. It appears effective for the moment, but the true nature of the weapon is still shrouded in mystery.",
+    "ko": "엽빛나",
+    "zh": "叶瞬光",
+    "ja": "葉瞬光"
+  },
+  "1441": {
+    "code": "Manato",
+    "rank": 3,
+    "type": 6,
+    "element": 201,
+    "hit": 101,
+    "camp": 11,
+    "icon": "IconRole51",
+    "potential": [],
+    "en": "Manato",
+    "skin": {
+      "3114410": {
+        "name": "Komano Manato: Loyal Wild Soul",
+        "desc": "The standard attire of the unofficial mediator in Sailume Bay, enough to intimidate petty thugs.\nStill, it sometimes draws wandering eyes.",
+        "image": "IconRole51"
+      },
+      "3114411": {
+        "name": "Komano Manato: White Heart Silhouette",
+        "desc": "A young Manato made a solitary vow to himself — and from his deep reverie, a lone pale shadow was born.\nMimicking his attire enhances Manato's already exceedingly intimidating presence.",
+        "image": "IconRole51_01"
+      }
+    },
+    "desc": "Komano Manato, a member of Spook Shack and an exceptionally reliable person. Having lost his family in the fall of the old capital, he grew up alone in Waifei Peninsula until the day he happened to adopt two street children, A-Cing and A-Yuet. Since then, the three have lived as a family, depending on one another. It may be a young household, but to Manato, nothing matters more than looking after them.\nManato is currently enrolled at a company affiliated school in the city, where rumors paint him as the terrifying \"school delinquent.\" The label likely comes from his intimidating appearance, though in reality, he's far more soft-hearted and generous than he seems.\nAt first, Manato really did want to do something to clear up the misunderstanding about being a delinquent, but for various reasons, his efforts didn't make much of an impact. Still, his optimism soon led him to realize that the title wasn't all bad. It let him dodge unnecessary social events, live without being bothered by strangers, and even leverage the \"delinquent\" image to sniff out stories of school ghost tales, all while standing up for classmates suffering from actual bullying.\nBut when it comes to grades, he really does live up to the \"school delinquent\" label of a company affiliated school student.",
+    "ko": "마나토",
+    "zh": "真斗",
+    "ja": "狛野真斗"
+  },
+  "1451": {
+    "code": "Lucia",
+    "rank": 4,
+    "type": 4,
+    "element": 205,
+    "hit": 102,
+    "camp": 11,
+    "icon": "IconRole50",
+    "potential": [],
+    "en": "Lucia",
+    "skin": {
+      "3114510": {
+        "name": "Lucia: Whispering Dreams",
+        "desc": "Her cloak is the curtain of night, and beneath her hood rests the world's quiet whispers. She sings for the dusk and speaks in dreams, gathering the thoughts sleepers leave behind and weaving them into halos and riddles across the stars.",
+        "image": "IconRole50"
+      }
+    },
+    "desc": "Lucia, a member of Spook Shack, goes by the online name \"Night Emissary.\" She's a backpacker, an Ethereal story enthusiast, and a connoisseur of late-night food stalls.\n\nRecords show that Lucia hails from a tribe living on the outskirts of the city. Legend has it their ancestors once encountered an Ethereal called the \"Night Horror\" (absent from the Hollow Investigative Association archives), which left them with a strange gift: Ethereals tend not to notice them. The cost, though, is that they dream of the Night Horror at night, and under its influence, they sleepwalk into Hollows, where corruption awaits.\nBecause of this, the tribe took on the role of Nightwatchers. They rest during the day and hunt deep in the night, avoiding the Night Horror's pull. And if anyone must sleep at night, their family will keep vigil at their side until dawn.\n\nLucia grew up surrounded by her kin, and even after arriving in New Eridu, she has kept to the Nightwatcher tradition of staying awake through the night and watching over her cherished friends, shielding them from the Night Horror's reach.\nMaster, if you hear a knock at your window late at night, don't be alarmed. It may just be a sleepless night guardian stopping by to say hello.\n\nAdditional note: Lucia's pet is \"Chestnut,\" a small, friendly Hati. It once lived in the Hollow's outskirts, but has since moved deeper inside. Even I can no longer detect its exact whereabouts.",
+    "ko": "루시아",
+    "zh": "卢西娅",
+    "ja": "リュシア"
+  },
+  "1461": {
+    "code": "Seed",
+    "rank": 4,
+    "type": 1,
+    "element": 203,
+    "hit": 101,
+    "camp": 5,
+    "icon": "IconRole48",
+    "potential": [],
+    "en": "Seed",
+    "skin": {
+      "3114610": {
+        "name": "Seed: Flower in Bloom",
+        "desc": "A corner of the world blooming in color, a single salty tear, a perfect circle of life — this is where the girl and the construct uncovered the truth of the heart. She never needs to look back; she has already blossomed into her own sea of petals.",
+        "image": "IconRole48"
+      }
+    },
+    "desc": "Seed, heavy weapons specialist of New Eridu Defense Force, Obsidian Division, Obol Squad. Her real name is Flora. The codename \"Seed\" was passed down from her guardian, the combat-grade Intelligent Construct formerly known by the same name, who now goes by \"Seed Sr.\"\n\nAccording to multiple sources, Seed is an unidentified orphan Seed Sr. rescued from Hollow Zero during the fall of the old capital. Seed Sr. adopted her and raised her alone in the Defense Force dormitories.\nA few years ago, Seed Sr. successfully applied to join Obol Squad, but not long after, he passed away due to irreversible damage to his logic core. As a result, Seed took his place in the squad. Any voice lines heard from Seed Sr. today are system-preloaded audio files.\n\nSeed possesses an extraordinary gift for mechanical engineering and research, capable of designing and building inventions far beyond the imagination of most. She also has an exceptional adaptability for Ether, able to push Seed Sr.'s combat capabilities to the limit by piloting him, through remote control, and by using custom combat modules.\n\nAnd so, despite her extraordinarily substandard physical capabilities and entirely mysterious origins, the military still gave tacit approval for her to serve as an elite soldier.\n\nSeed behaves quite differently from most people in everyday situations. She uses Seed Sr.'s cockpit as her bed, prefers confined spaces, and strongly dislikes talking to or interacting with anyone outside her immediate circle. Her logic jumps wildly, making meaningful conversation difficult.\n\nThe good news? For some reason, she's taken a special liking to you, Master, and the second assistant. You've been spared the long ordeal of earning her trust — and you don't have to worry about her occasional bouts of destructive behavior turning your way. Congratulations.\n\nSuggestion: Focus on topics like flowers and robots — her favorite things — when engaging in conversation. Stay calm when parts of her logic or meaning don't make sense; treating such moments as normal can help strengthen your bond with her.",
+    "ko": "「시드」",
+    "zh": "「席德」",
+    "ja": "「シード」"
+  },
+  "1471": {
+    "code": "Banyue",
+    "rank": 4,
+    "type": 6,
+    "element": 201,
+    "hit": 102,
+    "camp": 12,
+    "icon": "IconRole53",
+    "potential": [],
+    "en": "Banyue",
+    "skin": {
+      "3114710": {
+        "name": "Banyue: Blazestone Heart",
+        "desc": "He carries a righteous, unshakable aura — every bit the master he is. Don't judge him by his silence; a stone heart makes no sound, and compassion doesn't speak aloud either.",
+        "image": "IconRole53"
+      }
+    },
+    "desc": "Banyue is an Intelligent Construct who runs a martial arts school in Waifei, known to many as \"Banyue Shifu.\" He has lived for a long time, his stone-lion-like presence commanding respect. A martial arts expert of great skill, he shares a long-standing friendship with Yunkui Summit's current High Preceptor, Yixuan.\n\nAs a martial master, Banyue is quiet but dependable. His methods and beliefs are rooted in tradition, and he disciplines his students with strict yet thoughtful guidance, teaching them not just how to fight, but how to learn. Known as a true master of the martial arts, in battle, he can assume a special form known as the Visage of Wrath to vanquish all evil.\n\nA long inhabitant of Waifei, Banyue is quiet and even-tempered. He doesn't express emotions easily and has the manner of someone from another era. Knowing he's out of touch with modern trends, he's been secretly trying to learn the latest internet slang... yet his half-baked grasp of it tends to end in funny little misunderstandings.\n\nBanyue also appears to have a strange liking for round things — stone balls, spherical bollards, and the like. If the conversation ever goes silent while you're alone with him, bringing up something spherical usually does the trick.",
+    "ko": "반악",
+    "zh": "般岳",
+    "ja": "盤岳"
+  },
+  "1481": {
+    "code": "Dialyn",
+    "rank": 4,
+    "type": 2,
+    "element": 200,
+    "hit": 101,
+    "camp": 12,
+    "icon": "IconRole54",
+    "potential": [],
+    "en": "Dialyn",
+    "skin": {
+      "3114810": {
+        "name": "Dialyn: Ringing Judgment",
+        "desc": "A sweet voice comes from the receiver, and when you lean in to listen, it softens into a gentle whisper, announcing that the verdict has arrived... just kidding, it's just a standard satisfaction survey.",
+        "image": "IconRole54"
+      }
+    },
+    "desc": "Dialyn works as a customer service representative for TOPS' Cross-Department Customer Service Center, though few know her other identity — a Krampus Compliance Authority Judge.\n\nShe calls herself TOPS' top-rated representative, yet she also tops the list for the most complaints in the department. Despite never flaunting her authority as a Judge, she always delivers verdicts that cut closest to the truth.\n\nDialyn was born with the ability to hear the voices of those on the brink of death within the Hollows — a talent that's unmatched. Yet to a young Dialyn, it was a tormenting curse.\n\nBe it gift or curse, she has long turned it into a blade for discerning the truth. Despite the trials and tribulations she's borne, she's come far.",
+    "ko": "다이아린",
+    "zh": "琉音",
+    "ja": "ダイアリン"
+  },
+  "1491": {
+    "code": "Sunna",
+    "rank": 4,
+    "type": 4,
+    "element": 200,
+    "hit": 102,
+    "camp": 13,
+    "icon": "IconRole58",
+    "potential": [],
+    "en": "Sunna",
+    "skin": {
+      "3114910": {
+        "name": "Sunna: Dreams on Loop",
+        "desc": "Put on the outfit she finds cutest, and she can break free from the crowd, slipping into the lingering echoes of delusion.",
+        "image": "IconRole58"
+      },
+      "3114911": {
+        "name": "Sunna: Afternoon Tea Break",
+        "desc": "Freshly baked cake, rich aromatic coffee, and the warm afternoon sun...\nWrapped in moments of softness, it's time to begin today's tea break.",
+        "image": "IconRole58_01"
+      }
+    },
+    "desc": "Sunna is a member of the Angels of Delusion idol group and the composer behind all of the group's music. Maintaining top-tier songwriting while keeping pace with rehearsals and stage performances is anything but easy for her. When the pressure piles up, she occasionally employs the tactic of \"retreat is the best option\" to dodge Captain Nangong Yu's brutal scheduling.\nNote: Reliable intelligence suggests that this tactic works largely because Nangong Yu intentionally lets it slide.\n\nSunna and Nangong Yu, another member of the Angels of Delusion, have known each other since they were young and grew up together. While they appear to always squabble, the two are in fact deeply dependent on one another. When it comes to music, Sunna shares a strong connection with their final member, Aria. As Aria puts it, the two frequently spend whole days in the studio discussing melodies for new songs, only to drift off to sleep without even realizing it, heads resting against each other.\n\nSunna is fairly introverted and prefers spending time alone over group activities. That said, her two teammates know her weaknesses all too well — she finds it hard to say no and can't handle praise — and are helping her gradually overcome her social anxiety through desensitization training (progress: about 25%).\n\nWhile most fans see Sunna's \"hopeless\" side as endearing, she herself seems eager to tear off that label and become a confident, \"proper idol.\" As the creative force behind the music, she often wants to flee the stage — yet in truth, she's not as indifferent to performing as she claims to be.\nEvidence: A sticky note by Sunna's bedside that reads \"I can't disappoint the fans. I need to give them my very best on stage!\"",
+    "ko": "수나",
+    "zh": "千夏",
+    "ja": "千夏"
+  },
+  "1501": {
+    "code": "Aria",
+    "rank": 4,
+    "type": 3,
+    "element": 205,
+    "hit": 102,
+    "camp": 13,
+    "icon": "IconRole57",
+    "potential": [],
+    "en": "Aria",
+    "skin": {
+      "3115010": {
+        "name": "Aria: Energetic Idol",
+        "desc": "A touch of pink and white, a hint of lights and sound, plus countless days and nights devoted to singing — all of it comes together as a boundless delusion on stage.",
+        "image": "IconRole57"
+      },
+      "3115011": {
+        "name": "Aria: Discordant Note",
+        "desc": "Aria's performance outfit for special shows, worn only a handful of times.\nA pure-white \"angel\" clad in \"demonic\" wings. Take a deep breath, get ready... once the spotlight comes on, it's the Angels of Delusion's time to rebel.",
+        "image": "IconRole57_01"
+      }
+    },
+    "desc": "Aria is the lead vocalist and center of the Angels of Delusion. Bright and full of energy, she always shines on stage, bringing warmth and strength to all Delulus.\nShe has a near-perfect voice, even though she was never professionally trained. At first, Aria only sang because she loved her idol, the retired songstress Cersea, copying her performances and singing along, until she realized she had a gift for song of her own.\nThough Aria's vocal skills are undeniably professional, she lacks a solid foundation in dance. Even with dedicated practice, she can still get flustered when faced with more complex moves. Still, fans deeply appreciate her attitude of \"even if I can't dance well, I'll still give it everything I've got.\"\n\"Pushing herself to the limit, wrestling with her own limbs to try and keep up with the rhythm... that's our Angels of Delusion lead vocalist!\" —One Delulu sobbing after a show.",
+    "ko": "아리아",
+    "zh": "爱芮",
+    "ja": "アリア"
+  },
+  "1511": {
+    "code": "NangongYu",
+    "rank": 4,
+    "type": 2,
+    "element": 205,
+    "hit": 102,
+    "camp": 13,
+    "icon": "IconRole59",
+    "potential": [],
+    "en": "Nangong Yu",
+    "skin": {
+      "3115110": {
+        "name": "Nangong Yu: Dreamy Dancer",
+        "desc": "Dreams are both cheap and expensive, always just out of reach. The people on the ground call them stars.\nSo the angel walks among the stars and lifts a sliver of fantasy from the endless galaxy... the very first rainbow light that shone upon her.",
+        "image": "IconRole59"
+      },
+      "3115111": {
+        "name": "Nangong Yu: Rhapsody's Muse",
+        "desc": "Dancing within disordered rhythms, spinning across a stage of wild fantasia.\nThe boundary between angel and demon tilts with the lights, dissolving within her reflection.",
+        "image": "IconRole59_01"
+      }
+    },
+    "desc": "Nangong Yu, the captain and choreographer of the idol group the \"Angels of Delusion,\" is a rare prodigy blessed with exceptional Ether aptitude, a sharp business acumen, and outstanding idol talent.\n\nThough she always presents herself with a laid-back air — teasing her teammates and joking around — she consistently receives the fewest negative reviews in the group. Although she often claims that her dream is merely \"borrowed,\" she pours far more effort and emotion into this small stage than anyone would believe.\n\nNangong possesses a rare gift for making the difficult look effortless — whether it's dancing, rapping, making investments, or reading people. That gift once served as the mask that allowed her to easily play the role of \"captain,\" yet it also kept her isolated from her true desires.\n\nYet whether it started as responsibility toward a close friend or later turned into an irreplaceable love for the stage, beneath the stage lights and the audience's gaze she has already forged those borrowed sparks into a light of her own.",
+    "ko": "남궁우",
+    "zh": "南宫羽",
+    "ja": "南宮羽"
+  },
+  "1521": {
+    "code": "Cissia",
+    "rank": 4,
+    "type": 1,
+    "element": 203,
+    "hit": 101,
+    "camp": 7,
+    "icon": "IconRole60",
+    "potential": [],
+    "en": "Cissia",
+    "skin": {
+      "3115210": {
+        "name": "Cissia: Snake & Mouse Game",
+        "desc": "There are two kinds of people in this world, venomous snakes and mice! As for who is what...\nLady Cissia says: Those stronger than me are snakes, and those weaker than me are mice!",
+        "image": "IconRole60"
+      }
+    },
+    "desc": "Cissia, a case specialist serving under the New Eridu Public Security Commissioner, is currently campaigning to become the new second-floor roommate at Random Play.\n\nMore than the danger of the mission itself, what she fears most is a call from her superior. The professionalism she shows in her actions is far more dependable than how she looks or the way she talks. Relying only on instinct and her senses, she can still make the right call.\n\nShe may claim to be a selfish, instinct-driven \"bad guy,\" but the choices she makes often carry a faint glimmer of humanity beyond personal gain. She scoffs at order and justice, yet can become the sharpest blade in the hunt for the worst criminals.\n\nBut whether it's the lies she tells to protect herself, the fangs she shows when she bites back, or that wild philosophy of \"survive and profit,\" Cissia has turned them all into a shield to protect the few things she still has. No matter what past or shackles she carries, she has already decided to make her stand here.",
+    "ko": "시시아",
+    "zh": "希希芙",
+    "ja": "シーシィア"
+  },
+  "1531": {
+    "code": "Starlight - Billy",
+    "rank": 4,
+    "type": 6,
+    "element": 200,
+    "hit": 101,
+    "camp": 1,
+    "icon": "IconRole62",
+    "potential": [],
+    "en": "Starlight - Billy",
+    "skin": {
+      "3115310": {
+        "name": "Starlight - Billy: Starlight Armaments",
+        "desc": "Those who always believe in hope will, in the end, become someone else's hope.",
+        "image": "IconRole62"
+      }
+    },
+    "desc": "",
+    "ko": "스타라이트·빌리",
+    "zh": "星徽·比利",
+    "ja": "スターライト･ビリー"
+  },
+  "1541": {
+    "code": "Promeia",
+    "rank": 4,
+    "type": 3,
+    "element": 202,
+    "hit": 101,
+    "camp": 12,
+    "icon": "IconRole61",
+    "potential": [],
+    "en": "Promeia",
+    "skin": {
+      "3115410": {
+        "name": "Promeia: Shrouded in Frost",
+        "desc": "Darkness is a weapon that fits perfectly in my hand. As an executioner, I'm already at home in the night, but carrying heavy shackles, it's easy to lose my way.",
+        "image": "IconRole61"
+      }
+    },
+    "desc": "Promeia, a Judge of the Krampus Compliance Authority, is primarily responsible for carrying out \"executions.\"\n\nUnlike the other Judges in Krampus, each with their own strong personalities, Promeia feels more like an iceberg lurking beneath the surface. Quiet and reserved, she seems to have no personal interests or hobbies.\n\nFor the majority within the TOPS Alliance, avoiding any involvement with her is a given. If their misdeeds are exposed and they end up under Krampus scrutiny, the first thing those anxious rulebreakers pray for is that Promeia won't be handling their case.\n\nThere's a rumor that circulates quietly within the company, but no one dares talk about it openly. Before joining the Krampus Compliance Authority, Promeia came from the infamous Sweepers, an Outer Ring group that served Calydon and specialized in eliminating \"unstable elements.\"",
+    "ko": "프로미아",
+    "zh": "普罗米娅",
+    "ja": "プロメイア"
+  },
+  "1551": {
+    "code": "Pyrois",
+    "rank": 4,
+    "type": 1,
+    "element": 205,
+    "hit": 101,
+    "camp": 15,
+    "icon": "IconRole63",
+    "potential": [],
+    "en": "Pyrois",
+    "skin": {
+      "3115510": {
+        "name": "Pyrois: Dawn's Guardian",
+        "desc": "The dying heat haze extinguished within the valley will one day be reborn from the sea. The beast that trampled fate beneath its feet will become the chariot that clears the path ahead.",
+        "image": "IconRole63"
+      }
+    },
+    "desc": "",
+    "ko": "피로이스",
+    "zh": "佩洛伊斯",
+    "ja": "ピュロイス"
+  },
+  "1561": {
+    "code": "Velina",
+    "rank": 4,
+    "type": 3,
+    "element": 204,
+    "hit": 101,
+    "camp": 16,
+    "icon": "IconRole64",
+    "potential": [],
+    "en": "Velina",
+    "skin": {
+      "3115610": {
+        "name": "Velina: Elegant Silver Cascade",
+        "desc": "Some busybodies claim the Administrative Director rejected the External Strategy Department's official uniform to show off her prestigious upbringing, but Velina has always had little interest in lavish fashion. Rather than the elaborate glamour of ceremonial wear, she favors simple clothing: sharp, proper, and suited to dealing with never-ending administrative work.",
+        "image": "IconRole64"
+      },
+      "3115611": {
+        "name": "Velina: Shade of Leisure",
+        "desc": "Outside of work, Velina occasionally invites close friends to afternoon tea parties. During such moments, she changes into relatively casual attire to enjoy her free time... though to the Bangboo, it's merely the Grim Reaper in a different terrifying disguise.",
+        "image": "IconRole64_01"
+      }
+    },
+    "desc": "Velina, the Administrative Director of the External Strategy Department, oversees cooperation and diplomacy between Roscaelifer and New Eridu.\n\nAs a descendant of the prestigious Airgid family, Velina inherited a strict and meticulous upbringing. Renowned for her nearly flawless efficiency and exceptional ability to keep any situation under control, she is the dependable adult whom Chief Technician Norma describes as someone capable of \"handling meetings, paperwork, and troublesome people.\"\n\nShe is sharp and efficient in her work, meticulous, and always gentle and composed when dealing with others. Beneath her elegant, effortless smile lies an intensity that is impossible to ignore. No matter how troublesome the diplomatic affair or absurd the disaster may be, Velina can resolve it with ease. However, the price of seeking her help is not always one the requester can afford.\n\nVelina has a particular fondness for all kinds of black tea and often invites friends to tea parties during her spare time.\n\nPlease note: Any tea party invitation sent by Velina in her capacity as Administrative Director should never be taken lightly. They are rarely mere leisure. More often, they serve as the perfect setting for her to negotiate situations and quietly steer events toward her desired outcome.",
+    "ko": "벨리나",
+    "zh": "维琳娜",
+    "ja": "ヴェリナ"
+  },
+  "1571": {
+    "code": "Norma",
+    "rank": 4,
+    "type": 2,
+    "element": 201,
+    "hit": 102,
+    "camp": 16,
+    "icon": "IconRole65",
+    "potential": [],
+    "en": "Norma",
+    "skin": {
+      "3115710": {
+        "name": "Norma: Immunity to Fools",
+        "desc": "Rule #1 of Norma's Lab Safety Guidelines: Avoid criticism and advice from idiots and incompetents.",
+        "image": "IconRole65"
+      }
+    },
+    "desc": "Norma, Chief Technician of the External Strategy Department and a central figure within Marcel Group's technological center. No matter how long or complicated her titles may sound, the young Miss Norma is without question a titan in the field of Bangboo technology. Even Lady Sunbringer herself may not understand every gear and chip inside a Bangboo body better than Norma does.\n\nShe fits every stereotype people have about genius scientists: her engineering skills are exceptional, while her people skills are inversely proportional. She takes Velina's \"Etiquette Manual\" seriously, and is equally serious about never following it.\n\nA firm believer in performance above all, she was once feared by Bangboo due to her radical Bangboo modification techniques and somewhat less-than-Bangboo-centered approach, earning a reputation as a terrifying scientist who would stop at nothing for her research. ...The safety engineers at the External Strategy Department lab may share a similar view.\n\nIt's less that the title of \"Chief Technician\" crowned Norma in the field of Bangboo technology, and more that Norma herself represents the pinnacle of the Marcel Group's technological achievements.",
+    "ko": "노르마",
+    "zh": "诺姆",
+    "ja": "ノルムー"
+  },
+  "1581": {
+    "code": "Avatar_Female_Size02_Remielle_En",
+    "rank": 4,
+    "type": 3,
+    "element": 300,
+    "hit": 101,
+    "camp": 17,
+    "icon": "IconRole67",
+    "potential": [],
+    "en": "Avatar_Female_Size02_Remielle",
+    "skin": {
+      "3115810": {
+        "name": "AvatarSkin_RemielleOrigin_Name_000",
+        "desc": "AvatarSkin_RemielleOrigin_Desc_000",
+        "image": "IconRole67"
+      },
+      "3115811": {
+        "name": "AvatarSkin_RemielleOrigin_Name_001",
+        "desc": "AvatarSkin_RemielleOrigin_Desc_001",
+        "image": "IconRole67_01"
+      }
+    },
+    "desc": "Partner_ProfileDesc_1581",
+    "ko": "Avatar_Female_Size02_Remielle",
+    "zh": "(Test1)蕾米埃尔",
+    "ja": "Avatar_Female_Size02_Remielle"
+  },
+  "1591": {
+    "code": "Avatar_Female_Size03_Sigrid_En",
+    "rank": 4,
+    "type": 1,
+    "element": 202,
+    "hit": 103,
+    "camp": 16,
+    "icon": "IconRole66",
+    "potential": [],
+    "en": "Avatar_Female_Size03_Sigrid",
+    "skin": {
+      "3115910": {
+        "name": "AvatarSkin_Sigrid_Name_000",
+        "desc": "AvatarSkin_Sigrid_Desc_000",
+        "image": "IconRole66"
+      }
+    },
+    "desc": "Partner_ProfileDesc_1591",
+    "ko": "Avatar_Female_Size03_Sigrid",
+    "zh": "(Test1)希格莉德",
+    "ja": "Avatar_Female_Size03_Sigrid"
+  }
+}

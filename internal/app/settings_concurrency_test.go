@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -13,14 +12,14 @@ import (
 )
 
 // newConcurrencyTestApp builds a minimal but fully-wired App: real providers,
-// a temp settings path (so UpdateSettings' disk write works), and an update
-// registry (so UpdateStatusAll works).
+// a temp DB store (so UpdateSettings' saveSettingsToDB write works), and an
+// update registry (so UpdateStatusAll works).
 func newConcurrencyTestApp(t *testing.T) *App {
 	t.Helper()
 	a := &App{
-		settingsP: filepath.Join(t.TempDir(), "settings.toml"),
-		detect:    map[core.BackendID]detectEntry{},
-		logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		store:  openState(t),
+		detect: map[core.BackendID]detectEntry{},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	a.ctx = context.Background()
 	if err := a.constructProviders(); err != nil {

@@ -15,34 +15,42 @@ type BannerPity struct {
 	NearPity bool            `json:"nearPity"` // >80% of cap
 }
 
-// HeadlineEntry is one headline-rank pull for the recent list / timeline.
+// HeadlineEntry is one high-rarity pull for the recent/headline lists. Count is
+// the per-rank pity distance (pulls since the previous pull of this rank-or-higher
+// for the top rank; since the previous top-or-second-rank pull for the second).
 type HeadlineEntry struct {
 	Name      string `json:"name"`
 	ItemType  string `json:"itemType"`
 	BannerKey string `json:"bannerKey"`
 	Time      string `json:"time"`
-	Count     int    `json:"count"` // pulls spent to land this one
+	Count     int    `json:"count"`   // pulls spent to land this one
+	Rank      int    `json:"rank"`    // the pull's rarity (e.g. 4 or 5; Endfield 5 or 6)
+	Off       bool   `json:"off"`     // lost the 50/50 (歪): a standard-pool item on a limited banner
+	Limited   bool   `json:"limited"` // pulled on a Limited (featured/collab) banner
+	Icon      string `json:"icon"`    // /_asset/... icon URL; set by the app-layer decorator (core stays pure → ""), "" when unresolved
 }
 
 // GachaSummary is the full dashboard payload.
 type GachaSummary struct {
-	Supported      bool            `json:"supported"`
-	UID            string          `json:"uid"`
-	ActiveUnknown  bool            `json:"activeUnknown"` // switcher-only: active account uid not yet known (play-first)
-	TotalPulls     int             `json:"totalPulls"`
-	PerBanner      map[string]int  `json:"perBanner"`
-	SpendEst       int             `json:"spendEst"`
-	Currency       string          `json:"currency"`
-	HeadlineCnt    int             `json:"headlineCnt"`
-	HeadlineByType map[string]int  `json:"headlineByType"`
-	AvgPity        float64         `json:"avgPity"`
-	ExpectedPity   float64         `json:"expectedPity"`
-	LuckScore      int             `json:"luckScore"`
-	WinRate5050    *float64        `json:"winRate5050"`
-	WorstPull      int             `json:"worstPull"`
-	Pity           []BannerPity    `json:"pity"`
-	Distribution   []int           `json:"distribution"`
-	RecentHeadline []HeadlineEntry `json:"recentHeadline"`
+	Supported              bool            `json:"supported"`
+	UID                    string          `json:"uid"`
+	ActiveUnknown          bool            `json:"activeUnknown"` // switcher-only: active account uid not yet known (play-first)
+	TotalPulls             int             `json:"totalPulls"`
+	PerBanner              map[string]int  `json:"perBanner"`
+	SpendEst               int             `json:"spendEst"`
+	Currency               string          `json:"currency"`
+	HeadlineCnt            int             `json:"headlineCnt"`
+	HeadlineByType         map[string]int  `json:"headlineByType"`
+	AvgPity                float64         `json:"avgPity"`
+	ExpectedPity           float64         `json:"expectedPity"`
+	ExpectedFeaturedWeapon float64         `json:"expectedFeaturedWeapon"` // 出限定武器期望; 0 = unknown (no card-8 note)
+	LuckScore              int             `json:"luckScore"`
+	WinRate5050            *float64        `json:"winRate5050"`
+	WorstPull              int             `json:"worstPull"`
+	Pity                   []BannerPity    `json:"pity"`
+	Distribution           []int           `json:"distribution"`
+	RecentHeadline         []HeadlineEntry `json:"recentHeadline"` // recent top-rank only (cap 8)
+	Highlights             []HeadlineEntry `json:"highlights"`     // ALL top-two-rarity pulls, newest-first
 }
 
 // ComputeSummary builds the dashboard from one (uid)'s pulls + config. Pure.
@@ -54,7 +62,8 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	s := GachaSummary{
 		Supported: true, UID: uid, Currency: cfg.Currency,
 		PerBanner: map[string]int{}, HeadlineByType: map[string]int{},
-		Pity: []BannerPity{}, Distribution: make([]int, 9), RecentHeadline: []HeadlineEntry{},
+		Pity: []BannerPity{}, Distribution: make([]int, 9),
+		RecentHeadline: []HeadlineEntry{}, Highlights: []HeadlineEntry{},
 	}
 	s.TotalPulls = len(pulls)
 	nonFree := 0
@@ -96,7 +105,15 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 		s.AvgPity = float64(sumCount) / float64(len(allHits))
 	}
 	s.ExpectedPity = cfg.ExpectedPity
+	s.ExpectedFeaturedWeapon = cfg.ExpectedFeaturedWeapon
 	s.LuckScore = luckScore(s.AvgPity, cfg.ExpectedPity, len(allHits))
+
+	// limited maps banner-key → Limited, the per-banner lookup for the 歪 (50/50-loss)
+	// marker (offFor); built once here and reused by both headline loops below.
+	limited := make(map[string]bool, len(cfg.Banners))
+	for _, b := range cfg.Banners {
+		limited[b.Key] = b.Limited
+	}
 
 	// Recent-headline ordering is CROSS-banner, so it must use real time, not the
 	// per-banner ID. HoYoverse IDs are a global increasing sequence (ID order ==
@@ -105,24 +122,90 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	// pools at a time, hiding recent characters. Sort by parsed Time desc; fall back
 	// to the ID compare when times tie or don't parse (preserves HoYoverse
 	// same-second 10-pull order and any odd format).
-	sort.SliceStable(allHits, func(i, j int) bool {
-		ti, oki := parseGachaTime(allHits[i].Pull.Time)
-		tj, okj := parseGachaTime(allHits[j].Pull.Time)
-		if oki && okj && !ti.Equal(tj) {
-			return ti.After(tj)
-		}
-		return numLess(allHits[j].Pull.ID, allHits[i].Pull.ID)
-	})
+	sort.SliceStable(allHits, func(i, j int) bool { return headlineNewer(allHits[i], allHits[j]) })
 	for i, h := range allHits {
 		if i >= 8 {
 			break
 		}
-		s.RecentHeadline = append(s.RecentHeadline, HeadlineEntry{
-			Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: h.Pull.BannerKey,
-			Time: h.Pull.Time, Count: h.Count,
-		})
+		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
+	}
+
+	// Highlights: ALL top-two-rarity pulls (top = HeadlineRank, second = one below)
+	// with per-rank pity counts, newest-first — feeds the full high-star board where
+	// the user toggles which ranks to show. since1 (top) resets only on a top pull;
+	// since2 (second) resets on a top OR second pull (a top pull also satisfies the
+	// second-rank guarantee). Pulls below the second rank are skipped.
+	r1, r2 := cfg.HeadlineRank, cfg.HeadlineRank-1
+	var hlHits []PityHit
+	for _, b := range cfg.Banners {
+		group := byBanner[b.Key] // already sorted chronological by the pity loop above
+		since1, since2 := 0, 0
+		for _, p := range group {
+			since1++
+			since2++
+			switch {
+			case p.Rank >= r1:
+				hlHits = append(hlHits, PityHit{Pull: p, Count: since1})
+				since1, since2 = 0, 0
+			case p.Rank >= r2:
+				hlHits = append(hlHits, PityHit{Pull: p, Count: since2})
+				since2 = 0
+			}
+		}
+	}
+	sort.SliceStable(hlHits, func(i, j int) bool { return headlineNewer(hlHits[i], hlHits[j]) })
+	for _, h := range hlHits {
+		s.Highlights = append(s.Highlights, headlineEntry(h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
 	}
 	return s
+}
+
+// headlineNewer reports whether hit a is more recent than b: by parsed Time desc,
+// falling back to ID compare when times tie or don't parse (HoYo IDs are a global
+// increasing sequence; WuWa synthesizes per-pool IDs, so Time is the source of truth).
+func headlineNewer(a, b PityHit) bool {
+	ti, oki := parseGachaTime(a.Pull.Time)
+	tj, okj := parseGachaTime(b.Pull.Time)
+	if oki && okj && !ti.Equal(tj) {
+		return ti.After(tj)
+	}
+	return numLess(b.Pull.ID, a.Pull.ID)
+}
+
+func headlineEntry(h PityHit, off bool, lim bool) HeadlineEntry {
+	return HeadlineEntry{
+		Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: h.Pull.BannerKey,
+		Time: h.Pull.Time, Count: h.Count, Rank: h.Pull.Rank, Off: off, Limited: lim,
+	}
+}
+
+// offFor reports whether a pull lost the 50/50: a standard-pool item on a limited
+// banner, excluding a dual-citizen pulled inside its debut up-window.
+func offFor(cfg GachaConfig, limited map[string]bool, p GachaPull) bool {
+	return limited[p.BannerKey] && cfg.StandardPool[p.Name] && !inDebutWindow(cfg, p)
+}
+
+// inDebutWindow: true iff p is a dual-citizen pulled inside its debut window. On a
+// time-parse failure it returns true (fail-safe: suppress 歪 on a likely debut win).
+func inDebutWindow(cfg GachaConfig, p GachaPull) bool {
+	for _, d := range cfg.DualCitizens {
+		match := false
+		for _, n := range d.Names {
+			if n == p.Name {
+				match = true
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		t, ok := parseGachaTime(p.Time)
+		if !ok {
+			return true
+		}
+		return !t.Before(d.Start) && !t.After(d.End)
+	}
+	return false
 }
 
 // bucket maps a pull-count to a histogram index: 0=1-9,1=10-19,...,7=70-79,8=80+.

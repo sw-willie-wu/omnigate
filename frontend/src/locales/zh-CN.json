@@ -27,10 +27,19 @@
     "wrong_account": "最近一次的唤取记录属于其他账号。请在游戏内以此账号打开唤取记录页后再刷新。",
     "url_expired": "唤取链接已过期。请在游戏内重新打开唤取记录页后再刷新。",
     "refresh": "刷新记录",
+    "refresh_failed": "刷新失败——沿用上次加载的数据。",
+    "import": "导入记录",
+    "import_soon": "UIGF 导入——即将支持",
     "total_pulls": "总抽数",
     "spend_est": "消耗",
     "headline_cnt": "最高星数",
     "avg_pity": "平均出货",
+    "lim_char_cnt": "限定/联动角色",
+    "lim_weapon_cnt": "限定/联动武器",
+    "hit_rate": "出限定率",
+    "avg_char": "限定/联动角色平均",
+    "avg_weapon": "限定/联动武器平均",
+    "hit_rate_sub": "中 {n} / 共 {m}",
     "luck": "幸运值",
     "worst": "最非",
     "pull_count": "{n} 抽出货",
@@ -49,7 +58,8 @@
     "dist_axis_low": "1-9",
     "dist_axis_mid": "抽数区间",
     "dist_axis_high": "80+",
-    "recent_title": "最近高星纪录",
+    "recent_title": "高星纪录",
+    "off": "歪",
     "error_other": "读取失败，请重试。",
     "luck_band": {
       "superb": "极欧 · 天选之人",
@@ -71,7 +81,19 @@
       "stellar_jade": "星琼",
       "polychrome": "菲林",
       "astrite": "星声",
-      "endfield_pull": "寻访"
+      "endfield_oroberyl": "嵌晶玉"
+    },
+    "link": {
+      "title": "绑定 Gryphline 账号以读取寻访记录",
+      "step1": "1. 点「登录 Gryphline」，在打开的浏览器登录你的鹰角通行证（gryphline 或 skport 账号均可）",
+      "step2": "2. 把下方书签工具拖到浏览器书签栏（或复制为新书签）",
+      "step3": "3. 在已登录的 gryphline 或 skport 标签页点该书签，omnigate 会自动收到 token",
+      "login": "登录 Gryphline",
+      "copy": "复制书签工具",
+      "rearm": "重新开始绑定",
+      "pasteLabel": "或手动获取：登录后在浏览器打开 web-api.gryphline.com（或 web-api.skport.com）的 /cookie_store/account_token，把整段 JSON 或其中的 account_token 粘贴到下方：",
+      "paste": "提交",
+      "bookmarkletName": "omnigate 获取终末地 token"
     }
   },
   "buttons": {

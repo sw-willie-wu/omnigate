@@ -76,23 +76,24 @@ jobs:
         run: go test ./...
 
       - name: Build
+        # scripts/build.ps1 stamps the Windows PE version from OMNIGATE_VERSION
+        # (the tag), runs `wails build`, and stages dist/omnigate.exe.
         shell: pwsh
         env:
           OMNIGATE_VERSION: ${{ github.ref_name }}
         run: |
-          $wails = Join-Path (go env GOPATH) 'bin/wails.exe'
-          & $wails build -platform windows/amd64
+          ./scripts/build.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Rename artifact
-        run: cp build/bin/omnigate.exe "omnigate-${{ github.ref_name }}-windows-amd64.exe"
+      - name: Name the release artifact
+        run: cp dist/omnigate.exe "dist/omnigate-${{ github.ref_name }}-windows-amd64.exe"
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.ref_name }}"
-          args=(release create "$tag" "omnigate-$tag-windows-amd64.exe" --title "$tag" --generate-notes)
+          args=(release create "$tag" "dist/omnigate-$tag-windows-amd64.exe" --title "$tag" --generate-notes)
           if [[ "$tag" == *-* ]]; then
             args+=(--prerelease)
           fi

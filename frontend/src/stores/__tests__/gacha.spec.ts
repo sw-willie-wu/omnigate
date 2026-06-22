@@ -9,7 +9,7 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
 }));
 vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 
-import { useGachaStore } from '../gacha';
+import { useGachaStore, classifyErr } from '../gacha';
 
 describe('gacha store', () => {
   beforeEach(() => { setActivePinia(createPinia()); getSummary.mockReset(); refreshGacha.mockReset(); });
@@ -42,5 +42,17 @@ describe('gacha store', () => {
     refreshGacha.mockRejectedValue(new Error('gacha history url unavailable'));
     await s.refresh('g');
     expect(s.stateFor('g').errKind).toBe('url');
+  });
+});
+
+describe('classifyErr link ordering', () => {
+  it('credential expired → link, NOT url_expired', () => {
+    expect(classifyErr('gacha credential expired')).toBe('link');
+  });
+  it('credential required → link', () => {
+    expect(classifyErr('gacha credential required')).toBe('link');
+  });
+  it('still maps convene url expired → url_expired', () => {
+    expect(classifyErr('gacha convene url expired')).toBe('url_expired');
   });
 });

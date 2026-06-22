@@ -226,6 +226,9 @@
   .window-btn { border: 0 !important; background: transparent !important; width: 44px; height: 44px; font-size: 24px; line-height: 1; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
   .window-btn .material-symbols-outlined { font-size: 20px; }
   .window-btn.close { font-size: 30px; }
+  /* the maximize square is a solid glyph — render it smaller so it optically matches
+     the thinner minimize/close glyphs (mirrors OS titlebar convention). */
+  .window-btn.maximize .material-symbols-outlined { font-size: 15px; }
   .window-btn:hover { background: transparent !important; color: white; }
   .window-btn.close:hover { background: transparent !important; color: #e85555; }
 

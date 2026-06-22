@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 type SQLiteStore struct {
 	db   *sql.DB
@@ -52,6 +52,19 @@ func (s *SQLiteStore) migrate() error {
   game TEXT NOT NULL, uid TEXT NOT NULL, url TEXT, fetched_at INTEGER,
   PRIMARY KEY (game, uid)
 )`,
+		`CREATE TABLE IF NOT EXISTS gacha_cred (
+  game TEXT PRIMARY KEY, cred TEXT NOT NULL, updated_at INTEGER NOT NULL
+)`,
+		`CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)`,
+		`CREATE TABLE IF NOT EXISTS game_settings (
+  game_id TEXT PRIMARY KEY, path TEXT, background_path TEXT
+)`,
+		`CREATE TABLE IF NOT EXISTS playstate (
+  game TEXT PRIMARY KEY, last_played_unix INTEGER
+)`,
+		`CREATE TABLE IF NOT EXISTS account_uid (
+  cuid TEXT PRIMARY KEY, uid TEXT, label TEXT
+)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -70,6 +83,15 @@ func (s *SQLiteStore) migrate() error {
 	ver, _ := strconv.Atoi(verStr)
 	if ver < 2 {
 		if err := s.migrateV2RekeyWuwa(); err != nil {
+			return err
+		}
+	}
+	// schema_version writeback: the const bump alone never reaches existing DBs —
+	// the only writes are INSERT OR IGNORE (new DBs only) and the '2' inside
+	// migrateV2RekeyWuwa. Gate on the original `ver` read above; ordered AFTER the
+	// rekey so it overwrites the rekey's '2'.
+	if ver < 3 {
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','3')`); err != nil {
 			return err
 		}
 	}
@@ -254,6 +276,26 @@ func (s *SQLiteStore) GetURLCache(game, uid string) (string, time.Time, error) {
 func (s *SQLiteStore) PutURLCache(game, uid, url string) error {
 	_, err := s.db.Exec(`INSERT OR REPLACE INTO url_cache(game,uid,url,fetched_at) VALUES(?,?,?,?)`,
 		game, uid, url, time.Now().Unix())
+	return err
+}
+
+func (s *SQLiteStore) GetGachaCred(game string) (string, time.Time, error) {
+	var cred string
+	var ts int64
+	err := s.db.QueryRow(`SELECT cred,updated_at FROM gacha_cred WHERE game=?`, game).Scan(&cred, &ts)
+	if err == sql.ErrNoRows {
+		return "", time.Time{}, nil
+	}
+	return cred, time.Unix(ts, 0), err
+}
+
+func (s *SQLiteStore) PutGachaCred(game, cred string) error {
+	if cred == "" {
+		_, err := s.db.Exec(`DELETE FROM gacha_cred WHERE game=?`, game)
+		return err
+	}
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO gacha_cred(game,cred,updated_at) VALUES(?,?,?)`,
+		game, cred, time.Now().Unix())
 	return err
 }
 
