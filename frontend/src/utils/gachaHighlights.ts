@@ -1,4 +1,4 @@
-import type { HeadlineEntry } from '../stores/gacha';
+import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
 // Banner keys whose high-rarity drops are equipment (weapon-slot), not characters.
 // Light cones (HSR) and W-engines (ZZZ) are the weapon equivalents → weapon side;
@@ -109,6 +109,62 @@ export function capGroups(groups: BannerGroup[], budget: number): BannerGroup[] 
     const entries = g.entries.slice(0, left);
     left -= entries.length;
     out.push({ key: g.key, label: g.label, entries, total: g.total });
+  }
+  return out;
+}
+
+export interface PoolSection {
+  key: string;
+  label: Record<string, string>;
+  pity: BannerPity | null;   // leading pity row; null = one-shot or no pity for this pool
+  entries: HeadlineEntry[];  // high-star records for this pool (may be empty)
+  total: number;             // un-truncated high-star count (sub-header); 0 if none
+}
+
+// buildPoolSections merges one column's high-star record groups with its pity rows into
+// per-pool sections. Sections follow `order` (the banner/pity order); unmapped banners
+// that carry records trail in a catch-all, matching groupByBanner. A section is kept if it
+// has a pity row OR at least one (budget-permitting) high-star entry. Pity rows are ALWAYS
+// shown and consume NO budget; high-star entries share `budget` across sections in order
+// exactly as capGroups does, so the records shown are identical to today's. `pity` must
+// already exclude one-shot pools, and its keys are expected to be a subset of `order`
+// (the caller passes the per-column subset of sum.pity) — a pity key absent from both
+// `order` and the records would not surface a section.
+export function buildPoolSections(
+  highlights: HeadlineEntry[],
+  pity: BannerPity[],
+  order: { key: string; label: Record<string, string> }[],
+  budget: number,
+): PoolSection[] {
+  const groups = groupByBanner(highlights, order);
+  const groupByKey = new Map(groups.map((g) => [g.key, g]));
+  const pityByKey = new Map(pity.map((p) => [p.key, p]));
+
+  // Ordered key list: `order` keys that have a group or a pity row, then any catch-all
+  // group keys not in `order` (preserving groupByBanner's trailing order).
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const o of order) {
+    if ((groupByKey.has(o.key) || pityByKey.has(o.key)) && !seen.has(o.key)) {
+      keys.push(o.key);
+      seen.add(o.key);
+    }
+  }
+  for (const g of groups) {
+    if (!seen.has(g.key)) { keys.push(g.key); seen.add(g.key); }
+  }
+
+  const out: PoolSection[] = [];
+  let left = budget;
+  for (const k of keys) {
+    const g = groupByKey.get(k);
+    const p = pityByKey.get(k) ?? null;
+    const all = g?.entries ?? [];
+    const entries = left > 0 ? all.slice(0, left) : [];
+    left -= entries.length;
+    if (!p && entries.length === 0) continue; // record-only section trimmed away / empty
+    const label = g && Object.keys(g.label).length ? g.label : (p?.label ?? {});
+    out.push({ key: k, label, pity: p, entries, total: g?.total ?? 0 });
   }
   return out;
 }

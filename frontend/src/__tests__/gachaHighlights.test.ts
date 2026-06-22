@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool } from '../utils/gachaHighlights';
-import type { HeadlineEntry } from '../stores/gacha';
+import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections } from '../utils/gachaHighlights';
+import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
 const mk = (bannerKey: string, rank: number, name = 'x'): HeadlineEntry => ({
   name, itemType: '', bannerKey, time: '', count: 1, rank, off: false,
@@ -108,5 +108,75 @@ describe('isOneShotPool', () => {
     for (const k of ['character', 'weapon', 'standard_char', 'standard_weapon', 'collab', 'collab_weapon', 'chronicled', 'lightcone', 'wengine']) {
       expect(isOneShotPool(k)).toBe(false);
     }
+  });
+});
+
+describe('buildPoolSections', () => {
+  const order = [
+    { key: 'character', label: { en: 'Featured' } },
+    { key: 'standard_char', label: { en: 'Standard' } },
+  ];
+  const pity = (key: string, current: number, cap = 90): BannerPity =>
+    ({ key, label: { en: key }, current, cap, nearPity: false });
+
+  it('merges pity rows and record groups in banner order', () => {
+    const s = buildPoolSections(
+      [mk('character', 5, 'a'), mk('standard_char', 5, 'b')],
+      [pity('character', 7), pity('standard_char', 20)],
+      order, 50,
+    );
+    expect(s.map((x) => x.key)).toEqual(['character', 'standard_char']);
+    expect(s[0].pity?.current).toBe(7);
+    expect(s[0].entries.map((e) => e.name)).toEqual(['a']);
+    expect(s[1].pity?.current).toBe(20);
+  });
+
+  it('emits a pity-only section (pity set, no entries, total 0) for a pool with no records', () => {
+    const s = buildPoolSections(
+      [mk('character', 5, 'a')],
+      [pity('character', 7), pity('standard_char', 12)],
+      order, 50,
+    );
+    const std = s.find((x) => x.key === 'standard_char')!;
+    expect(std.pity?.current).toBe(12);
+    expect(std.entries).toEqual([]);
+    expect(std.total).toBe(0);
+  });
+
+  it('emits a records-only section (pity null) when a pool has no pity row', () => {
+    const s = buildPoolSections([mk('character', 5, 'a')], [], order, 50);
+    expect(s).toHaveLength(1);
+    expect(s[0].key).toBe('character');
+    expect(s[0].pity).toBeNull();
+    expect(s[0].entries.map((e) => e.name)).toEqual(['a']);
+  });
+
+  it('shares the budget across record sections but never drops a section with a pity row', () => {
+    const s = buildPoolSections(
+      [mk('character', 5, 'a'), mk('character', 5, 'b'), mk('standard_char', 5, 'c')],
+      [pity('standard_char', 30)], // pity only on the second pool
+      order, 2, // budget 2 → fully consumed by 'character'
+    );
+    expect(s.map((x) => x.key)).toEqual(['character', 'standard_char']);
+    expect(s[0].entries.length).toBe(2);
+    expect(s[1].entries).toEqual([]);    // budget gone
+    expect(s[1].pity?.current).toBe(30); // kept anyway — has a pity row
+    expect(s[1].total).toBe(1);          // un-truncated record count preserved
+  });
+
+  it('omits a record-only section whose entries are fully budget-trimmed', () => {
+    expect(buildPoolSections([mk('character', 5, 'a')], [], order, 0)).toEqual([]);
+  });
+
+  it('keeps an unmapped banner (catch-all) trailing, with no pity and empty label', () => {
+    const s = buildPoolSections(
+      [mk('character', 5, 'a'), mk('mystery', 5, 'z')],
+      [pity('character', 7)],
+      order, 50,
+    );
+    expect(s.map((x) => x.key)).toEqual(['character', 'mystery']);
+    expect(s[1].pity).toBeNull();
+    expect(s[1].label).toEqual({});
+    expect(s[1].entries.map((e) => e.name)).toEqual(['z']);
   });
 });
