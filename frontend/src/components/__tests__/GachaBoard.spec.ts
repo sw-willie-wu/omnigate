@@ -31,9 +31,9 @@ const base = {
   distribution: [1, 0, 0, 0, 0, 0, 0, 0, 1],
   recentHeadline: [{ name: 'Alpha', itemType: 'char', bannerKey: 'special', time: '2026-06-01', count: 4, rank: 5 }],
   highlights: [
-    { name: 'Alpha', itemType: 'char', bannerKey: 'character', time: '2026-06-03', count: 12, rank: 5, off: true },
-    { name: 'Blade', itemType: 'weapon', bannerKey: 'weapon', time: '2026-06-02', count: 28, rank: 5, off: true },
-    { name: 'Pip', itemType: 'char', bannerKey: 'character', time: '2026-06-01', count: 7, rank: 4, off: false },
+    { name: 'Alpha', itemType: 'char', bannerKey: 'character', time: '2026-06-03', count: 12, rank: 5, off: true, limited: true },
+    { name: 'Blade', itemType: 'weapon', bannerKey: 'weapon', time: '2026-06-02', count: 28, rank: 5, off: true, limited: true },
+    { name: 'Pip', itemType: 'char', bannerKey: 'character', time: '2026-06-01', count: 7, rank: 4, off: false, limited: true },
   ],
 };
 
@@ -44,6 +44,7 @@ describe('GachaBoard', () => {
     getSummary.mockResolvedValue(base);
     const w = mountBoard(); await flushPromises();
     expect(w.find('.gacha-cards').exists()).toBe(true);
+    expect(w.findAll('.card').length).toBe(8);
     expect(w.find('.donut').exists()).toBe(true);
     expect(w.find('.gacha-pity').exists()).toBe(false);
     expect(w.find('.hl-pity').exists()).toBe(true);
@@ -78,14 +79,25 @@ describe('GachaBoard', () => {
     expect(w.text()).toContain('Pip');
   });
 
-  it('shows the universal donut trio and no 50/50 win-rate line', async () => {
-    // HoYo-shaped (cap 90) and Endfield-shaped (cap 80): both winRate5050 null.
+  it('shows the universal donut trio', async () => {
     for (const cap of [90, 80]) {
       getSummary.mockResolvedValue({ ...base, pity: [{ key: 'special', label: { en: 'Limited' }, current: 10, cap, nearPity: false }] });
       const w = mountBoard(); await flushPromises();
       expect(w.find('.luck-trio').exists()).toBe(true);
-      expect(w.text()).not.toContain('%'); // no win-rate percentage rendered
     }
+  });
+
+  it('renders the featured (出限定率) card', async () => {
+    getSummary.mockResolvedValue(base);
+    const w = mountBoard(); await flushPromises();
+    expect(w.text()).toContain('0%'); // base: 2 featured top-rank, both off → 0%
+  });
+
+  it('dashes empty averages/rate when there are no highlights', async () => {
+    getSummary.mockResolvedValue({ ...base, highlights: [] });
+    const w = mountBoard(); await flushPromises();
+    // scope to the cards (the records area also shows — when empty) so a card-binding regression isn't masked
+    expect(w.find('.gacha-cards').text()).toContain('—'); // top=0 → metrics null → cards 5-8 show the em dash
   });
 
   it('highlights the max distribution buckets', async () => {
@@ -250,12 +262,13 @@ describe('GachaBoard', () => {
     expect(offChips.every((c) => c.text() === 'Off')).toBe(true); // en locale
   });
 
-  it('has the 3 new gacha keys non-empty in every locale (i18n parity)', async () => {
+  it('has the gacha keys non-empty in every locale (i18n parity)', async () => {
     const en = (await import('../../locales/en.json')).default as Record<string, any>;
     const tw = (await import('../../locales/zh-TW.json')).default as Record<string, any>;
     const cn = (await import('../../locales/zh-CN.json')).default as Record<string, any>;
     for (const loc of [en, tw, cn]) {
-      for (const k of ['play_first', 'wrong_account', 'url_expired', 'off']) {
+      for (const k of ['play_first', 'wrong_account', 'url_expired', 'off',
+        'lim_char_cnt', 'lim_weapon_cnt', 'hit_rate', 'avg_char', 'avg_weapon', 'hit_rate_sub']) {
         expect(((loc.gacha?.[k] ?? '') as string).length).toBeGreaterThan(0);
       }
       for (const k of ['title', 'login', 'step1', 'step2', 'step3', 'paste', 'pasteLabel', 'rearm']) {

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { equipTypeKey, splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections } from '../utils/gachaHighlights';
+import { equipTypeKey, splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections, computeCardMetrics } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -25,12 +25,6 @@ function localize(m: Record<string, string> | undefined): string {
   return m[locale.value] ?? m['en'] ?? Object.values(m)[0] ?? '';
 }
 
-// recentHeadline carries only a raw bannerKey; resolve its localized name via the
-// pity[] entries (which carry a LocalizedString label), raw key as fallback.
-function bannerLabel(key: string): string {
-  const b = sum.value?.pity.find((p) => p.key === key);
-  return b ? localize(b.label) : key;
-}
 // headlineByType keys are raw item-type strings (already localized for HoYo,
 // literal "char" for Endfield); map known keys, pass through otherwise.
 function typeLabel(raw: string): string {
@@ -45,24 +39,8 @@ function currencyName(code: string): string {
 
 const u = { pull: () => t('gacha.unit_pull'), count: () => t('gacha.unit_count') };
 const nf = (n: number) => n.toLocaleString();
-const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : `${n}`);
-
-const pullSplit = computed(() => {
-  const e = Object.entries(sum.value?.perBanner ?? {}).filter(([, n]) => n > 0);
-  return e.map(([k, n]) => `${bannerLabel(k)} ${n}`).join(' · ');
-});
-const typeSplit = computed(() => {
-  const e = Object.entries(sum.value?.headlineByType ?? {}).filter(([, n]) => n > 0);
-  return e.map(([k, n]) => `${typeLabel(k)} ${n}`).join(' · ');
-});
-
-const expectedNote = computed(() => {
-  const s = sum.value;
-  if (!s || s.headlineCnt === 0 || s.expectedPity <= 0) return '';
-  const n = s.expectedPity.toFixed(1);
-  const key = s.avgPity < s.expectedPity ? 'below_expected' : s.avgPity > s.expectedPity ? 'above_expected' : 'at_expected';
-  return t(`gacha.${key}`, { n });
-});
+const fmt1 = (n: number | null) => (n === null ? '—' : n.toFixed(1));
+const pct0 = (r: number | null) => (r === null ? '—' : Math.round(r * 100).toString());
 
 const luckBand = computed(() => {
   const v = sum.value?.luckScore ?? 50;
@@ -84,6 +62,16 @@ function pityPct(cur: number, cap: number): number {
 const highlights = computed(() => sum.value?.highlights ?? []);
 const hlRanks = computed(() => distinctRanks(highlights.value)); // e.g. [5,4] or [6,5]
 const topRank = computed(() => hlRanks.value[0] ?? 0);
+const metrics = computed(() => computeCardMetrics(highlights.value, topRank.value));
+// 平均出貨 vs the theoretical expected pulls/5★ — compares avgAll (not the global avgPity).
+const expectedNote = computed(() => {
+  const s = sum.value;
+  const avg = metrics.value.avgAll;
+  if (!s || avg === null || s.expectedPity <= 0) return '';
+  const n = s.expectedPity.toFixed(1);
+  const key = avg < s.expectedPity ? 'below_expected' : avg > s.expectedPity ? 'above_expected' : 'at_expected';
+  return t(`gacha.${key}`, { n });
+});
 const HL_PAGE = 50;
 const hlVisible = ref(HL_PAGE);
 const enabledRanks = ref<Set<number>>(new Set());
@@ -191,7 +179,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         <span class="gacha-progress-text">{{ progressText }}</span>
       </div>
       <div class="sk-cards">
-        <div v-for="i in 4" :key="i" class="sk sk-card"></div>
+        <div v-for="i in 8" :key="i" class="sk sk-card"></div>
       </div>
       <div class="sk-mid">
         <div class="sk sk-panel"></div>
@@ -248,27 +236,41 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
       </div>
 
-      <!-- §2.1 four stat cards -->
+      <!-- §2.1 eight stat cards (4×2): label top-left, value centered, secondary bottom-right -->
       <div class="gacha-cards">
         <div class="card">
-          <div class="num mono">{{ nf(sum.totalPulls) }}<span class="unit">{{ u.pull() }}</span></div>
           <div class="cap">{{ t('gacha.total_pulls') }}</div>
-          <div class="sub" v-if="pullSplit">{{ pullSplit }}</div>
+          <div class="num mono">{{ nf(sum.totalPulls) }}<span class="unit">{{ u.pull() }}</span></div>
         </div>
         <div class="card">
-          <div class="num mono">{{ compact(sum.spendEst) }}</div>
           <div class="cap">{{ t('gacha.spend_est') }}</div>
-          <div class="sub mono">{{ nf(sum.spendEst) }} {{ currencyName(sum.currency) }}</div>
+          <div class="num mono">{{ nf(sum.spendEst) }}<span class="unit">{{ currencyName(sum.currency) }}</span></div>
         </div>
         <div class="card">
-          <div class="num mono">{{ sum.headlineCnt }}<span class="unit">{{ u.count() }}</span></div>
-          <div class="cap">{{ t('gacha.headline_cnt') }}</div>
-          <div class="sub" v-if="typeSplit">{{ typeSplit }}</div>
+          <div class="cap">{{ t('gacha.lim_char_cnt') }}</div>
+          <div class="num mono">{{ metrics.limCharCnt }}<span class="unit">{{ u.count() }}</span></div>
         </div>
         <div class="card">
-          <div class="num mono ok">{{ sum.avgPity.toFixed(1) }}<span class="unit">{{ u.pull() }}</span></div>
+          <div class="cap">{{ t('gacha.lim_weapon_cnt') }}</div>
+          <div class="num mono">{{ metrics.limWeaponCnt }}<span class="unit">{{ u.count() }}</span></div>
+        </div>
+        <div class="card">
           <div class="cap">{{ t('gacha.avg_pity') }}</div>
+          <div class="num mono">{{ fmt1(metrics.avgAll) }}<span class="unit" v-if="metrics.avgAll !== null">{{ u.pull() }}</span></div>
           <div class="sub" v-if="expectedNote">{{ expectedNote }}</div>
+        </div>
+        <div class="card">
+          <div class="cap">{{ t('gacha.hit_rate') }}</div>
+          <div class="num mono">{{ pct0(metrics.hitRate) }}<span class="unit" v-if="metrics.hitRate !== null">%</span></div>
+          <div class="sub" v-if="metrics.hitTotal > 0">{{ t('gacha.hit_rate_sub', { n: metrics.hitWins, m: metrics.hitTotal }) }}</div>
+        </div>
+        <div class="card">
+          <div class="cap">{{ t('gacha.avg_char') }}</div>
+          <div class="num mono">{{ fmt1(metrics.avgChar) }}<span class="unit" v-if="metrics.avgChar !== null">{{ u.pull() }}</span></div>
+        </div>
+        <div class="card">
+          <div class="cap">{{ t('gacha.avg_weapon') }}</div>
+          <div class="num mono">{{ fmt1(metrics.avgWeapon) }}<span class="unit" v-if="metrics.avgWeapon !== null">{{ u.pull() }}</span></div>
         </div>
       </div>
 
@@ -285,7 +287,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
           <div class="luck-band">{{ luckBand }}</div>
           <div class="luck-trio">
             <div class="trio-item"><span class="tv mono">{{ sum.worstPull }}{{ u.pull() }}</span><span class="tl">{{ t('gacha.worst') }}</span></div>
-            <div class="trio-item"><span class="tv mono">{{ sum.avgPity.toFixed(1) }}</span><span class="tl">{{ t('gacha.stat_avg') }}</span></div>
+            <div class="trio-item"><span class="tv mono">{{ fmt1(metrics.avgAll) }}</span><span class="tl">{{ t('gacha.stat_avg') }}</span></div>
             <div class="trio-item"><span class="tv mono">{{ sum.headlineCnt }}{{ u.count() }}</span><span class="tl">{{ t('gacha.stat_top') }}</span></div>
           </div>
         </div>
@@ -378,12 +380,11 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
   background: var(--glass-2); border: 1px solid var(--border-strong); border-radius: 10px;
   backdrop-filter: blur(var(--glass-2-blur)); -webkit-backdrop-filter: blur(var(--glass-2-blur));
 }
-.card { padding: 14px; }
-.card .num { font-weight: 800; font-size: 1.6rem; line-height: 1.1; }
-.card .num.ok { color: var(--ok); }
+.card { padding: 12px 14px; display: flex; flex-direction: column; min-height: 96px; }
+.card .cap { color: rgba(255,255,255,0.85); font-size: .74rem; }
+.card .num { font-weight: 800; font-size: 1.6rem; line-height: 1.1; text-align: center; margin: auto 0; }
 .card .num .unit { font-size: .85rem; font-weight: 600; color: rgba(255,255,255,0.85); margin-left: 3px; }
-.card .cap { color: rgba(255,255,255,0.85); font-size: .78rem; margin-top: 5px; }
-.card .sub { color: rgba(255,255,255,0.72); font-size: .72rem; margin-top: 6px; }
+.card .sub { color: rgba(255,255,255,0.72); font-size: .7rem; align-self: flex-end; text-align: right; }
 
 /* middle row */
 .gacha-mid { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
@@ -461,7 +462,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .sk { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
   background-image: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
   background-size: 200% 100%; animation: gacha-shimmer 1.3s ease-in-out infinite; }
-.sk-card { height: 92px; }
+.sk-card { height: 96px; }
 .sk-panel { height: 200px; }
 @keyframes gacha-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 </style>
