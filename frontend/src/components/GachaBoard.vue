@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { equipTypeKey, splitByType, distinctRanks } from '../utils/gachaHighlights';
+import { equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -99,8 +99,9 @@ function toggleRank(r: number) {
   hlVisible.value = HL_PAGE; // reset the lazy window on filter change
 }
 const hlSplit = computed(() => splitByType(highlights.value.filter((h) => enabledRanks.value.has(h.rank))));
-const hlChars = computed(() => hlSplit.value.chars.slice(0, hlVisible.value));
-const hlWeapons = computed(() => hlSplit.value.weapons.slice(0, hlVisible.value));
+const bannerOrder = computed(() => (sum.value?.pity ?? []).map((p) => ({ key: p.key, label: p.label })));
+const charGroups = computed(() => capGroups(groupByBanner(hlSplit.value.chars, bannerOrder.value), hlVisible.value));
+const weaponGroups = computed(() => capGroups(groupByBanner(hlSplit.value.weapons, bannerOrder.value), hlVisible.value));
 const hlCharTotal = computed(() => hlSplit.value.chars.length);
 const hlWeaponTotal = computed(() => hlSplit.value.weapons.length);
 const hlHasMore = computed(() => hlVisible.value < Math.max(hlSplit.value.chars.length, hlSplit.value.weapons.length));
@@ -310,21 +311,27 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         <div class="hl-cols">
           <div class="panel hl-col">
             <div class="hl-col-title">{{ charHeading }}<span class="hl-n">{{ hlCharTotal }}</span></div>
-            <div v-if="hlChars.length === 0" class="hl-empty">—</div>
-            <div v-for="(h, i) in hlChars" :key="'c' + i" class="hl-row" :class="'r' + h.rank">
-              <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
-              <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
-              <span class="hl-count mono">{{ h.count }}</span>
-            </div>
+            <div v-if="charGroups.length === 0" class="hl-empty">—</div>
+            <template v-for="g in charGroups" :key="'cg' + g.key">
+              <div class="hl-grp-title">{{ localize(g.label) || g.key }}<span class="hl-grp-title__n">{{ g.total }}</span></div>
+              <div v-for="(h, i) in g.entries" :key="'c' + g.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+                <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
+                <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
+                <span class="hl-count mono">{{ h.count }}</span>
+              </div>
+            </template>
           </div>
           <div class="panel hl-col">
             <div class="hl-col-title">{{ weaponHeading }}<span class="hl-n">{{ hlWeaponTotal }}</span></div>
-            <div v-if="hlWeapons.length === 0" class="hl-empty">—</div>
-            <div v-for="(h, i) in hlWeapons" :key="'w' + i" class="hl-row" :class="'r' + h.rank">
-              <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
-              <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
-              <span class="hl-count mono">{{ h.count }}</span>
-            </div>
+            <div v-if="weaponGroups.length === 0" class="hl-empty">—</div>
+            <template v-for="g in weaponGroups" :key="'wg' + g.key">
+              <div class="hl-grp-title">{{ localize(g.label) || g.key }}<span class="hl-grp-title__n">{{ g.total }}</span></div>
+              <div v-for="(h, i) in g.entries" :key="'w' + g.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+                <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
+                <span class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span>
+                <span class="hl-count mono">{{ h.count }}</span>
+              </div>
+            </template>
           </div>
         </div>
         <div ref="hlSentinel" class="hl-sentinel" aria-hidden="true"></div>
@@ -416,6 +423,9 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .hl-col-title { font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.72); margin-bottom: 8px;
   padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .hl-n { float: right; color: rgba(255,255,255,.45); font-weight: 600; }
+.hl-grp-title { font-size: .68rem; font-weight: 600; color: rgba(255,255,255,.5); margin: 10px 0 4px; display: flex; align-items: center; gap: 6px; }
+.hl-grp-title:first-child { margin-top: 0; }
+.hl-grp-title__n { font-size: .62rem; color: rgba(255,255,255,.35); }
 .hl-empty { color: rgba(255,255,255,.34); font-size: .8rem; padding: 4px 0; }
 .hl-row { display: grid; grid-template-columns: minmax(56px, 40%) 1fr auto; align-items: center; gap: 8px; padding: 3px 0; }
 .hl-name-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }

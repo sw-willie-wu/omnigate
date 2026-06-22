@@ -246,4 +246,24 @@ describe('GachaBoard', () => {
       expect(((loc.gacha?.currency?.endfield_oroberyl ?? '') as string).length).toBeGreaterThan(0);
     }
   });
+
+  it('groups high-star records by pool with a sub-header per banner', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      pity: [
+        { key: 'character', label: { en: 'Featured' }, current: 0, cap: 90, nearPity: false },
+        { key: 'collab', label: { en: 'Collab' }, current: 0, cap: 90, nearPity: false },
+      ],
+      perBanner: { character: 5, collab: 5 },
+      highlights: [
+        { name: 'Lingyang', itemType: '', bannerKey: 'collab', time: 't1', count: 1, rank: 5, off: true },
+        { name: 'Jinhsi', itemType: '', bannerKey: 'character', time: 't2', count: 1, rank: 5, off: false },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    const heads = w.findAll('.hl-grp-title').map((n) => n.text());
+    expect(heads.some((t) => t.includes('Featured'))).toBe(true);
+    expect(heads.some((t) => t.includes('Collab'))).toBe(true);
+    expect(w.findAll('.hl-off').length).toBe(1); // the 歪 chip is under the collab group
+  });
 });
