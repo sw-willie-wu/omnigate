@@ -1,8 +1,9 @@
 import type { HeadlineEntry } from '../stores/gacha';
 
 // Banner keys whose high-rarity drops are equipment (weapon-slot), not characters.
-// Light cones (HSR) and W-engines (ZZZ) are the weapon equivalents → weapon side.
-const EQUIP_BANNERS = new Set(['weapon', 'standard_weapon', 'lightcone', 'wengine']);
+// Light cones (HSR) and W-engines (ZZZ) are the weapon equivalents → weapon side;
+// WuWa's weapon pools (incl. weapon_exchange 武器新旅換取, collab_weapon 武器聯動) too.
+const EQUIP_BANNERS = new Set(['weapon', 'standard_weapon', 'weapon_exchange', 'collab_weapon', 'lightcone', 'wengine']);
 
 export function isEquip(bannerKey: string): boolean {
   return EQUIP_BANNERS.has(bannerKey);

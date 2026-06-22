@@ -34,4 +34,11 @@ describe('gachaHighlights', () => {
   it('lists distinct ranks highest-first', () => {
     expect(distinctRanks([mk('character', 5), mk('weapon', 4), mk('character', 5), mk('weapon', 6)])).toEqual([6, 5, 4]);
   });
+
+  it('routes the new WuWa weapon pools to the weapon side', () => {
+    expect(isEquip('weapon_exchange')).toBe(true);
+    expect(isEquip('collab_weapon')).toBe(true);
+    expect(isEquip('collab')).toBe(false);       // collab character → char side
+    expect(isEquip('char_exchange')).toBe(false);
+  });
 });
