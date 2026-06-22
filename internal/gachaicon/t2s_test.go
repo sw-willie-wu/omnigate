@@ -5,12 +5,12 @@ import "testing"
 func TestT2S(t *testing.T) {
 	cases := map[string]string{
 		"神里綾華": "神里绫华",
-		"鋒鏑":    "锋镝",
-		"11號":   "11号",
-		"Lucy":  "Lucy",
-		"丽娜":    "丽娜",
-		"乾":     "干", // multi-candidate line (乾→干 乾): default = first token
-		"麼":     "么", // single-candidate sanity
+		"鋒鏑":   "锋镝",
+		"11號":  "11号",
+		"Lucy": "Lucy",
+		"丽娜":   "丽娜",
+		"乾":    "干", // multi-candidate line (乾→干 乾): default = first token
+		"麼":    "么", // single-candidate sanity
 	}
 	for in, want := range cases {
 		if got := t2s(in); got != want {
