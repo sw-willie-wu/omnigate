@@ -32,6 +32,21 @@ const isEmpty = computed(() => !!sum.value && sum.value.supported && sum.value.t
 const isActiveUnknown = computed(() => !!sum.value && !!sum.value.activeUnknown);
 const isUnsupported = computed(() => !!sum.value && !sum.value.supported);
 const isErrorOther = computed(() => st.value.errKind === 'other' && !sum.value);
+// A failed refresh keeps the last-good dashboard (the store retains summary on a
+// refresh error); surface the failure INLINE instead of replacing the whole board.
+// 'link' (credential setup) stays full-screen — it's an actionable flow, not a transient fetch error.
+const refreshError = computed(() => {
+  const k = st.value.errKind;
+  return !!sum.value && (k === 'url' || k === 'url_expired' || k === 'wrong_account' || k === 'other');
+});
+const errDetail = computed(() => {
+  switch (st.value.errKind) {
+    case 'url': return t('gacha.url_hint');
+    case 'url_expired': return t('gacha.url_expired');
+    case 'wrong_account': return t('gacha.wrong_account');
+    default: return t('gacha.error_other');
+  }
+});
 
 function localize(m: Record<string, string> | undefined): string {
   if (!m) return '';
@@ -213,7 +228,7 @@ watch(() => st.value.loaded, (loaded) => {
       <p>{{ t('gacha.play_first') }}</p>
     </div>
 
-    <div v-else-if="st.errKind === 'wrong_account'" class="gacha-empty gacha-wrong-account">
+    <div v-else-if="st.errKind === 'wrong_account' && !sum" class="gacha-empty gacha-wrong-account">
       <p>{{ t('gacha.wrong_account') }}</p>
       <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
     </div>
@@ -237,7 +252,7 @@ watch(() => st.value.loaded, (loaded) => {
       </div>
     </div>
 
-    <div v-else-if="st.errKind === 'url' || st.errKind === 'url_expired' || isEmpty" class="gacha-empty">
+    <div v-else-if="((st.errKind === 'url' || st.errKind === 'url_expired') && !sum) || isEmpty" class="gacha-empty">
       <p class="gacha-url-hint" v-if="st.errKind === 'url' || st.errKind === 'url_expired'">
         {{ st.errKind === 'url_expired' ? t('gacha.url_expired') : t('gacha.url_hint') }}
       </p>
@@ -252,8 +267,15 @@ watch(() => st.value.loaded, (loaded) => {
 
     <template v-else-if="sum">
       <div class="gacha-actions">
-        <span class="gacha-sub mono">UID {{ sum.uid }}</span>
-        <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
+        <button class="gacha-refresh gacha-btn-icon" @click="gacha.refresh(props.gid, accountID)">
+          <span class="material-symbols-outlined" aria-hidden="true">refresh</span>{{ t('gacha.refresh') }}
+        </button>
+        <button class="gacha-import gacha-btn-icon" disabled :title="t('gacha.import_soon')">
+          <span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('gacha.import') }}
+        </button>
+        <span v-if="refreshError" class="gacha-inline-err" :title="errDetail">
+          <span class="material-symbols-outlined" aria-hidden="true">error</span>{{ t('gacha.refresh_failed') }}
+        </span>
       </div>
 
       <!-- §2.1 eight stat cards (4×2): label top-left, value centered, secondary bottom-right -->
@@ -396,13 +418,23 @@ watch(() => st.value.loaded, (loaded) => {
 .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
 
 /* actions */
-.gacha-actions { display: flex; justify-content: space-between; align-items: center; }
-.gacha-sub { color: rgba(255,255,255,0.85); font-size: .8rem; letter-spacing: .05em; }
+.gacha-actions { display: flex; justify-content: flex-start; align-items: center; gap: 10px; }
 .gacha-refresh {
   background: var(--gold-soft); color: var(--gold-hi); border: 1px solid rgba(230,197,115,.4);
   border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
 }
 .gacha-refresh:hover { background: rgba(230,197,115,.2); }
+.gacha-btn-icon { display: inline-flex; align-items: center; gap: 6px; line-height: 1; }
+.gacha-btn-icon .material-symbols-outlined { font-size: 18px; }
+/* import-records: present but disabled — UIGF import is a planned follow-up */
+.gacha-import {
+  background: rgba(255,255,255,.05); color: rgba(255,255,255,.42);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 14px;
+  font-family: inherit; font-size: 12px; font-weight: 600; cursor: not-allowed;
+}
+/* non-destructive refresh failure: dashboard stays, error shows inline (pushed right) */
+.gacha-inline-err { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; color: #f0a35e; font-size: 12px; font-weight: 600; }
+.gacha-inline-err .material-symbols-outlined { font-size: 16px; }
 
 /* §2.1 cards */
 .gacha-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }

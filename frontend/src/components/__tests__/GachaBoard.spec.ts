@@ -262,12 +262,29 @@ describe('GachaBoard', () => {
     expect(w.find('.gacha-skeleton').exists()).toBe(true);
   });
 
-  it('shows url-reopen guidance when refresh errKind=url', async () => {
+  it('keeps the dashboard + shows an inline error when a refresh fails (url) — non-destructive', async () => {
     getSummary.mockResolvedValue(base);
     refreshGacha.mockRejectedValue(new Error('gacha history url unavailable'));
     const w = mountBoard(); await flushPromises();
     await w.find('.gacha-refresh').trigger('click'); await flushPromises();
-    expect(w.find('.gacha-url-hint').exists()).toBe(true);
+    expect(w.find('.gacha-cards').exists()).toBe(true);       // dashboard stays (last-good data)
+    expect(w.find('.gacha-inline-err').exists()).toBe(true);  // failure surfaced inline
+    expect(w.find('.gacha-url-hint').exists()).toBe(false);   // NOT a full-screen error
+  });
+
+  it('full-screens the url guidance when the FIRST load fails (no data yet)', async () => {
+    getSummary.mockRejectedValue(new Error('gacha history url unavailable'));
+    const w = mountBoard(); await flushPromises();
+    expect(w.find('.gacha-url-hint').exists()).toBe(true);    // full-screen guidance when there's nothing to show
+    expect(w.find('.gacha-cards').exists()).toBe(false);
+  });
+
+  it('renders a disabled import-records placeholder button', async () => {
+    getSummary.mockResolvedValue(base);
+    const w = mountBoard(); await flushPromises();
+    const imp = w.find('.gacha-import');
+    expect(imp.exists()).toBe(true);
+    expect(imp.attributes('disabled')).toBeDefined();
   });
 
   it('shows the play-first prompt (no refresh button) when active uid is unknown', async () => {
@@ -277,22 +294,24 @@ describe('GachaBoard', () => {
     expect(w.find('.gacha-refresh').exists()).toBe(false);
   });
 
-  it('shows wrong-account guidance when refresh reports a mismatch', async () => {
+  it('keeps the dashboard + inline error on a wrong-account refresh failure', async () => {
     getSummary.mockResolvedValue(base);
     refreshGacha.mockRejectedValue(new Error('gacha record belongs to a different account'));
     const w = mountBoard(); await flushPromises();
     await w.find('.gacha-refresh').trigger('click'); await flushPromises();
-    expect(w.find('.gacha-wrong-account').exists()).toBe(true);
+    expect(w.find('.gacha-cards').exists()).toBe(true);
+    expect(w.find('.gacha-inline-err').exists()).toBe(true);
+    expect(w.find('.gacha-wrong-account').exists()).toBe(false);
   });
 
-  it('shows url-reopen guidance with the url-expired copy on a url_expired error', async () => {
+  it('inline error carries the url-expired detail in its tooltip', async () => {
     getSummary.mockResolvedValue(base);
     refreshGacha.mockRejectedValue(new Error('gacha convene url expired'));
     const w = mountBoard(); await flushPromises();
     await w.find('.gacha-refresh').trigger('click'); await flushPromises();
-    expect(w.find('.gacha-url-hint').exists()).toBe(true);
-    // distinct from the legacy url_hint copy: url_expired text mentions "convene".
-    expect(w.find('.gacha-url-hint').text()).toContain('convene');
+    expect(w.find('.gacha-inline-err').exists()).toBe(true);
+    // url_expired detail (mentions "convene") rides in the inline error's tooltip.
+    expect(w.find('.gacha-inline-err').attributes('title')).toContain('convene');
   });
 
   it('reloads with the newly selected account id', async () => {
