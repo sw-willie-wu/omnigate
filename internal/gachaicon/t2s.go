@@ -3,11 +3,18 @@ package gachaicon
 import (
 	"bufio"
 	_ "embed"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
+
+// htmlTagRe matches inline markup that Project Amber/Yatta embed in some display
+// names (e.g. HSR "銀狼LV.<unbreak>999</unbreak>"). The gacha record API returns
+// the clean text ("銀狼LV.999"), so the tags must be stripped before keying or the
+// names never match. No real item name contains angle brackets, so this is safe.
+var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
 
 //go:embed data/TSCharacters.txt
 var tsCharactersTxt string
@@ -64,7 +71,8 @@ func t2s(s string) string {
 	return b.String()
 }
 
-// Canonicalize trims and NFC-normalizes a name for stable map keying.
+// Canonicalize strips inline markup, trims, and NFC-normalizes a name for stable
+// map keying — so a marked-up dataset name and the clean record name key alike.
 func Canonicalize(s string) string {
-	return norm.NFC.String(strings.TrimSpace(s))
+	return norm.NFC.String(strings.TrimSpace(htmlTagRe.ReplaceAllString(s, "")))
 }

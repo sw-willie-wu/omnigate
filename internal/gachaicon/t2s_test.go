@@ -23,4 +23,13 @@ func TestCanonicalize(t *testing.T) {
 	if got := Canonicalize("  神里綾華 "); got != "神里綾華" {
 		t.Errorf("Canonicalize trim = %q", got)
 	}
+	// Yatta embeds markup (HSR 銀狼LV.<unbreak>999</unbreak>); the record API returns
+	// the clean name. Both must canonicalize to the same key.
+	const clean = "銀狼LV.999"
+	if got := Canonicalize("銀狼LV.<unbreak>999</unbreak>"); got != clean {
+		t.Errorf("Canonicalize tagged = %q, want %q", got, clean)
+	}
+	if got := Canonicalize(clean); got != clean {
+		t.Errorf("Canonicalize clean = %q, want %q", got, clean)
+	}
 }
