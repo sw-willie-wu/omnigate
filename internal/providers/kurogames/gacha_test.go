@@ -231,3 +231,80 @@ func TestWuwaStandardPoolAndLimited(t *testing.T) {
 		}
 	}
 }
+
+// All 11 pools are queried; absent pools (code 0 + empty) contribute nothing and
+// do NOT abort the fetch. Pool 10 data is normalized as banner "collab".
+func TestWuwaFetch_AllPoolsNoAbort(t *testing.T) {
+	queried := map[int]bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		pt := int(body["cardPoolType"].(float64))
+		queried[pt] = true
+		if pt == 1 {
+			w.Write([]byte(`{"code":0,"message":"success","data":[
+				{"qualityLevel":5,"resourceType":"角色","name":"Lingyang","count":1,"time":"2026-06-01 10:00:00"}]}`))
+			return
+		}
+		if pt == 10 {
+			w.Write([]byte(`{"code":0,"message":"success","data":[
+				{"qualityLevel":5,"resourceType":"角色","name":"Lucy","count":1,"time":"2026-06-08 23:35:44"}]}`))
+			return
+		}
+		w.Write([]byte(`{"code":0,"message":"success","data":[]}`)) // every other pool empty
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.recordAPIBase = srv.URL
+	p.recordDelay = 0
+	f := url.Values{"player_id": {"800"}, "record_id": {"R"}}
+	res, err := p.fetchWuwa(context.Background(), f)
+	if err != nil {
+		t.Fatalf("fetch aborted on empty pools: %v", err)
+	}
+	for pt := 1; pt <= 11; pt++ {
+		if !queried[pt] {
+			t.Errorf("pool %d not queried", pt)
+		}
+	}
+	if len(res.Pulls) != 2 {
+		t.Fatalf("pulls=%d want 2 (Lingyang + Lucy)", len(res.Pulls))
+	}
+	var lucy *core.GachaPull
+	for i := range res.Pulls {
+		if res.Pulls[i].Name == "Lucy" {
+			lucy = &res.Pulls[i]
+		}
+	}
+	if lucy == nil || lucy.BannerKey != "collab" || lucy.ID != "w|10|2026-06-08 23:35:44|0" {
+		t.Fatalf("collab pull wrong: %+v", lucy)
+	}
+}
+
+// A standard resonator on the collab/char_exchange (limited, 50/50) pool is 歪;
+// the collab character (Lucy) is a win; a weapon on a weapon pool is never 歪.
+func TestWuwaOffOnCollabAndExchange(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("kurogames/wutheringwaves")
+	pulls := []core.GachaPull{
+		{ID: "a", BannerKey: "collab", Rank: 5, Name: "Lingyang", Time: "2026-06-08 23:00:00"},                  // standard on collab → 歪
+		{ID: "b", BannerKey: "collab", Rank: 5, Name: "Lucy", Time: "2026-06-08 23:10:00"},                      // collab char → win
+		{ID: "c", BannerKey: "char_exchange", Rank: 5, Name: "Encore", Time: "2026-06-08 23:20:00"},             // standard on exchange → 歪
+		{ID: "d", BannerKey: "collab_weapon", Rank: 5, Name: "Emerald of Genesis", Time: "2026-06-08 23:30:00"}, // weapon on collab-weapon → never 歪
+		{ID: "e", BannerKey: "weapon_exchange", Rank: 5, Name: "Stringmaster", Time: "2026-06-08 23:40:00"},     // weapon on new-journey weapon → never 歪
+	}
+	s := core.ComputeSummary("u", pulls, cfg)
+	off := map[string]bool{}
+	for _, h := range s.Highlights {
+		off[h.Name] = h.Off
+	}
+	if !off["Lingyang"] || !off["Encore"] {
+		t.Errorf("standard resonator on collab/exchange must be 歪: %+v", off)
+	}
+	if off["Lucy"] {
+		t.Errorf("Lucy (collab char) must NOT be 歪")
+	}
+	if off["Emerald of Genesis"] || off["Stringmaster"] {
+		t.Errorf("weapons on weapon pools must NOT be 歪: %+v", off)
+	}
+}

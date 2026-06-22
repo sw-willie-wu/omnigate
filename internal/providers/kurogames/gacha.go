@@ -221,12 +221,12 @@ func (p *Provider) fetchWuwa(ctx context.Context, f url.Values) (core.GachaFetch
 	out.URL = "https://aki-gm-resources-oversea.aki-game.net/aki/gacha/index.html#/record?" + f.Encode()
 
 	endpoint := p.recordAPI() + "/gacha/record/query"
-	for pool := 1; pool <= 7; pool++ {
+	for pool := 1; pool <= 11; pool++ {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
 		core.ReportGachaProgress(ctx, core.GachaProgress{
-			BannerKey: poolBanner(pool), Page: 1, PoolIndex: pool, PoolTotal: 7,
+			BannerKey: poolBanner(pool), Page: 1, PoolIndex: pool, PoolTotal: 11,
 		})
 		reqBody, _ := json.Marshal(map[string]any{
 			"cardPoolId":   f.Get("resources_id"),
