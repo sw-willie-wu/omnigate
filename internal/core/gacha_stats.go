@@ -23,9 +23,10 @@ type HeadlineEntry struct {
 	ItemType  string `json:"itemType"`
 	BannerKey string `json:"bannerKey"`
 	Time      string `json:"time"`
-	Count     int    `json:"count"` // pulls spent to land this one
-	Rank      int    `json:"rank"`  // the pull's rarity (e.g. 4 or 5; Endfield 5 or 6)
-	Off       bool   `json:"off"`   // lost the 50/50 (歪): a standard-pool item on a limited banner
+	Count     int    `json:"count"`   // pulls spent to land this one
+	Rank      int    `json:"rank"`    // the pull's rarity (e.g. 4 or 5; Endfield 5 or 6)
+	Off       bool   `json:"off"`     // lost the 50/50 (歪): a standard-pool item on a limited banner
+	Limited   bool   `json:"limited"` // pulled on a Limited (featured/collab) banner
 }
 
 // GachaSummary is the full dashboard payload.
@@ -123,7 +124,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 		if i >= 8 {
 			break
 		}
-		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(h, offFor(cfg, limited, h.Pull)))
+		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
 	}
 
 	// Highlights: ALL top-two-rarity pulls (top = HeadlineRank, second = one below)
@@ -151,7 +152,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	}
 	sort.SliceStable(hlHits, func(i, j int) bool { return headlineNewer(hlHits[i], hlHits[j]) })
 	for _, h := range hlHits {
-		s.Highlights = append(s.Highlights, headlineEntry(h, offFor(cfg, limited, h.Pull)))
+		s.Highlights = append(s.Highlights, headlineEntry(h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
 	}
 	return s
 }
@@ -168,10 +169,10 @@ func headlineNewer(a, b PityHit) bool {
 	return numLess(b.Pull.ID, a.Pull.ID)
 }
 
-func headlineEntry(h PityHit, off bool) HeadlineEntry {
+func headlineEntry(h PityHit, off bool, lim bool) HeadlineEntry {
 	return HeadlineEntry{
 		Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: h.Pull.BannerKey,
-		Time: h.Pull.Time, Count: h.Count, Rank: h.Pull.Rank, Off: off,
+		Time: h.Pull.Time, Count: h.Count, Rank: h.Pull.Rank, Off: off, Limited: lim,
 	}
 }
 

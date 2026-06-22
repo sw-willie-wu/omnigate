@@ -277,3 +277,41 @@ func TestComputeSummaryOff(t *testing.T) {
 		}
 	}
 }
+
+func TestComputeSummaryLimitedFlag(t *testing.T) {
+	cfg := GachaConfig{
+		HeadlineRank: 5,
+		RankLabels:   map[int]LocalizedString{5: {"en": "5★"}, 4: {"en": "4★"}},
+		Banners: []BannerConfig{
+			{Key: "character", Label: LocalizedString{"en": "Char"}, Pity: stdPity{cap: 90}, Limited: true},
+			{Key: "standard", Label: LocalizedString{"en": "Std"}, Pity: stdPity{cap: 90}, Limited: false},
+		},
+		StandardPool: map[string]bool{},
+		PullPrice:    160, Currency: "x", ExpectedPity: 62.5,
+	}
+	pulls := []GachaPull{
+		{ID: "1-1", BannerKey: "character", Rank: 5, Name: "A", Time: "2026-02-01 10:00:00"},
+		{ID: "2-1", BannerKey: "standard", Rank: 5, Name: "B", Time: "2026-02-02 10:00:00"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	want := map[string]bool{"A": true, "B": false}
+	if len(s.Highlights) != 2 {
+		t.Fatalf("want 2 highlights, got %d", len(s.Highlights))
+	}
+	for _, h := range s.Highlights {
+		if h.Limited != want[h.Name] {
+			t.Errorf("Highlights Limited[%s] = %v; want %v", h.Name, h.Limited, want[h.Name])
+		}
+	}
+	// Guard the RecentHeadline call site too (mirrors TestComputeSummaryOff): a dropped
+	// limited arg on that append would otherwise go uncaught.
+	gotRecent := map[string]bool{}
+	for _, h := range s.RecentHeadline {
+		gotRecent[h.Name] = h.Limited
+	}
+	for name, w := range want {
+		if v, ok := gotRecent[name]; ok && v != w {
+			t.Errorf("RecentHeadline Limited[%s] = %v; want %v", name, v, w)
+		}
+	}
+}
