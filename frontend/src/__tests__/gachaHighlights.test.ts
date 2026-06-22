@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups } from '../utils/gachaHighlights';
+import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity } from '../utils/gachaHighlights';
 import type { HeadlineEntry } from '../stores/gacha';
 
 const mk = (bannerKey: string, rank: number, name = 'x'): HeadlineEntry => ({
@@ -71,5 +71,29 @@ describe('banner grouping', () => {
     expect(capped.map((x) => x.key)).toEqual(['character']); // budget 2 fully consumed by group 1
     expect(capped[0].entries.length).toBe(2);
     expect(capped[0].total).toBe(2); // total preserved (un-truncated count)
+  });
+});
+
+describe('shouldShowPity', () => {
+  it('always shows ongoing banners the account pulled on', () => {
+    expect(shouldShowPity('character', 10, true)).toBe(true);
+    expect(shouldShowPity('character', 10, false)).toBe(true);
+    expect(shouldShowPity('collab', 5, true)).toBe(true);
+    expect(shouldShowPity('chronicled', 100, true)).toBe(true);
+  });
+  it('hides any banner with no pulls', () => {
+    expect(shouldShowPity('character', 0, false)).toBe(false);
+    expect(shouldShowPity('beginner', 0, false)).toBe(false);
+  });
+  it('hides a one-shot pool that already produced its headline 5★', () => {
+    expect(shouldShowPity('beginner', 50, true)).toBe(false);
+    expect(shouldShowPity('other', 1, true)).toBe(false);
+    expect(shouldShowPity('beginner_choice', 10, true)).toBe(false);
+    expect(shouldShowPity('char_exchange', 80, true)).toBe(false);
+    expect(shouldShowPity('weapon_exchange', 80, true)).toBe(false);
+  });
+  it('keeps a one-shot pool still mid-progress (no headline yet)', () => {
+    expect(shouldShowPity('beginner', 30, false)).toBe(true);
+    expect(shouldShowPity('char_exchange', 40, false)).toBe(true);
   });
 });

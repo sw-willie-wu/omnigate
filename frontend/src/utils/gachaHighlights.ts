@@ -73,6 +73,23 @@ export function groupByBanner(
   return groups;
 }
 
+// One-shot / finite gacha pools (no ongoing pity): the WuWa beginner banner, the
+// 新手自選 selector, the 感恩定向 gift, and the new-account 新旅換取 pools. (Only
+// `beginner` exists in non-WuWa games among these.)
+const ONE_SHOT_BANNERS = new Set([
+  'beginner', 'beginner_choice', 'other', 'char_exchange', 'weapon_exchange',
+]);
+
+// shouldShowPity decides whether to show a banner's pity-progress bar. Show it for any
+// banner the account has pulled on, EXCEPT a one-shot/finite pool that has ALREADY
+// produced its guaranteed headline 5★ — its pity is spent, so the bar is meaningless.
+// A one-shot pool still mid-progress (no headline yet) keeps its bar.
+export function shouldShowPity(key: string, pulls: number, hasHeadline: boolean): boolean {
+  if (pulls <= 0) return false;
+  if (ONE_SHOT_BANNERS.has(key) && hasHeadline) return false;
+  return true;
+}
+
 // capGroups spends a per-column visible budget across groups in order: render each
 // group fully until the budget runs out, truncating the group it runs out in. `total`
 // is preserved so the sub-header still shows the real group size. This caps WITHIN a

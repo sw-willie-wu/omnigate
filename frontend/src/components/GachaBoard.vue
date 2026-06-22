@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups } from '../utils/gachaHighlights';
+import { equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -132,8 +132,15 @@ watch(hlSentinel, (el) => {
   hlObserver.observe(el);
 });
 onUnmounted(() => hlObserver?.disconnect());
-// Hide pools the account never pulled on (no records).
-const visiblePity = computed(() => (sum.value?.pity ?? []).filter((b) => (sum.value?.perBanner?.[b.key] ?? 0) > 0));
+// Hide pools the account never pulled on (no records), and hide one-shot/finite pools
+// that have already produced their guaranteed headline 5★ (pity is spent — bar is moot).
+const visiblePity = computed(() => {
+  const top = topRank.value;
+  const hls = highlights.value;
+  return (sum.value?.pity ?? []).filter((b) =>
+    shouldShowPity(b.key, sum.value?.perBanner?.[b.key] ?? 0, hls.some((h) => h.bannerKey === b.key && h.rank === top)),
+  );
+});
 // Loading line: live "{banner} · page N (i/total)" when a progress tick has
 // arrived (refresh), else generic loading (initial store read).
 const progressText = computed(() => {
