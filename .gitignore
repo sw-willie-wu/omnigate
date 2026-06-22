@@ -55,3 +55,6 @@ settings.toml
 /omnigate.db
 /.cache/
 /*.bak
+
+# gacha-icon match-rate probe input (real user data, not shipped)
+internal/gachaicon/testdata/wuwa_real_names.txt

@@ -107,3 +107,55 @@ func TestEntryByID(t *testing.T) {
 		t.Errorf("EntryByID unknown should be false")
 	}
 }
+
+func TestBuildFromHakush_WuWa(t *testing.T) {
+	idx := NewIndex()
+	gid := core.GameID("kurogames/wutheringwaves")
+	if err := buildFromHakush(idx, gid, "char", 5, readFixture(t, "hakush_ww_character.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := buildFromHakush(idx, gid, "weapon", 5, readFixture(t, "hakush_ww_weapon.json")); err != nil {
+		t.Fatal(err)
+	}
+	// Weapon resolves on the equip side. Note: its IconRef number (T_IconWeapon21020017)
+	// legitimately differs from the id (21020026), so we do NOT assert on IconRef.
+	if e, ok := idx.Resolve(gid, "裁春", true); !ok || e.ID != "21020026" || e.Kind != "weapon" {
+		t.Errorf("resolve 裁春 = %+v ok=%v", e, ok)
+	}
+	// A rank-5 character resolves to its id.
+	if e, ok := idx.Resolve(gid, "凌阳", false); !ok || e.ID != "1104" {
+		t.Errorf("resolve 凌阳 = %+v ok=%v", e, ok)
+	}
+	// A rank-4 character present in the fixture is excluded when topRank=5.
+	if _, ok := idx.Resolve(gid, "散华", false); ok {
+		t.Errorf("rank-4 散华 should be excluded")
+	}
+	// A non-Chinese name form (en) keys to the same id — proves multi-language keying.
+	if e, ok := idx.Resolve(gid, "Lingyang", false); !ok || e.ID != "1104" {
+		t.Errorf("resolve en Lingyang = %+v ok=%v", e, ok)
+	}
+}
+
+func TestBuildFromHakush_ZZZ(t *testing.T) {
+	idx := NewIndex()
+	gid := core.GameID("hoyoverse/zzz")
+	// ZZZ top rarity is 4 (S-rank).
+	if err := buildFromHakush(idx, gid, "char", 4, readFixture(t, "hakush_zzz_character.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := buildFromHakush(idx, gid, "weapon", 4, readFixture(t, "hakush_zzz_weapon.json")); err != nil {
+		t.Fatal(err)
+	}
+	// A rank-4 (S-rank) character resolves to its id.
+	if e, ok := idx.Resolve(gid, "艾莲", false); !ok || e.ID != "1191" {
+		t.Errorf("resolve 艾莲 = %+v ok=%v", e, ok)
+	}
+	// A rank-3 (A-rank) character is excluded when topRank=4.
+	if _, ok := idx.Resolve(gid, "安比", false); ok {
+		t.Errorf("rank-3 安比 should be excluded")
+	}
+	// A rank-4 W-Engine resolves on the equip side.
+	if e, ok := idx.Resolve(gid, "钢铁肉垫", true); !ok || e.ID != "14102" || e.Kind != "weapon" {
+		t.Errorf("resolve 钢铁肉垫 = %+v ok=%v", e, ok)
+	}
+}
