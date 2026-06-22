@@ -211,6 +211,34 @@ describe('computeCardMetrics', () => {
     expect(m.avgWeapon).toBe(50); // 50/1
   });
 
+  it('rolls a lost 50/50 (off) into the next featured win cost; counts only wins', () => {
+    // highlights are newest-first: win A (newer) at index 0, the 歪 (older) at index 1.
+    // chronologically: 歪(75 pulls, standard char) then win A(80 pulls) → A cost = 155, 1 char.
+    const m = computeCardMetrics([
+      mk('character', 5, 'winA', { limited: true, off: false, count: 80 }),
+      mk('character', 5, 'lost', { limited: true, off: true, count: 75 }),
+    ], 5);
+    expect(m.limCharCnt).toBe(1);   // only the featured win is a 限定角色 (the 歪 standard char isn't)
+    expect(m.avgChar).toBe(155);    // 75 (小保/歪) + 80 (大保底 win)
+    expect(m.hitTotal).toBe(2);     // rate still sees 2 featured rolls
+    expect(m.hitWins).toBe(1);
+    expect(m.hitRate).toBeCloseTo(0.5, 5);
+  });
+
+  it('discards a trailing off (in-progress 50/50 loss) from the acquisition average', () => {
+    // newest-first: trailing 歪(70) at index 0, win(60) at 1, earlier 歪(50) at 2.
+    // chronological: 歪50 → win60 (cost 110, 1 char) → 歪70 (no later win, discarded).
+    const m = computeCardMetrics([
+      mk('character', 5, 'pending', { limited: true, off: true, count: 70 }),
+      mk('character', 5, 'win', { limited: true, off: false, count: 60 }),
+      mk('character', 5, 'lost', { limited: true, off: true, count: 50 }),
+    ], 5);
+    expect(m.limCharCnt).toBe(1);
+    expect(m.avgChar).toBe(110);  // 50 + 60; the trailing 70 is excluded
+    expect(m.hitTotal).toBe(3);   // rate counts all three featured rolls
+    expect(m.hitWins).toBe(1);
+  });
+
   it('computes the featured hit rate over char+weapon, off counting as a loss', () => {
     const m = computeCardMetrics([
       mk('character', 5, 'a', { limited: true, off: false }),
