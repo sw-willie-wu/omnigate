@@ -189,6 +189,14 @@ export interface CardMetrics {
   hitWins: number;           // top-rank featured (char+weapon), off===false
   hitTotal: number;          // top-rank featured (char+weapon), off + won
   hitRate: number | null;    // hitWins/hitTotal in [0,1], null when hitTotal===0
+  distribution: number[];    // 9-bucket pull-count histogram, same population as avgAll
+}
+
+// distBucket maps a pull-count to a 9-bucket histogram index (mirrors the backend bucket()):
+// 0=1-9, 1=10-19, …, 7=70-79, 8=80+.
+function distBucket(count: number): number {
+  if (count >= 80) return 8;
+  return Math.min(Math.floor(count / 10), 8);
 }
 
 // computeCardMetrics derives the eight stat-card numbers from the complete top-rarity
@@ -207,11 +215,12 @@ export function computeCardMetrics(highlights: HeadlineEntry[], top: number): Ca
   let allSum = 0, allN = 0;
   let charSum = 0, charN = 0, weaponSum = 0, weaponN = 0;
   let hitWins = 0, hitTotal = 0;
+  const distribution = new Array(9).fill(0) as number[];
   const pending = new Map<string, number>(); // per-banner off-pull pulls awaiting the next win
   for (let i = highlights.length - 1; i >= 0; i--) { // oldest-first
     const h = highlights[i];
     if (h.rank !== top) continue;
-    if (!isOneShotPool(h.bannerKey)) { allSum += h.count; allN++; }
+    if (!isOneShotPool(h.bannerKey)) { allSum += h.count; allN++; distribution[distBucket(h.count)]++; }
     if (!(h.limited && !isOneShotPool(h.bannerKey))) continue; // featured only past here
     hitTotal++;
     const roll = (pending.get(h.bannerKey) ?? 0) + h.count;
@@ -229,5 +238,6 @@ export function computeCardMetrics(highlights: HeadlineEntry[], top: number): Ca
     limCharCnt: charN, limWeaponCnt: weaponN,
     avgAll: mean(allSum, allN), avgChar: mean(charSum, charN), avgWeapon: mean(weaponSum, weaponN),
     hitWins, hitTotal, hitRate: hitTotal > 0 ? hitWins / hitTotal : null,
+    distribution,
   };
 }

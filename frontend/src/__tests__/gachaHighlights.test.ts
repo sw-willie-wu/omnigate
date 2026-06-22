@@ -258,6 +258,22 @@ describe('computeCardMetrics', () => {
     expect(m.avgWeapon).toBeNull();
     expect(m.hitRate).toBeNull();
     expect(m.limCharCnt).toBe(0);
+    expect(m.distribution).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('builds a 9-bucket distribution over the same population as avgAll (excl one-shot)', () => {
+    const m = computeCardMetrics([
+      mk('character', 5, 'a', { count: 5 }),        // bucket 0 (1-9)
+      mk('standard_char', 5, 'b', { count: 72 }),   // bucket 7 (70-79) — standard is non-one-shot → in
+      mk('weapon', 5, 'c', { count: 80 }),          // bucket 8 (80+)
+      mk('other', 5, 'd', { count: 1 }),            // one-shot gift → excluded
+      mk('character', 4, 'e', { count: 30 }),       // not top rank → excluded
+    ], 5);
+    expect(m.distribution.length).toBe(9);
+    expect(m.distribution[0]).toBe(1);  // a only ('other' excluded despite also being count 1)
+    expect(m.distribution[7]).toBe(1);  // b
+    expect(m.distribution[8]).toBe(1);  // c (>=80)
+    expect(m.distribution.reduce((s, v) => s + v, 0)).toBe(3); // a,b,c; not d (one-shot) or e (rank 4)
   });
 });
 

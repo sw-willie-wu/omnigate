@@ -51,7 +51,10 @@ const donutStyle = computed(() => ({
   background: `conic-gradient(var(--accent) ${sum.value?.luckScore ?? 0}%, var(--border) 0)`,
 }));
 
-const distMax = computed(() => Math.max(0, ...(sum.value?.distribution ?? [])));
+// Distribution uses the SAME population as 平均出貨 (metrics.distribution, excl one-shot pools),
+// not the backend sum.distribution (all pools). X-axis labels = each bucket's lower bound.
+const DIST_LABELS = ['1', '10', '20', '30', '40', '50', '60', '70', '80+'];
+const distMax = computed(() => Math.max(0, ...metrics.value.distribution));
 function barPct(v: number): number {
   return distMax.value > 0 ? Math.round((v / distMax.value) * 100) : 0;
 }
@@ -299,13 +302,16 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 
         <div class="panel gacha-dist">
           <div class="panel-title">{{ t('gacha.dist_title') }}</div>
-          <div class="dist-bars">
-            <div v-for="(v, i) in sum.distribution" :key="i" class="dist-col">
-              <div class="dist-bar" :class="{ hot: v === distMax && v > 0 }" :style="{ height: barPct(v) + '%' }"></div>
+          <div class="dist-grid">
+            <div class="dist-yaxis"><span>{{ distMax }}</span><span>0</span></div>
+            <div class="dist-bars">
+              <div v-for="(v, i) in metrics.distribution" :key="i" class="dist-col">
+                <div class="dist-bar" :class="{ hot: v === distMax && v > 0 }" :style="{ height: barPct(v) + '%' }"></div>
+              </div>
             </div>
-          </div>
-          <div class="dist-axis">
-            <span>{{ t('gacha.dist_axis_low') }}</span><span>{{ t('gacha.dist_axis_mid') }}</span><span>{{ t('gacha.dist_axis_high') }}</span>
+            <div class="dist-xaxis">
+              <span v-for="(lbl, i) in DIST_LABELS" :key="i">{{ lbl }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -414,13 +420,17 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 /* pity row folded into the records: muted label, bar/count reuse .hl-* */
 .hl-row.hl-pity .hl-name { color: rgba(255,255,255,.55); font-weight: 600; font-size: .76rem; letter-spacing: .03em; }
 
-/* distribution */
+/* distribution: y-axis (count scale) | bars, with per-bucket x labels aligned under the bars */
 .gacha-dist { display: flex; flex-direction: column; }
-.dist-bars { flex: 1; min-height: 110px; display: flex; align-items: flex-end; gap: 5px; }
+.dist-grid { flex: 1; min-height: 110px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: 1fr auto; column-gap: 6px; }
+.dist-yaxis { grid-area: 1 / 1; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
+  font-size: .6rem; color: rgba(255,255,255,0.6); font-variant-numeric: tabular-nums; }
+.dist-bars { grid-area: 1 / 2; display: flex; align-items: flex-end; gap: 5px; }
 .dist-col { flex: 1; height: 100%; display: flex; align-items: flex-end; }
 .dist-bar { width: 100%; min-height: 2px; border-radius: 3px 3px 0 0; background: var(--text-3); opacity: .5; transition: height .3s; }
 .dist-bar.hot { background: var(--gold-hi); opacity: 1; }
-.dist-axis { display: flex; justify-content: space-between; font-size: .65rem; color: rgba(255,255,255,0.72); margin-top: 6px; }
+.dist-xaxis { grid-area: 2 / 2; display: flex; gap: 5px; margin-top: 5px; }
+.dist-xaxis span { flex: 1; text-align: center; font-size: .56rem; color: rgba(255,255,255,0.5); font-variant-numeric: tabular-nums; }
 
 /* recent */
 .gacha-hl .hl-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
