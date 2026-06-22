@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool } from '../utils/gachaHighlights';
+import { equipTypeKey, splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -80,9 +80,6 @@ function barPct(v: number): number {
 function pityPct(cur: number, cap: number): number {
   return cap > 0 ? Math.min(100, Math.round((cur / cap) * 100)) : 0;
 }
-function remain(cur: number, cap: number): number {
-  return Math.max(0, cap - cur);
-}
 // --- High-star records: complete list, split character / weapon, rank-toggled, lazy ---
 const highlights = computed(() => sum.value?.highlights ?? []);
 const hlRanks = computed(() => distinctRanks(highlights.value)); // e.g. [5,4] or [6,5]
@@ -100,8 +97,6 @@ function toggleRank(r: number) {
 }
 const hlSplit = computed(() => splitByType(highlights.value.filter((h) => enabledRanks.value.has(h.rank))));
 const bannerOrder = computed(() => (sum.value?.pity ?? []).map((p) => ({ key: p.key, label: p.label })));
-const charGroups = computed(() => capGroups(groupByBanner(hlSplit.value.chars, bannerOrder.value), hlVisible.value));
-const weaponGroups = computed(() => capGroups(groupByBanner(hlSplit.value.weapons, bannerOrder.value), hlVisible.value));
 const hlCharTotal = computed(() => hlSplit.value.chars.length);
 const hlWeaponTotal = computed(() => hlSplit.value.weapons.length);
 const hlHasMore = computed(() => hlVisible.value < Math.max(hlSplit.value.chars.length, hlSplit.value.weapons.length));
@@ -114,6 +109,13 @@ function bannerCap(key: string): number { return sum.value?.pity.find((p) => p.k
 function hlBarStyle(h: { count: number; rank: number; bannerKey: string }) {
   const cap = h.rank >= topRank.value ? bannerCap(h.bannerKey) : 10;
   const pct = cap > 0 ? Math.min(100, Math.round((h.count / cap) * 100)) : 0;
+  const bg = pct >= 80 ? '#f85149' : pct >= 50 ? 'var(--gold-hi)' : 'var(--ok)';
+  return { width: pct + '%', background: bg };
+}
+// Pity-row bar: fill = current/cap, colour warms green→amber→red as pity deepens (same
+// thresholds as hlBarStyle). No gold near-pity highlight here (per design).
+function pityBarStyle(b: { current: number; cap: number }) {
+  const pct = pityPct(b.current, b.cap);
   const bg = pct >= 80 ? '#f85149' : pct >= 50 ? 'var(--gold-hi)' : 'var(--ok)';
   return { width: pct + '%', background: bg };
 }
@@ -141,6 +143,13 @@ const visiblePity = computed(() => {
     shouldShowPity(b.key, sum.value?.perBanner?.[b.key] ?? 0, hls.some((h) => h.bannerKey === b.key && h.rank === top)),
   );
 });
+// Pity rows per column, one-shot pools excluded (their pity is meaningless). visiblePity
+// already drops zero-pull and spent one-shot pools; the extra guard makes "one-shots never
+// show pity" explicit (a one-shot still mid-progress would otherwise slip through).
+const charPity = computed(() => visiblePity.value.filter((b) => !isEquip(b.key) && !isOneShotPool(b.key)));
+const weaponPity = computed(() => visiblePity.value.filter((b) => isEquip(b.key) && !isOneShotPool(b.key)));
+const charSections = computed(() => buildPoolSections(hlSplit.value.chars, charPity.value, bannerOrder.value, hlVisible.value));
+const weaponSections = computed(() => buildPoolSections(hlSplit.value.weapons, weaponPity.value, bannerOrder.value, hlVisible.value));
 // Loading line: live "{banner} · page N (i/total)" when a progress tick has
 // arrived (refresh), else generic loading (initial store read).
 const progressText = computed(() => {
@@ -281,18 +290,6 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
           </div>
         </div>
 
-        <div class="panel gacha-pity">
-          <div class="panel-title">{{ t('gacha.pity_title') }}</div>
-          <div v-for="b in visiblePity" :key="b.key" class="pity-row" :class="{ near: b.nearPity }">
-            <div class="pity-head">
-              <span class="pity-label">{{ localize(b.label) }}</span>
-              <span class="pity-val mono">{{ b.current }} / {{ b.cap }}</span>
-            </div>
-            <div class="pity-track"><div class="pity-fill" :style="{ width: pityPct(b.current, b.cap) + '%' }"></div></div>
-            <div class="pity-remain">{{ t('gacha.pity_remain', { n: remain(b.current, b.cap) }) }}</div>
-          </div>
-        </div>
-
         <div class="panel gacha-dist">
           <div class="panel-title">{{ t('gacha.dist_title') }}</div>
           <div class="dist-bars">
@@ -318,10 +315,15 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         <div class="hl-cols">
           <div class="panel hl-col">
             <div class="hl-col-title">{{ charHeading }}<span class="hl-n">{{ hlCharTotal }}</span></div>
-            <div v-if="charGroups.length === 0" class="hl-empty">—</div>
-            <template v-for="g in charGroups" :key="'cg' + g.key">
-              <div class="hl-grp-title">{{ localize(g.label) || g.key }}<span class="hl-grp-title__n">{{ g.total }}</span></div>
-              <div v-for="(h, i) in g.entries" :key="'c' + g.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+            <div v-if="charSections.length === 0" class="hl-empty">—</div>
+            <template v-for="s in charSections" :key="'cs' + s.key">
+              <div class="hl-grp-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-grp-title__n">{{ s.total }}</span></div>
+              <div v-if="s.pity" class="hl-row hl-pity">
+                <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
+                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
+                <span class="hl-count mono">{{ s.pity.current }}</span>
+              </div>
+              <div v-for="(h, i) in s.entries" :key="'c' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
                 <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
                 <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
                 <span class="hl-count mono">{{ h.count }}</span>
@@ -330,10 +332,15 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
           </div>
           <div class="panel hl-col">
             <div class="hl-col-title">{{ weaponHeading }}<span class="hl-n">{{ hlWeaponTotal }}</span></div>
-            <div v-if="weaponGroups.length === 0" class="hl-empty">—</div>
-            <template v-for="g in weaponGroups" :key="'wg' + g.key">
-              <div class="hl-grp-title">{{ localize(g.label) || g.key }}<span class="hl-grp-title__n">{{ g.total }}</span></div>
-              <div v-for="(h, i) in g.entries" :key="'w' + g.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+            <div v-if="weaponSections.length === 0" class="hl-empty">—</div>
+            <template v-for="s in weaponSections" :key="'ws' + s.key">
+              <div class="hl-grp-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-grp-title__n">{{ s.total }}</span></div>
+              <div v-if="s.pity" class="hl-row hl-pity">
+                <span class="hl-name-wrap"><span class="hl-name">{{ t('gacha.pity_title') }}</span></span>
+                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
+                <span class="hl-count mono">{{ s.pity.current }}</span>
+              </div>
+              <div v-for="(h, i) in s.entries" :key="'w' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
                 <span class="hl-name-wrap"><span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span></span>
                 <span v-if="!isOneShotPool(h.bannerKey)" class="hl-bar"><span class="hl-fill" :style="hlBarStyle(h)"></span></span><span v-else class="hl-bar-empty"></span>
                 <span class="hl-count mono">{{ h.count }}</span>
@@ -379,7 +386,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .card .sub { color: rgba(255,255,255,0.72); font-size: .72rem; margin-top: 6px; }
 
 /* middle row */
-.gacha-mid { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 12px; }
+.gacha-mid { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
 .panel { padding: 14px 16px; }
 .panel-title { font-size: .8rem; font-weight: 700; letter-spacing: .1em; color: rgba(255,255,255,0.85); margin-bottom: 12px; }
 
@@ -398,17 +405,8 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 .trio-item .tv { font-weight: 700; font-size: 1rem; }
 .trio-item .tl { font-size: .68rem; color: rgba(255,255,255,0.72); }
 
-/* pity bars */
-.pity-row { margin-bottom: 14px; }
-.pity-row:last-child { margin-bottom: 0; }
-.pity-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
-.pity-label { font-size: .85rem; font-weight: 600; }
-.pity-val { font-size: .85rem; color: rgba(255,255,255,0.85); }
-.pity-track { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
-.pity-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s; }
-.pity-row.near .pity-fill { background: var(--gold-hi); box-shadow: 0 0 10px var(--gold-glow); }
-.pity-row.near .pity-val { color: var(--gold-hi); }
-.pity-remain { font-size: .7rem; color: rgba(255,255,255,0.72); margin-top: 4px; }
+/* pity row folded into the records: muted label, bar/count reuse .hl-* */
+.hl-row.hl-pity .hl-name { color: rgba(255,255,255,.55); font-weight: 600; font-size: .76rem; letter-spacing: .03em; }
 
 /* distribution */
 .gacha-dist { display: flex; flex-direction: column; }
@@ -459,7 +457,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
 /* loading skeleton */
 .gacha-skeleton { display: flex; flex-direction: column; gap: 12px; }
 .sk-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.sk-mid { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 12px; }
+.sk-mid { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
 .sk { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
   background-image: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
   background-size: 200% 100%; animation: gacha-shimmer 1.3s ease-in-out infinite; }

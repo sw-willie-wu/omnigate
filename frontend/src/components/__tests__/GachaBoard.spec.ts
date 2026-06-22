@@ -45,7 +45,8 @@ describe('GachaBoard', () => {
     const w = mountBoard(); await flushPromises();
     expect(w.find('.gacha-cards').exists()).toBe(true);
     expect(w.find('.donut').exists()).toBe(true);
-    expect(w.find('.gacha-pity').exists()).toBe(true);
+    expect(w.find('.gacha-pity').exists()).toBe(false);
+    expect(w.find('.hl-pity').exists()).toBe(true);
     expect(w.find('.gacha-dist').exists()).toBe(true);
     expect(w.find('.gacha-hl').exists()).toBe(true);
     expect(w.text()).toContain('12');
@@ -87,10 +88,9 @@ describe('GachaBoard', () => {
     }
   });
 
-  it('marks near-pity bars and highlights max distribution buckets', async () => {
+  it('highlights the max distribution buckets', async () => {
     getSummary.mockResolvedValue({ ...base, pity: [{ key: 'special', label: { en: 'Limited' }, current: 76, cap: 80, nearPity: true }] });
     const w = mountBoard(); await flushPromises();
-    expect(w.find('.pity-row.near').exists()).toBe(true);
     // distribution [1,...,1] → two buckets tie at max → two .hot bars
     expect(w.findAll('.dist-bar.hot').length).toBe(2);
   });
@@ -128,19 +128,37 @@ describe('GachaBoard', () => {
     expect(w.text()).not.toContain('NT$');
   });
 
-  it('hides pity rows for pools with no records', async () => {
+  it('shows a pity row per pulled pool but never for one-shot pools', async () => {
     getSummary.mockResolvedValue({
       ...base,
-      perBanner: { special: 8 }, // 'beginner' absent → 0 records → hidden
+      perBanner: { special: 8, beginner: 30 },
+      highlights: [], // no high-star records at all
       pity: [
         { key: 'special', label: { en: 'Limited' }, current: 10, cap: 80, nearPity: false },
-        { key: 'beginner', label: { en: 'Beginner' }, current: 0, cap: 90, nearPity: false },
+        { key: 'beginner', label: { en: 'Beginner' }, current: 30, cap: 50, nearPity: false }, // one-shot, mid-progress
       ],
     });
     const w = mountBoard(); await flushPromises();
-    expect(w.findAll('.pity-row').length).toBe(1);
-    expect(w.find('.gacha-pity').text()).toContain('Limited');
-    expect(w.find('.gacha-pity').text()).not.toContain('Beginner');
+    expect(w.findAll('.hl-pity').length).toBe(1); // 'special' shows; one-shot 'beginner' excluded
+    const txt = w.find('.gacha-hl').text();
+    expect(txt).toContain('Limited');
+    expect(txt).not.toContain('Beginner');
+    // a pity-only section (no records, total 0) hides its sub-header count
+    expect(w.find('.gacha-hl').findAll('.hl-grp-title__n').length).toBe(0);
+  });
+
+  it('renders a pity row in the weapon column too', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      perBanner: { weapon: 5 },
+      highlights: [],
+      pity: [{ key: 'weapon', label: { en: 'Weapon' }, current: 12, cap: 80, nearPity: false }],
+    });
+    const w = mountBoard(); await flushPromises();
+    const cols = w.findAll('.hl-col');
+    expect(cols[1].find('.hl-pity').exists()).toBe(true);  // weapon column gets the pity row
+    expect(cols[0].find('.hl-pity').exists()).toBe(false); // not the character column
+    expect(cols[1].text()).toContain('Weapon');
   });
 
   it('shows spinner + live progress text during refresh', async () => {
