@@ -169,6 +169,17 @@ export function buildPoolSections(
   return out;
 }
 
+// compactNum keeps values under 10k in full (e.g. "1,200") and abbreviates larger ones as
+// K/M (12,800 → "12.8K", 420,640 → "421K", 1,200,000 → "1.2M"): 1 decimal when the
+// abbreviated value is under 100, integer at or above. Used for the (potentially large)
+// consumed-stones card so it never overflows.
+export function compactNum(n: number): string {
+  if (n < 10000) return n.toLocaleString();
+  const fmt = (v: number) => (v < 100 ? v.toFixed(1) : Math.round(v).toString());
+  // 999,500+ would round up to "1000K" → show as M instead.
+  return n < 999500 ? fmt(n / 1000) + 'K' : fmt(n / 1000000) + 'M';
+}
+
 export interface CardMetrics {
   limCharCnt: number;        // won featured characters (off=false), top-rank
   limWeaponCnt: number;      // won featured weapons (off=false), top-rank

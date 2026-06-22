@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
 import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
-import { equipTypeKey, splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections, computeCardMetrics } from '../utils/gachaHighlights';
+import { equipTypeKey, splitByType, distinctRanks, shouldShowPity, isOneShotPool, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -244,7 +244,7 @@ watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
         </div>
         <div class="card">
           <div class="cap">{{ t('gacha.spend_est') }}</div>
-          <div class="num mono">{{ nf(sum.spendEst) }}<span class="unit">{{ currencyName(sum.currency) }}</span></div>
+          <div class="num mono">{{ compactNum(sum.spendEst) }}<span class="unit">{{ currencyName(sum.currency) }}</span></div>
         </div>
         <div class="card">
           <div class="cap">{{ t('gacha.lim_char_cnt') }}</div>

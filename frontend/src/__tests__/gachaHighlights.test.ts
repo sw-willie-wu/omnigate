@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections, computeCardMetrics } from '../utils/gachaHighlights';
+import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
 import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
 const mk = (bannerKey: string, rank: number, name = 'x', extra: Partial<HeadlineEntry> = {}): HeadlineEntry => ({
@@ -258,5 +258,24 @@ describe('computeCardMetrics', () => {
     expect(m.avgWeapon).toBeNull();
     expect(m.hitRate).toBeNull();
     expect(m.limCharCnt).toBe(0);
+  });
+});
+
+describe('compactNum', () => {
+  it('writes values below 10k in full', () => {
+    expect(compactNum(1200)).toBe((1200).toLocaleString());
+    expect(compactNum(9999)).toBe((9999).toLocaleString());
+    expect(compactNum(0)).toBe('0');
+  });
+  it('abbreviates thousands as K (1 dp under 100K, integer at/above)', () => {
+    expect(compactNum(12800)).toBe('12.8K');
+    expect(compactNum(420640)).toBe('421K');
+  });
+  it('abbreviates millions as M', () => {
+    expect(compactNum(1200000)).toBe('1.2M');
+  });
+  it('rolls a K value that would round to 1000K up to M', () => {
+    expect(compactNum(999520)).toBe('1.0M'); // not "1000K"
+    expect(compactNum(999360)).toBe('999K');  // still K just below the rollover
   });
 });
