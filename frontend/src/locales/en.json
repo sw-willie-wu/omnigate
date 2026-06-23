@@ -94,6 +94,21 @@
       "pasteLabel": "Or get it manually: while logged in, open web-api.gryphline.com (or web-api.skport.com) /cookie_store/account_token, then paste the whole JSON (or just the account_token) below:",
       "paste": "Submit",
       "bookmarkletName": "omnigate get Endfield token"
+    },
+    "login": {
+      "title": "Sign in with email & password",
+      "email_label": "Account (Email)",
+      "password_label": "Password",
+      "submit": "Sign in",
+      "signing_in": "Signing in…",
+      "err_bad_creds": "Incorrect email or password",
+      "err_no_role": "No game role linked to this account",
+      "err_generic": "Login failed, please try again",
+      "advanced": "Advanced: paste token instead",
+      "paste_label": "Paste token here",
+      "paste_submit": "Submit",
+      "paste_submitting": "Submitting…",
+      "paste_err": "Submit failed, please try again"
     }
   },
   "buttons": {

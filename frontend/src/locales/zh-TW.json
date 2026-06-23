@@ -94,6 +94,21 @@
       "pasteLabel": "或手動取得：登入後在瀏覽器開 web-api.gryphline.com（或 web-api.skport.com）的 /cookie_store/account_token，把整段 JSON 或其中的 account_token 貼到下方：",
       "paste": "送出",
       "bookmarkletName": "omnigate 取得終末地 token"
+    },
+    "login": {
+      "title": "以帳號密碼登入",
+      "email_label": "帳號（Email）",
+      "password_label": "密碼",
+      "submit": "登入",
+      "signing_in": "登入中…",
+      "err_bad_creds": "帳號或密碼錯誤",
+      "err_no_role": "此帳號尚未綁定遊戲角色",
+      "err_generic": "登入失敗，請稍後再試",
+      "advanced": "進階：改貼 token",
+      "paste_label": "貼上 token",
+      "paste_submit": "送出",
+      "paste_submitting": "送出中…",
+      "paste_err": "送出失敗，請稍後再試"
     }
   },
   "buttons": {
