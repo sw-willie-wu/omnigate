@@ -284,6 +284,8 @@
     "rename": "Rename",
     "namePlaceholder": "Custom name",
     "uidPending": "Available after login",
-    "currentlyLoggedIn": "Logged in"
+    "currentlyLoggedIn": "Logged in",
+    "addAccount": "+ Add account",
+    "delete": "Remove account"
   }
 }

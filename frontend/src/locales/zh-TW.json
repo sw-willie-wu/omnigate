@@ -284,6 +284,8 @@
     "rename": "重新命名",
     "namePlaceholder": "自訂名稱",
     "uidPending": "登入後取得",
-    "currentlyLoggedIn": "目前登入"
+    "currentlyLoggedIn": "目前登入",
+    "addAccount": "＋ 新增帳號",
+    "delete": "移除帳號"
   }
 }

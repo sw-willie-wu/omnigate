@@ -284,6 +284,8 @@
     "rename": "重命名",
     "namePlaceholder": "自定义名称",
     "uidPending": "登录后获取",
-    "currentlyLoggedIn": "当前登录"
+    "currentlyLoggedIn": "当前登录",
+    "addAccount": "＋ 新增账号",
+    "delete": "移除账号"
   }
 }
