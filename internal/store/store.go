@@ -18,7 +18,22 @@ type GachaStore interface {
 	PutURLCache(game, uid, url string) error
 	GetGachaCred(game string) (cred string, updatedAt time.Time, err error)
 	PutGachaCred(game, cred string) error
+	ListGachaAccounts(game string) ([]GachaAccount, error)
+	GetGachaAccount(id string) (GachaAccount, error)
+	UpsertGachaAccount(a GachaAccount) error
+	SetGachaAccountLabel(id, label string) error
+	DeleteGachaAccount(id string) error
+	SetActiveGachaAccount(game, id string) error
 	Close() error
+}
+
+// GachaAccount is one per-account gacha credential (Endfield). Token is the
+// durable passport token. UID is the roleId (record-partition key), "" until the
+// first refresh writes it back. Active marks the default account (resolved when
+// callers pass accountID="").
+type GachaAccount struct {
+	ID, Game, HgID, UID, Label, Email, Token string
+	Active                                    bool
 }
 
 // GameOverride is a per-game settings row (install path + background image).

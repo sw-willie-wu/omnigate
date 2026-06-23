@@ -65,6 +65,12 @@ func (s *SQLiteStore) migrate() error {
 		`CREATE TABLE IF NOT EXISTS account_uid (
   cuid TEXT PRIMARY KEY, uid TEXT, label TEXT
 )`,
+		`CREATE TABLE IF NOT EXISTS gacha_accounts (
+  account_id TEXT PRIMARY KEY, game TEXT NOT NULL, hg_id TEXT, uid TEXT,
+  label TEXT, email TEXT, token TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+)`,
+		`CREATE INDEX IF NOT EXISTS idx_gacha_accounts_game ON gacha_accounts(game)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -304,4 +310,67 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func (s *SQLiteStore) ListGachaAccounts(game string) ([]GachaAccount, error) {
+	rows, err := s.db.Query(`SELECT account_id,game,hg_id,uid,label,email,token,active FROM gacha_accounts WHERE game=? ORDER BY updated_at`, game)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []GachaAccount{}
+	for rows.Next() {
+		var a GachaAccount
+		var active int
+		if err := rows.Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.Email, &a.Token, &active); err != nil {
+			return nil, err
+		}
+		a.Active = active == 1
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) GetGachaAccount(id string) (GachaAccount, error) {
+	var a GachaAccount
+	var active int
+	err := s.db.QueryRow(`SELECT account_id,game,hg_id,uid,label,email,token,active FROM gacha_accounts WHERE account_id=?`, id).
+		Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.Email, &a.Token, &active)
+	a.Active = active == 1
+	return a, err
+}
+
+func (s *SQLiteStore) UpsertGachaAccount(a GachaAccount) error {
+	_, err := s.db.Exec(`INSERT INTO gacha_accounts(account_id,game,hg_id,uid,label,email,token,active,updated_at)
+VALUES(?,?,?,?,?,?,?,?,strftime('%s','now'))
+ON CONFLICT(account_id) DO UPDATE SET game=excluded.game,hg_id=excluded.hg_id,uid=excluded.uid,
+  label=excluded.label,email=excluded.email,token=excluded.token,updated_at=excluded.updated_at`,
+		a.ID, a.Game, a.HgID, a.UID, a.Label, a.Email, a.Token, boolInt(a.Active))
+	return err
+}
+
+func (s *SQLiteStore) SetGachaAccountLabel(id, label string) error {
+	_, err := s.db.Exec(`UPDATE gacha_accounts SET label=?, updated_at=strftime('%s','now') WHERE account_id=?`, label, id)
+	return err
+}
+
+func (s *SQLiteStore) DeleteGachaAccount(id string) error {
+	_, err := s.db.Exec(`DELETE FROM gacha_accounts WHERE account_id=?`, id)
+	return err
+}
+
+// SetActiveGachaAccount flips active to exactly the given id within its game.
+func (s *SQLiteStore) SetActiveGachaAccount(game, id string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`UPDATE gacha_accounts SET active=0 WHERE game=?`, game); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE gacha_accounts SET active=1 WHERE account_id=? AND game=?`, id, game); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
