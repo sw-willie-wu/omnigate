@@ -176,8 +176,8 @@ func TestMigrate_FreshDB_SchemaVersion3AndTables(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "3" {
-		t.Fatalf("schema_version = %q, want 3", v)
+	if v != "4" {
+		t.Fatalf("schema_version = %q, want 4", v)
 	}
 	for _, tbl := range []string{"config", "game_settings", "playstate", "account_uid"} {
 		var name string
@@ -187,9 +187,9 @@ func TestMigrate_FreshDB_SchemaVersion3AndTables(t *testing.T) {
 	}
 }
 
-func TestMigrate_ExistingV2DB_BumpedTo3(t *testing.T) {
+func TestMigrate_ExistingV2DB_BumpedTo4(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "omnigate.db")
-	s, err := OpenSQLite(p) // fresh → 3; force back to 2 to simulate a pre-upgrade DB
+	s, err := OpenSQLite(p) // fresh → 4; force back to 2 to simulate a pre-upgrade DB
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestMigrate_ExistingV2DB_BumpedTo3(t *testing.T) {
 	if err := s2.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "3" {
-		t.Fatalf("schema_version = %q, want 3 after re-open", v)
+	if v != "4" {
+		t.Fatalf("schema_version = %q, want 4 after re-open", v)
 	}
 }

@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 type SQLiteStore struct {
 	db   *sql.DB
@@ -98,6 +98,14 @@ func (s *SQLiteStore) migrate() error {
 	// rekey so it overwrites the rekey's '2'.
 	if ver < 3 {
 		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','3')`); err != nil {
+			return err
+		}
+	}
+	if ver < 4 {
+		if err := s.migrateV4GachaCredToAccount(); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','4')`); err != nil {
 			return err
 		}
 	}
@@ -187,6 +195,44 @@ func (s *SQLiteStore) migrateV2RekeyWuwa() error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// migrateV4GachaCredToAccount converts each legacy per-game gacha_cred row into a
+// single active gacha_accounts row, seeding uid from latest_uid (== roleId,
+// offline) so existing analysis stays visible, then deletes the legacy row.
+// Gated on ver < 4; safe to call on an empty gacha_cred table (no-op loop).
+func (s *SQLiteStore) migrateV4GachaCredToAccount() error {
+	rows, err := s.db.Query(`SELECT game, cred FROM gacha_cred`)
+	if err != nil {
+		return err
+	}
+	type credRow struct{ game, token string }
+	var creds []credRow
+	for rows.Next() {
+		var c credRow
+		if err := rows.Scan(&c.game, &c.token); err != nil {
+			rows.Close()
+			return err
+		}
+		creds = append(creds, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, c := range creds {
+		var uid string
+		_ = s.db.QueryRow(`SELECT value FROM meta WHERE key=?`, "latest_uid:"+c.game).Scan(&uid)
+		id := "mig-" + c.game // deterministic; one legacy cred per game
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO gacha_accounts(account_id,game,hg_id,uid,label,email,token,active,updated_at)
+VALUES(?,?,?,?,?,?,?,1,strftime('%s','now'))`, id, c.game, "", uid, "", "", c.token); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`DELETE FROM gacha_cred WHERE game=?`, c.game); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) Close() error { return s.db.Close() }
@@ -313,7 +359,7 @@ func boolInt(b bool) int {
 }
 
 func (s *SQLiteStore) ListGachaAccounts(game string) ([]GachaAccount, error) {
-	rows, err := s.db.Query(`SELECT account_id,game,hg_id,uid,label,email,token,active FROM gacha_accounts WHERE game=? ORDER BY updated_at`, game)
+	rows, err := s.db.Query(`SELECT account_id,game,hg_id,uid,label,email,token,active FROM gacha_accounts WHERE game=? ORDER BY updated_at, account_id`, game)
 	if err != nil {
 		return nil, err
 	}
