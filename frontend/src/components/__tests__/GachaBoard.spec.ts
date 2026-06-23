@@ -12,8 +12,6 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
   RefreshGacha: (...a: unknown[]) => refreshGacha(...a),
   ListGameAccounts: (...a: unknown[]) => listAccounts(...a),
   SetAccountLabel: vi.fn(),
-  StartGachaLink: vi.fn(),
-  SetGachaCredential: vi.fn(),
 }));
 vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 
@@ -331,11 +329,40 @@ describe('GachaBoard', () => {
     w.unmount();
   });
 
-  it('renders the link panel when GetGachaSummary reports credential required', async () => {
+  it('renders the login prompt (no bookmarklet UI) when credential is required', async () => {
     getSummary.mockRejectedValue(new Error('gacha credential required'));
     const w = mountBoard(); await flushPromises();
-    expect(w.find('[data-test="gacha-link-login"]').exists()).toBe(true);
-    expect(w.text()).toContain('Link your Gryphline'); // en gacha.link.title
+    expect(w.find('.gacha-login-prompt').exists()).toBe(true);
+    expect(w.text()).toContain('Please log in'); // en gacha.login_prompt
+    // the old bookmarklet/link flow is gone
+    expect(w.find('[data-test="gacha-link-login"]').exists()).toBe(false);
+    expect(w.find('.gacha-bookmarklet').exists()).toBe(false);
+    expect(w.find('.gacha-link-paste').exists()).toBe(false);
+  });
+
+  it('credential game: sources accountID from gachaAccount and reloads on selection change', async () => {
+    getSummary.mockResolvedValue(base);
+    const { useGamesStore } = await import('../../stores/games');
+    const { useGachaAccountStore } = await import('../../stores/gachaAccount');
+    const games = useGamesStore();
+    games._accountKind['hypergryph/endfield'] = 'credential';
+    const ga = useGachaAccountStore();
+    ga.byGid['hypergryph/endfield'] = {
+      accounts: [
+        { id: 'GA', uid: 'uA', label: '', email: 'a', active: true },
+        { id: 'GB', uid: 'uB', label: '', email: 'b', active: false },
+      ],
+      selectedId: 'GA', loaded: true, loading: false,
+    };
+    const w = mountBoard(); await flushPromises();
+    // initial load resolves the selected credential account, NOT the switcher store
+    expect(getSummary).toHaveBeenCalledWith('hypergryph/endfield', 'GA');
+    getSummary.mockClear();
+    // switch the selected gacha account in the chip → board reloads with the new id
+    ga.byGid['hypergryph/endfield'].selectedId = 'GB';
+    await flushPromises();
+    expect(getSummary).toHaveBeenCalledWith('hypergryph/endfield', 'GB');
+    w.unmount();
   });
 
   it('renders a 歪 chip on pulls that lost the 50/50', async () => {
@@ -402,12 +429,9 @@ describe('GachaBoard', () => {
     const tw = (await import('../../locales/zh-TW.json')).default as Record<string, any>;
     const cn = (await import('../../locales/zh-CN.json')).default as Record<string, any>;
     for (const loc of [en, tw, cn]) {
-      for (const k of ['play_first', 'wrong_account', 'url_expired', 'off',
+      for (const k of ['play_first', 'wrong_account', 'url_expired', 'off', 'login_prompt',
         'lim_char_cnt', 'lim_weapon_cnt', 'hit_rate', 'avg_char', 'avg_weapon', 'hit_rate_sub']) {
         expect(((loc.gacha?.[k] ?? '') as string).length).toBeGreaterThan(0);
-      }
-      for (const k of ['title', 'login', 'step1', 'step2', 'step3', 'paste', 'pasteLabel', 'rearm']) {
-        expect(((loc.gacha?.link?.[k] ?? '') as string).length).toBeGreaterThan(0);
       }
       expect(((loc.gacha?.currency?.endfield_oroberyl ?? '') as string).length).toBeGreaterThan(0);
     }

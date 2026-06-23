@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
-import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
+import { useGachaAccountStore } from '../stores/gachaAccount';
+import { useGamesStore } from '../stores/games';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
 
@@ -11,8 +12,15 @@ const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
 const gacha = useGachaStore();
 const account = useAccountStore();
-// The board reflects the SELECTED account (switcher games); '' = active/LatestUID.
-const accountID = computed(() => account.selectedFor(props.gid)?.id ?? '');
+const gachaAccount = useGachaAccountStore();
+const games = useGamesStore();
+// The board reflects the SELECTED account. Credential games (Endfield) draw the
+// id from the gacha-account store; switcher games (WuWa) from the game-account
+// store; 'none' games (Genshin/HSR/ZZZ) yield '' → backend resolves via LatestUID.
+const accountID = computed(() =>
+  games.accountKind(props.gid) === 'credential'
+    ? gachaAccount.selectedFor(props.gid)?.id ?? ''
+    : account.selectedFor(props.gid)?.id ?? '');
 
 // Per-row icons: backend sets HeadlineEntry.icon ('/_asset/...' URL, or ''). Track URLs
 // that 404/fail to load so we fall back to the rarity-tinted placeholder for those.
@@ -171,26 +179,15 @@ const progressText = computed(() => {
     : t('gacha.loading');
 });
 
-const linkInfo = ref<{ bookmarklet: string; loginUrl: string; port: number } | null>(null);
-const pasteToken = ref('');
-async function startLink() {
-  try { linkInfo.value = await StartGachaLink(props.gid) as any; }
-  catch { /* surfaced via errKind */ }
-}
-async function submitPaste() {
-  if (!pasteToken.value.trim()) return;
-  await SetGachaCredential(props.gid, pasteToken.value.trim());
-  pasteToken.value = '';
-}
-
 onMounted(() => gacha.load(props.gid, accountID.value));
-watch(() => props.gid, (g) => gacha.load(g, accountID.value));
-// Re-resolve when the user selects another account in the chip. Skip the
-// initial undefined→defined transition (the account store populating after
-// mount) — onMounted's load already covers the first read; reloading there
-// would flash the summary→spinner and fire a redundant RPC for the same uid.
-watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
-  if (old !== undefined) gacha.reload(props.gid, accountID.value);
+// One watch covers two events: a GAME switch (gid changes) → guarded load; an
+// ACCOUNT switch in the chip (accountID changes within the same game) → forced
+// reload so the board re-resolves the chosen uid. accountID is fed by whichever
+// store matches the game's accountKind, so credential + switcher are both handled.
+// Default immediate:false means no double-load against onMounted's first read.
+watch([() => props.gid, accountID], ([g, a], [og]) => {
+  if (g !== og) gacha.load(g, a);
+  else gacha.reload(g, a);
 });
 // A global (titlebar) refresh calls gacha.reset(), clearing the store. If this
 // board is the one on screen, none of the watchers above fire (gid/account
@@ -234,22 +231,7 @@ watch(() => st.value.loaded, (loaded) => {
     </div>
 
     <div v-else-if="st.errKind === 'link'" class="gacha-empty gacha-link">
-      <p class="gacha-link-title">{{ t('gacha.link.title') }}</p>
-      <button data-test="gacha-link-login" @click="startLink">{{ t('gacha.link.login') }}</button>
-      <template v-if="linkInfo">
-        <ol class="gacha-link-steps">
-          <li>{{ t('gacha.link.step1') }}</li>
-          <li>{{ t('gacha.link.step2') }}</li>
-          <li>{{ t('gacha.link.step3') }}</li>
-        </ol>
-        <a class="gacha-bookmarklet" :href="linkInfo.bookmarklet">{{ t('gacha.link.bookmarkletName') }}</a>
-        <button @click="startLink">{{ t('gacha.link.rearm') }}</button>
-      </template>
-      <div class="gacha-link-paste">
-        <label>{{ t('gacha.link.pasteLabel') }}</label>
-        <input v-model="pasteToken" type="text" />
-        <button @click="submitPaste">{{ t('gacha.link.paste') }}</button>
-      </div>
+      <p class="gacha-login-prompt">{{ t('gacha.login_prompt') }}</p>
     </div>
 
     <div v-else-if="((st.errKind === 'url' || st.errKind === 'url_expired') && !sum) || isEmpty" class="gacha-empty">
