@@ -8,11 +8,11 @@
 
 Unified desktop launcher for several Chinese live-service games (Genshin Impact / Honkai: Star Rail / Zenless Zone Zero / Wuthering Waves / Arknights: Endfield / Neverness to Everness).
 
-One library for every launcher: per-game install detection, updates & pre-download, last-played, latest news, and a per-account **gacha analysis** dashboard (pull totals, premium-currency spent, pity progress, luck rating, pull distribution).
+One library for every launcher: per-game install detection, updates & pre-download, last-played, latest news, and a per-account **gacha analysis** dashboard (per-banner record panels, limited character/weapon expected cost, pity progress, luck rating, pull distribution, 50/50-loss markers, and character/weapon icons on high-rarity records).
 
 (Originally `launcher-collection`; rebranded to Omnigate. First public release: **v0.1.0**.)
 
-**Status:** v0.3.0 — work in progress.
+**Status:** v0.3.1 — work in progress.
 
 ## Screenshots
 
