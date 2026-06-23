@@ -141,11 +141,58 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 
 var _ core.GachaProvider = (*Provider)(nil)
 var _ core.GachaCredentialProvider = (*Provider)(nil)
+var _ core.GachaLoginProvider = (*Provider)(nil)
 
 const (
-	endfieldGrantCode = "3dacefa138426cfe" // GLOBAL endfield OAuth grant appCode (distinct from news endfieldAppCode)
-	endfieldUA        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Safari/537.36"
+	endfieldGrantCode    = "3dacefa138426cfe"                 // GLOBAL endfield OAuth grant appCode (distinct from news endfieldAppCode)
+	endfieldUA           = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Safari/537.36"
+	endfieldLoginAppCode = "6eb76d4e13aa36e6"                 // skport/passport login appCode (distinct from endfieldGrantCode)
+	endfieldDeviceID     = "4ee4cbe1502437b081d2d8cd7d0d3338" // synthesized stable device id
 )
+
+// LoginByEmailPassword exchanges plaintext email+password for a durable passport
+// token (the value FetchGachaWithCredential consumes). The password is used only
+// for this request and never stored. status!=0 → ErrGachaLoginFailed.
+func (p *Provider) LoginByEmailPassword(ctx context.Context, email, password string) (core.GachaLoginResult, error) {
+	body, _ := json.Marshal(map[string]string{"email": email, "password": password})
+	req, err := http.NewRequestWithContext(ctx, "POST", p.oauthBase+"/user/auth/v1/token_by_email_password", bytes.NewReader(body))
+	if err != nil {
+		return core.GachaLoginResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", endfieldUA)
+	req.Header.Set("X-AppCode", endfieldLoginAppCode)
+	req.Header.Set("X-DeviceId", endfieldDeviceID)
+	req.Header.Set("X-DeviceType", "7")
+	req.Header.Set("X-DeviceModel", "Edge")
+	req.Header.Set("X-OSVer", "Windows")
+	req.Header.Set("X-Language", "zh-tw")
+	req.Header.Set("Origin", "https://www.skport.com")
+	req.Header.Set("Referer", "https://www.skport.com/")
+	resp, err := p.httpClient().Do(req)
+	if err != nil {
+		return core.GachaLoginResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return core.GachaLoginResult{}, core.ErrGachaLoginFailed
+	}
+	var r struct {
+		Status int `json:"status"`
+		Data   *struct {
+			Token string `json:"token"`
+			HgID  string `json:"hgId"`
+			Email string `json:"email"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return core.GachaLoginResult{}, err
+	}
+	if r.Status != 0 || r.Data == nil || r.Data.Token == "" {
+		return core.GachaLoginResult{}, core.ErrGachaLoginFailed
+	}
+	return core.GachaLoginResult{Token: r.Data.Token, HgID: r.Data.HgID, Email: r.Data.Email}, nil
+}
 
 // FetchGacha (URL path) is unused for Endfield — auth is credential-based. Kept to
 // satisfy core.GachaProvider; App branches to FetchGachaWithCredential first.
@@ -297,7 +344,7 @@ func pickDefaultRole(r bindingResp) (uid, roleID, serverID string, err error) {
 		}
 	}
 	if app == nil || len(app.BindingList) == 0 {
-		return "", "", "", core.ErrGachaCredentialExpired
+		return "", "", "", core.ErrGachaNoGameRole
 	}
 	bind := app.BindingList[0]
 	for i := range app.BindingList {
@@ -307,7 +354,7 @@ func pickDefaultRole(r bindingResp) (uid, roleID, serverID string, err error) {
 		}
 	}
 	if len(bind.Roles) == 0 {
-		return "", "", "", core.ErrGachaCredentialExpired
+		return "", "", "", core.ErrGachaNoGameRole
 	}
 	role := bind.Roles[0]
 	for i := range bind.Roles {
