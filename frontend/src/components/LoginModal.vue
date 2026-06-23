@@ -62,8 +62,7 @@ async function submitPaste() {
   try {
     await SetGachaCredential(props.gameId, token);
     await gachaAccount.load(props.gameId);
-    pasteToken.value = '';
-    emit('close');
+    close(); // clears password + pasteToken so neither lingers in state
   } catch (e: unknown) {
     const msg = (e instanceof Error ? e.message : String(e)) || '';
     pasteError.value = `${t('gacha.login.paste_err')} (${msg})`;
