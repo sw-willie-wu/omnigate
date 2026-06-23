@@ -294,7 +294,7 @@ func TestRefreshGacha_CredentialPath(t *testing.T) {
 		},
 	}
 	a := newTestAppWithCredProvider(t, "hypergryph/endfield", prov)
-	_ = a.gachaStore.PutGachaCred("hypergryph/endfield", "acct-TOK")
+	_ = a.gachaStore.UpsertGachaAccount(store.GachaAccount{ID: "ga_x", Game: "hypergryph/endfield", Token: "acct-TOK", Active: true})
 
 	sum, err := a.RefreshGacha("hypergryph/endfield", "")
 	if err != nil {

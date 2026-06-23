@@ -92,7 +92,6 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 
 	a.settingsMu.RLock()
 	installDir := a.resolved[gid].Path
-	uiLang := a.settings.App.Language
 	a.settingsMu.RUnlock()
 
 	game := string(gid)
@@ -110,27 +109,25 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 		a.emit("gacha:progress", gameID, gachaProgressPayload(cfg, pr))
 	})
 
-	// Credential path (Endfield): durable account_token, no switcher/URL logic.
-	if cp, isCred := p.(core.GachaCredentialProvider); isCred {
-		cred, _, _ := a.gachaStore.GetGachaCred(game)
-		if cred == "" {
-			return core.GachaSummary{}, core.ErrGachaCredentialRequired
-		}
-		res, err := cp.FetchGachaWithCredential(ctx, gid, cred, mapEndfieldLang(uiLang))
+	// Credential path (Endfield): durable account_token, per-account resolution
+	// (Task 6). Fetch + write back the roleId uid via the shared helper, then
+	// compute the summary from that account's partition.
+	if _, isCred := p.(core.GachaCredentialProvider); isCred {
+		acc, err := a.resolveGachaAccount(game, accountID)
 		if err != nil {
+			return core.GachaSummary{}, err
+		}
+		if err := a.refreshAndWriteBackUID(ctx, gid, &acc); err != nil {
 			a.logger.Warn("RefreshGacha credential fetch failed", "gid", gameID, "code", core.ErrorCode(err))
 			// Token hygiene (spec §10): *url.Error from transport failures embeds the
 			// record URL carrying the live u8_token — never let it reach the frontend.
-			// Sentinel errors (Required/Expired) are token-free and drive the link UX.
-			if errors.Is(err, core.ErrGachaCredentialRequired) || errors.Is(err, core.ErrGachaCredentialExpired) {
+			// Sentinel errors (Required/Expired/NoGameRole) are token-free and drive the link UX.
+			if errors.Is(err, core.ErrGachaCredentialRequired) || errors.Is(err, core.ErrGachaCredentialExpired) || errors.Is(err, core.ErrGachaNoGameRole) {
 				return core.GachaSummary{}, err
 			}
 			return core.GachaSummary{}, fmt.Errorf("endfield gacha refresh failed (%s)", core.ErrorCode(err))
 		}
-		if _, err := a.gachaStore.UpsertPulls(game, res.UID, res.Pulls); err != nil {
-			return core.GachaSummary{}, err
-		}
-		all, err := a.gachaStore.AllPulls(game, res.UID)
+		all, err := a.gachaStore.AllPulls(game, acc.UID)
 		if err != nil {
 			return core.GachaSummary{}, err
 		}
@@ -142,7 +139,7 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 		if a.gachaIcons != nil {
 			a.gachaIcons.WarmAsync(gid)
 		}
-		sum := core.ComputeSummary(res.UID, all, cfg)
+		sum := core.ComputeSummary(acc.UID, all, cfg)
 		a.decorateGachaIcons(gid, &sum)
 		return sum, nil
 	}
@@ -217,9 +214,26 @@ func (a *App) GetGachaSummary(gameID, accountID string) (core.GachaSummary, erro
 	}
 	game := string(gid)
 	if _, isCred := p.(core.GachaCredentialProvider); isCred {
-		if cred, _, _ := a.gachaStore.GetGachaCred(game); cred == "" {
-			return core.GachaSummary{}, core.ErrGachaCredentialRequired
+		// Per-account resolution (Task 6): pick the named/active/first credential
+		// account. A new account not yet refreshed (UID=="") → empty summary, NOT
+		// the LatestUID fallback (which would leak another account's records).
+		acc, err := a.resolveGachaAccount(game, accountID)
+		if err != nil {
+			return core.GachaSummary{}, err
 		}
+		if acc.UID == "" {
+			return a.emptyCredentialSummary(), nil
+		}
+		all, err := a.gachaStore.AllPulls(game, acc.UID)
+		if err != nil {
+			return core.GachaSummary{}, err
+		}
+		sum := core.ComputeSummary(acc.UID, all, gp.GachaConfig(gid))
+		a.decorateGachaIcons(gid, &sum)
+		if a.gachaIcons != nil {
+			a.gachaIcons.WarmAsync(gid)
+		}
+		return sum, nil
 	}
 	uid, isSwitcher := a.gachaUIDFor(gid, accountID)
 	if !isSwitcher {

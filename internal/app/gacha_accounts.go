@@ -131,6 +131,42 @@ func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *
 	return a.gachaStore.UpsertGachaAccount(*acc) // write back roleId uid
 }
 
+// resolveGachaAccount picks the account for a credential game: the named one, else
+// the active one, else the first. Returns ErrGachaCredentialRequired when none exists.
+func (a *App) resolveGachaAccount(game, accountID string) (store.GachaAccount, error) {
+	accts, err := a.gachaStore.ListGachaAccounts(game)
+	if err != nil {
+		return store.GachaAccount{}, err
+	}
+	if len(accts) == 0 {
+		return store.GachaAccount{}, core.ErrGachaCredentialRequired
+	}
+	if accountID != "" {
+		for _, x := range accts {
+			if x.ID == accountID {
+				return x, nil
+			}
+		}
+	}
+	for _, x := range accts {
+		if x.Active {
+			return x, nil
+		}
+	}
+	return accts[0], nil
+}
+
+// emptyCredentialSummary returns the zeroed-but-supported summary used when a
+// credential account exists but has not yet been refreshed (UID==""). Mirrors the
+// uid=="" empty shape in GetGachaSummary, with ActiveUnknown=false (credential
+// games are not play-first switchers).
+func (a *App) emptyCredentialSummary() core.GachaSummary {
+	return core.GachaSummary{
+		Supported: true, PerBanner: map[string]int{}, HeadlineByType: map[string]int{},
+		Pity: []core.BannerPity{}, Distribution: make([]int, 9), RecentHeadline: []core.HeadlineEntry{},
+	}
+}
+
 // SelectGachaAccount marks an account as the active default for a game.
 func (a *App) SelectGachaAccount(gameID, accountID string) error {
 	if a.gachaStore == nil {

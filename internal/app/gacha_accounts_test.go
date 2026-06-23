@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -28,6 +29,18 @@ func (f *fakeLoginCredProvider) LoginByEmailPassword(_ context.Context, _, _ str
 
 func (f *fakeLoginCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, _, _ string) (core.GachaFetchResult, error) {
 	return f.fetchRes, f.fetchErr
+}
+
+// FetchGacha + GachaConfig satisfy core.GachaProvider so the credential branch of
+// GetGachaSummary/RefreshGacha (which does p.(core.GachaProvider) then
+// gp.GachaConfig(gid)) compiles and runs. The credential path uses
+// FetchGachaWithCredential, not FetchGacha, so this is a no-op.
+func (f *fakeLoginCredProvider) FetchGacha(_ context.Context, _ core.GameID, _, _ string) (core.GachaFetchResult, error) {
+	return core.GachaFetchResult{}, nil
+}
+
+func (f *fakeLoginCredProvider) GachaConfig(_ core.GameID) core.GachaConfig {
+	return core.GachaConfig{HeadlineRank: 6, Banners: []core.BannerConfig{}, Currency: "NT$", ExpectedPity: 60}
 }
 
 // newTestAppWithEndfield builds a test App with a fake Endfield provider that
@@ -123,5 +136,28 @@ func TestGameAccountKind(t *testing.T) {
 	a := newTestAppWithEndfield(t)
 	if k := a.GameAccountKind("hypergryph/endfield"); k != "credential" {
 		t.Errorf("endfield kind = %q, want credential", k)
+	}
+}
+
+func TestGetGachaSummary_CredentialResolvesSelectedAccount(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	seedAccount(t, a, "ga_A", "ROLE_A", 3)
+	seedAccount(t, a, "ga_B", "ROLE_B", 5)
+	sumA, _ := a.GetGachaSummary("hypergryph/endfield", "ga_A")
+	sumB, _ := a.GetGachaSummary("hypergryph/endfield", "ga_B")
+	if sumA.TotalPulls != 3 || sumB.TotalPulls != 5 {
+		t.Fatalf("A=%d B=%d, want 3/5 (per-account partition)", sumA.TotalPulls, sumB.TotalPulls)
+	}
+	_ = a.SelectGachaAccount("hypergryph/endfield", "ga_B")
+	sumActive, _ := a.GetGachaSummary("hypergryph/endfield", "")
+	if sumActive.TotalPulls != 5 {
+		t.Fatalf("active resolve = %d, want 5", sumActive.TotalPulls)
+	}
+}
+
+func TestGetGachaSummary_NoAccounts_RequiresCredential(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	if _, err := a.GetGachaSummary("hypergryph/endfield", ""); !errors.Is(err, core.ErrGachaCredentialRequired) {
+		t.Fatalf("err = %v, want ErrGachaCredentialRequired", err)
 	}
 }
