@@ -19,6 +19,11 @@ type GachaPull struct {
 	Name      string `json:"name"`
 	Time      string `json:"time"`   // source's localized time string, display-only
 	IsFree    bool   `json:"isFree"` // free pull (Endfield); excluded from pity & spend
+	// PoolID and PoolName identify the specific banner期 within a pool
+	// (Endfield's rotating 特許尋訪 has e.g. poolId="special_1_3_1");
+	// empty for providers/pulls that don't set them.
+	PoolID   string `json:"poolId"`
+	PoolName string `json:"poolName"`
 }
 
 // GachaFetchResult is one refresh's outcome.
@@ -50,6 +55,9 @@ type BannerConfig struct {
 	Label   LocalizedString
 	Pity    PityModel
 	Limited bool // a featured/event banner where losing the 50/50 (歪) can occur
+	// PerPool splits this banner into independent-pity sub-banners by pull PoolID
+	// (Endfield's rotating 特許尋訪); default false = unchanged.
+	PerPool bool `json:"perPool,omitempty"`
 }
 
 // DualCitizen is a standard-pool unit that also had a single featured debut; a pull
