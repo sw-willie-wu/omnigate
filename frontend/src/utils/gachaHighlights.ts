@@ -1,19 +1,27 @@
 import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
+// baseKey strips a composite "<base>:<poolId>" key (Endfield PerPool banners) down to its
+// base banner key. A bare key (no ':') is returned unchanged → no-op for every other game.
+export function baseKey(key: string): string {
+  const i = key.indexOf(':');
+  return i === -1 ? key : key.slice(0, i);
+}
+
 // Banner keys whose high-rarity drops are equipment (weapon-slot), not characters.
 // Light cones (HSR) and W-engines (ZZZ) are the weapon equivalents → weapon side;
 // WuWa's weapon pools (incl. weapon_exchange 武器新旅換取, collab_weapon 武器聯動) too.
 const EQUIP_BANNERS = new Set(['weapon', 'standard_weapon', 'weapon_exchange', 'collab_weapon', 'lightcone', 'wengine']);
 
 export function isEquip(bannerKey: string): boolean {
-  return EQUIP_BANNERS.has(bannerKey);
+  return EQUIP_BANNERS.has(baseKey(bannerKey));
 }
 
 // The gacha.item_type.* key naming this game's equipment kind, from a banner key
 // (lightcone → 光錐, wengine → 音擎, else 武器). Used for the weapon column heading.
 export function equipTypeKey(bannerKey: string): 'lightcone' | 'wengine' | 'weapon' {
-  if (bannerKey === 'lightcone') return 'lightcone';
-  if (bannerKey === 'wengine') return 'wengine';
+  const b = baseKey(bannerKey);
+  if (b === 'lightcone') return 'lightcone';
+  if (b === 'wengine') return 'wengine';
   return 'weapon';
 }
 
@@ -84,7 +92,7 @@ const ONE_SHOT_BANNERS = new Set([
 // pity: the beginner banner, the 新手自選 selector, the 感恩定向 gift, and the new-account
 // 新旅換取 pools. Their per-pull pity count has no hard-pity cap to fill a bar against.
 export function isOneShotPool(key: string): boolean {
-  return ONE_SHOT_BANNERS.has(key);
+  return ONE_SHOT_BANNERS.has(baseKey(key));
 }
 
 // shouldShowPity decides whether to show a banner's pity-progress bar. Show it for any

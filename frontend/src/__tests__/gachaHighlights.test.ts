@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
+import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections, computeCardMetrics, compactNum, baseKey } from '../utils/gachaHighlights';
 import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
 const mk = (bannerKey: string, rank: number, name = 'x', extra: Partial<HeadlineEntry> = {}): HeadlineEntry => ({
@@ -307,5 +307,32 @@ describe('compactNum', () => {
   it('rolls a K value that would round to 1000K up to M', () => {
     expect(compactNum(999520)).toBe('1.0M'); // not "1000K"
     expect(compactNum(999360)).toBe('999K');  // still K just below the rollover
+  });
+});
+
+describe('baseKey + composite-aware classification', () => {
+  it('baseKey strips the :poolId suffix', () => {
+    expect(baseKey('weapon:weponbox_1_1_2')).toBe('weapon');
+    expect(baseKey('special:special_1_3_1')).toBe('special');
+    expect(baseKey('standard')).toBe('standard');
+  });
+  it('isEquip works on composite weapon keys', () => {
+    expect(isEquip('weapon:weponbox_1_1_2')).toBe(true);
+    expect(isEquip('special:special_1_3_1')).toBe(false);
+  });
+  it('equipTypeKey works on composite keys', () => {
+    expect(equipTypeKey('weapon:weponbox_1_1_2')).toBe('weapon');
+  });
+  it('isOneShotPool works on composite keys', () => {
+    expect(isOneShotPool('special:special_1_3_1')).toBe(false);
+    expect(isOneShotPool('beginner')).toBe(true);
+  });
+  it('splitByType routes composite weapon keys to weapons column', () => {
+    const r = splitByType([
+      { name: 'WX', itemType: 'weapon', bannerKey: 'weapon:weponbox_1_1_2', time: '', count: 1, rank: 6, off: false, limited: true, icon: '' },
+      { name: 'Lim', itemType: 'char', bannerKey: 'special:special_1_3_1', time: '', count: 1, rank: 6, off: false, limited: true, icon: '' },
+    ]);
+    expect(r.weapons.map((h) => h.name)).toEqual(['WX']);
+    expect(r.chars.map((h) => h.name)).toEqual(['Lim']);
   });
 });
