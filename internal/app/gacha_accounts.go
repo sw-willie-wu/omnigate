@@ -139,10 +139,29 @@ func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *
 	// Empty until the account's uid is known (a brand-new account fetches in full).
 	known := map[string]bool{}
 	if acc.UID != "" {
-		if existing, perr := a.gachaStore.AllPulls(acc.Game, acc.UID); perr == nil {
-			for _, pull := range existing {
-				known[pull.ID] = true
+		existing, _ := a.gachaStore.AllPulls(acc.Game, acc.UID)
+		// Collect PerPool banner keys (e.g. Endfield 特許尋訪). A stored PerPool pull
+		// with an empty PoolID predates per-pool capture; force ONE full re-fetch so
+		// UpsertPulls can backfill the poolId. Scoped to PerPool pulls only: non-PerPool
+		// pools (standard/beginner/joint) may never return a poolId, so their empty rows
+		// must not wedge us into perpetual full re-fetches.
+		perPool := map[string]bool{}
+		if gp, ok := p.(core.GachaProvider); ok {
+			for _, b := range gp.GachaConfig(gid).Banners {
+				if b.PerPool {
+					perPool[b.Key] = true
+				}
 			}
+		}
+		needsBackfill := false
+		for _, pull := range existing {
+			known[pull.ID] = true
+			if perPool[pull.BannerKey] && pull.PoolID == "" {
+				needsBackfill = true
+			}
+		}
+		if needsBackfill {
+			known = nil // force full re-fetch to backfill poolId on PerPool pulls
 		}
 	}
 

@@ -12,22 +12,33 @@ import (
 	"omnigate/internal/store"
 )
 
+// testPity is a minimal core.PityModel for use in test GachaConfigs. It records no
+// headline hits and reports zero trailing pity — sufficient for tests that only check
+// the known-map capture, not the computed summary statistics.
+type testPity struct{}
+
+func (testPity) HardPity() int { return 80 }
+func (testPity) Has5050() bool { return false }
+func (testPity) Walk(_ []core.GachaPull, _ int) ([]core.PityHit, int) { return nil, 0 }
+
 // fakeLoginCredProvider satisfies core.Provider (via embedded fakeProvider),
 // core.GachaLoginProvider, and core.GachaCredentialProvider. Used by
 // newTestAppWithEndfield to simulate the Endfield per-account gacha flow.
 type fakeLoginCredProvider struct {
 	fakeProvider
-	loginRes core.GachaLoginResult
-	loginErr error
-	fetchRes core.GachaFetchResult
-	fetchErr error
+	loginRes  core.GachaLoginResult
+	loginErr  error
+	fetchRes  core.GachaFetchResult
+	fetchErr  error
+	lastKnown map[string]bool // captures the `known` arg of the most recent FetchGachaWithCredential call
 }
 
 func (f *fakeLoginCredProvider) LoginByEmailPassword(_ context.Context, _, _ string) (core.GachaLoginResult, error) {
 	return f.loginRes, f.loginErr
 }
 
-func (f *fakeLoginCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, _, _ string, _ map[string]bool) (core.GachaFetchResult, error) {
+func (f *fakeLoginCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, _, _ string, known map[string]bool) (core.GachaFetchResult, error) {
+	f.lastKnown = known
 	return f.fetchRes, f.fetchErr
 }
 
@@ -39,8 +50,19 @@ func (f *fakeLoginCredProvider) FetchGacha(_ context.Context, _ core.GameID, _, 
 	return core.GachaFetchResult{}, nil
 }
 
+// GachaConfig returns a config that mirrors real Endfield: "special" (特許尋訪) is
+// PerPool=true; "standard" is not PerPool. Both banners carry a non-nil testPity so
+// ComputeSummary can call Pity.Walk without panicking.
 func (f *fakeLoginCredProvider) GachaConfig(_ core.GameID) core.GachaConfig {
-	return core.GachaConfig{HeadlineRank: 6, Banners: []core.BannerConfig{}, Currency: "NT$", ExpectedPity: 60}
+	return core.GachaConfig{
+		HeadlineRank: 6,
+		Banners: []core.BannerConfig{
+			{Key: "special", PerPool: true, Pity: testPity{}},
+			{Key: "standard", Pity: testPity{}},
+		},
+		Currency:     "NT$",
+		ExpectedPity: 60,
+	}
 }
 
 // newTestAppWithEndfield builds a test App with a fake Endfield provider that
@@ -190,5 +212,92 @@ func TestGetGachaSummary_NoAccounts_RequiresCredential(t *testing.T) {
 	a := newTestAppWithEndfield(t)
 	if _, err := a.GetGachaSummary("hypergryph/endfield", ""); !errors.Is(err, core.ErrGachaCredentialRequired) {
 		t.Fatalf("err = %v, want ErrGachaCredentialRequired", err)
+	}
+}
+
+// TestBackfillPoolID_ForcesFullFetch verifies that when a PerPool (special) banner
+// has stored pulls with empty PoolID, refreshAndWriteBackUID forces a full re-fetch
+// by passing known=nil to FetchGachaWithCredential.
+func TestBackfillPoolID_ForcesFullFetch(t *testing.T) {
+	const game = "hypergryph/endfield"
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+
+	// Seed account with a known UID so the existing-pulls block is entered.
+	seedAccount(t, a, "ga_backfill", "ROLE42", 0)
+
+	// Upsert a "special" pull with empty PoolID — predates per-pool capture.
+	pulls := []core.GachaPull{
+		{ID: "sp-1", BannerKey: "special", Rank: 5, Name: "A", Time: "2026-01-01 00:00:00", PoolID: ""},
+	}
+	if _, err := a.gachaStore.UpsertPulls(game, "ROLE42", pulls); err != nil {
+		t.Fatalf("UpsertPulls: %v", err)
+	}
+
+	if _, err := a.RefreshGacha(game, "ga_backfill"); err != nil {
+		t.Fatalf("RefreshGacha: %v", err)
+	}
+
+	// known must be nil → full re-fetch to backfill poolId.
+	if prov.lastKnown != nil {
+		t.Errorf("lastKnown = %v; want nil (full re-fetch forced by missing PerPool PoolID)", prov.lastKnown)
+	}
+}
+
+// TestBackfillPoolID_IncrementalWhenPopulated verifies that when all PerPool pulls
+// already have a PoolID, refreshAndWriteBackUID passes a non-empty known map
+// (incremental sync — no backfill needed).
+func TestBackfillPoolID_IncrementalWhenPopulated(t *testing.T) {
+	const game = "hypergryph/endfield"
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+
+	seedAccount(t, a, "ga_incr", "ROLE42", 0)
+
+	// Upsert a "special" pull WITH a PoolID already set.
+	pulls := []core.GachaPull{
+		{ID: "sp-2", BannerKey: "special", Rank: 5, Name: "B", Time: "2026-01-02 00:00:00", PoolID: "pool-001"},
+	}
+	if _, err := a.gachaStore.UpsertPulls(game, "ROLE42", pulls); err != nil {
+		t.Fatalf("UpsertPulls: %v", err)
+	}
+
+	if _, err := a.RefreshGacha(game, "ga_incr"); err != nil {
+		t.Fatalf("RefreshGacha: %v", err)
+	}
+
+	// known must be non-nil and non-empty → incremental sync.
+	if prov.lastKnown == nil || len(prov.lastKnown) == 0 {
+		t.Errorf("lastKnown = %v; want non-empty map (incremental sync)", prov.lastKnown)
+	}
+}
+
+// TestBackfillPoolID_NonPerPoolEmptyDoesNotForceFullFetch is the gate-review negative
+// test: a non-PerPool pull ("standard") with empty PoolID must NOT trigger a full
+// re-fetch, because standard/joint/beginner pools may never return a poolId.
+func TestBackfillPoolID_NonPerPoolEmptyDoesNotForceFullFetch(t *testing.T) {
+	const game = "hypergryph/endfield"
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+
+	seedAccount(t, a, "ga_neg", "ROLE42", 0)
+
+	// Standard pull with empty PoolID (non-PerPool — must never force full fetch).
+	// Special pull with PoolID populated (PerPool — satisfied, no backfill needed).
+	pulls := []core.GachaPull{
+		{ID: "std-1", BannerKey: "standard", Rank: 4, Name: "C", Time: "2026-01-03 00:00:00", PoolID: ""},
+		{ID: "sp-3", BannerKey: "special", Rank: 5, Name: "D", Time: "2026-01-04 00:00:00", PoolID: "pool-002"},
+	}
+	if _, err := a.gachaStore.UpsertPulls(game, "ROLE42", pulls); err != nil {
+		t.Fatalf("UpsertPulls: %v", err)
+	}
+
+	if _, err := a.RefreshGacha(game, "ga_neg"); err != nil {
+		t.Fatalf("RefreshGacha: %v", err)
+	}
+
+	// known must be non-nil → incremental (the empty standard pull must NOT force full fetch).
+	if prov.lastKnown == nil {
+		t.Errorf("lastKnown is nil; want non-nil map — empty non-PerPool pull must not force full re-fetch")
 	}
 }
