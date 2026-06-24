@@ -152,7 +152,26 @@ func fetchSources(m *Manager, gid core.GameID) (*Index, error) {
 			return nil, err
 		}
 	case "hypergryph/endfield":
-		// No public icon source yet — serve an empty (but valid) index.
+		token, err := m.skportGuestToken()
+		if err != nil {
+			return nil, err // total failure → err (do NOT swallow to empty+nil; would stamp fetchedAt → 7d TTL lockout)
+		}
+		built := 0
+		for _, lang := range []string{"zh_Hant", "en"} { // zh_Hans is empty on skport; build-time t2s covers zh-cn
+			if ch, err := m.skportGet("/web/v1/wiki/item/catalog", "typeMainId=1&typeSubId=1", token, lang); err == nil {
+				if buildFromEndfieldCatalog(idx, gid, "char", ch) == nil {
+					built++
+				}
+			}
+			if wp, err := m.skportGet("/web/v1/wiki/item/catalog", "typeMainId=1&typeSubId=2", token, lang); err == nil {
+				if buildFromEndfieldCatalog(idx, gid, "weapon", wp) == nil {
+					built++
+				}
+			}
+		}
+		if built == 0 {
+			return nil, fmt.Errorf("endfield catalog: all languages failed")
+		}
 	}
 	return idx, nil
 }
