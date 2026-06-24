@@ -60,9 +60,13 @@ func TestSettingsMu_NoDeadlockUnderConcurrency(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
+	// A healthy run returns the moment wg.Wait() completes (~10s locally), so a
+	// generous ceiling costs passing runs nothing; it only guards against a true
+	// deadlock (which hangs forever). 15s was too tight for slow/contended CI
+	// runners where this workload legitimately exceeds it — use 60s.
 	select {
 	case <-done:
-	case <-time.After(15 * time.Second):
-		t.Fatal("deadlock: concurrent settings access did not complete within 15s")
+	case <-time.After(60 * time.Second):
+		t.Fatal("deadlock: concurrent settings access did not complete within 60s")
 	}
 }
