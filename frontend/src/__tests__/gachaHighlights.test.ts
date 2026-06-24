@@ -225,6 +225,20 @@ describe('computeCardMetrics', () => {
     expect(m.hitRate).toBeCloseTo(0.5, 5);
   });
 
+  it('scopes per-banner pending to the composite key — 歪 in 期A does NOT roll into 期B win cost', () => {
+    // highlights newest-first: Fist wins on 期B (newer), Standard 歪s on 期A (older).
+    // pending['special:A'] should accumulate 70, but pending['special:B'] starts fresh at 0.
+    // The 期B win's acquisition cost must be 40 (its own count only), NOT 70+40=110.
+    const m = computeCardMetrics([
+      mk('special:B', 5, 'Fist', { limited: true, off: false, count: 40 }),
+      mk('special:A', 5, 'Standard', { limited: true, off: true, count: 70 }),
+    ], 5);
+    expect(m.limCharCnt).toBe(1);     // only the featured win counts as 限定角色
+    expect(m.avgChar).toBe(40);       // 期B win cost = 40 alone, NOT 70+40 = 110
+    expect(m.hitTotal).toBe(2);       // both featured rolls (歪 + win) counted for the rate
+    expect(m.hitWins).toBe(1);
+  });
+
   it('discards a trailing off (in-progress 50/50 loss) from the acquisition average', () => {
     // newest-first: trailing 歪(70) at index 0, win(60) at 1, earlier 歪(50) at 2.
     // chronological: 歪50 → win60 (cost 110, 1 char) → 歪70 (no later win, discarded).
