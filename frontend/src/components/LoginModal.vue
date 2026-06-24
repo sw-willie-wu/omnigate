@@ -2,7 +2,6 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGachaAccountStore, type GachaAccount } from '../stores/gachaAccount';
-import { SetGachaCredential } from '../../wailsjs/go/app/App';
 
 const props = defineProps<{ gameId: string }>();
 const emit = defineEmits<{
@@ -60,9 +59,9 @@ async function submitPaste() {
   pasteLoading.value = true;
   pasteError.value = '';
   try {
-    await SetGachaCredential(props.gameId, token);
-    await gachaAccount.load(props.gameId);
-    close(); // clears password + pasteToken so neither lingers in state
+    const acc = await gachaAccount.addByPaste(props.gameId, token);
+    emit('added', acc);
+    emit('close');
   } catch (e: unknown) {
     const msg = (e instanceof Error ? e.message : String(e)) || '';
     pasteError.value = `${t('gacha.login.paste_err')} (${msg})`;

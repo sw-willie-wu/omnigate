@@ -135,4 +135,37 @@ describe('LoginModal', () => {
     ).toBe('');
     expect(addGachaAccountByLogin).not.toHaveBeenCalled();
   });
+
+  it('paste flow: submitPaste emits added and close on success', async () => {
+    const acc = { id: 'ga_P', uid: 'RP', label: 'pasted', email: '', customLabel: '', active: true };
+    setGachaCredential.mockResolvedValue(acc);
+    listGachaAccounts.mockResolvedValue([acc]);
+
+    const w = mountModal();
+    // open the advanced section so the textarea is rendered
+    await w.find('[data-test="login-advanced-toggle"]').trigger('click');
+    await w.find('[data-test="login-paste-input"]').setValue('raw-tok');
+    await w.find('[data-test="login-paste-submit"]').trigger('click');
+    await flushPromises();
+
+    expect(setGachaCredential).toHaveBeenCalledWith('hypergryph/endfield', 'raw-tok');
+    expect(w.emitted('added')).toBeTruthy();
+    expect((w.emitted('added')![0] as [typeof acc])[0].id).toBe('ga_P');
+    expect(w.emitted('close')).toBeTruthy();
+  });
+
+  it('paste flow: shows pasteError and does NOT emit close on failure', async () => {
+    setGachaCredential.mockRejectedValue(new Error('bad token'));
+
+    const w = mountModal();
+    await w.find('[data-test="login-advanced-toggle"]').trigger('click');
+    await w.find('[data-test="login-paste-input"]').setValue('bad-tok');
+    await w.find('[data-test="login-paste-submit"]').trigger('click');
+    await flushPromises();
+
+    expect(w.find('[data-test="login-paste-error"]').exists()).toBe(true);
+    expect(w.find('[data-test="login-paste-error"]').text()).toContain('Submit failed');
+    expect(w.emitted('close')).toBeFalsy();
+    expect(w.emitted('added')).toBeFalsy();
+  });
 });

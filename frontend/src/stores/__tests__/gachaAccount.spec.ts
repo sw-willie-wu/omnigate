@@ -6,6 +6,7 @@ const addGachaAccountByLogin = vi.fn();
 const selectGachaAccount = vi.fn();
 const setGachaAccountLabel = vi.fn();
 const deleteGachaAccount = vi.fn();
+const setGachaCredential = vi.fn();
 
 vi.mock('../../../wailsjs/go/app/App', () => ({
   ListGachaAccounts: (...a: unknown[]) => listGachaAccounts(...a),
@@ -13,9 +14,10 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
   SelectGachaAccount: (...a: unknown[]) => selectGachaAccount(...a),
   SetGachaAccountLabel: (...a: unknown[]) => setGachaAccountLabel(...a),
   DeleteGachaAccount: (...a: unknown[]) => deleteGachaAccount(...a),
+  SetGachaCredential: (...a: unknown[]) => setGachaCredential(...a),
 }));
 
-import { useGachaAccountStore } from '../gachaAccount';
+import { useGachaAccountStore, gachaAccountPrimary } from '../gachaAccount';
 
 const accts = [
   { id: 'ga_A', uid: 'R', label: 'a@b', email: 'a@b', active: true },
@@ -30,6 +32,7 @@ describe('gachaAccount store', () => {
     selectGachaAccount.mockReset();
     setGachaAccountLabel.mockReset();
     deleteGachaAccount.mockReset();
+    setGachaCredential.mockReset();
   });
 
   it('load defaults selectedId to the active account', async () => {
@@ -85,5 +88,31 @@ describe('gachaAccount store', () => {
     await s.load('hypergryph/endfield');
     s.reset();
     expect(s.accountsFor('hypergryph/endfield').length).toBe(0);
+  });
+
+  it('addByPaste reloads and selects the new account', async () => {
+    listGachaAccounts.mockResolvedValue(accts);
+    const newAcc = { id: 'ga_D', uid: 'R4', label: 'pasted', email: '', customLabel: '', active: false };
+    setGachaCredential.mockResolvedValue(newAcc);
+    const s = useGachaAccountStore();
+    await s.load('hypergryph/endfield');
+    const acc = await s.addByPaste('hypergryph/endfield', 'raw-token');
+    expect(acc.id).toBe('ga_D');
+    expect(s.byGid['hypergryph/endfield']?.selectedId).toBe('ga_D');
+  });
+});
+
+describe('gachaAccountPrimary', () => {
+  it('returns customLabel when set', () => {
+    expect(gachaAccountPrimary({ id: '', uid: 'U', label: 'L', email: 'e', customLabel: 'C', active: false })).toBe('C');
+  });
+  it('falls back to label when customLabel is empty', () => {
+    expect(gachaAccountPrimary({ id: '', uid: 'U', label: 'L', email: 'e', customLabel: '', active: false })).toBe('L');
+  });
+  it('falls back to email when customLabel and label are empty', () => {
+    expect(gachaAccountPrimary({ id: '', uid: 'U', label: '', email: 'e', customLabel: '', active: false })).toBe('e');
+  });
+  it('falls back to uid when customLabel, label, and email are all empty', () => {
+    expect(gachaAccountPrimary({ id: '', uid: 'U', label: '', email: '', customLabel: '', active: false })).toBe('U');
   });
 });

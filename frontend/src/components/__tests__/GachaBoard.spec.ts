@@ -349,8 +349,8 @@ describe('GachaBoard', () => {
     const ga = useGachaAccountStore();
     ga.byGid['hypergryph/endfield'] = {
       accounts: [
-        { id: 'GA', uid: 'uA', label: '', email: 'a', active: true },
-        { id: 'GB', uid: 'uB', label: '', email: 'b', active: false },
+        { id: 'GA', uid: 'uA', label: '', email: 'a', customLabel: '', active: true },
+        { id: 'GB', uid: 'uB', label: '', email: 'b', customLabel: '', active: false },
       ],
       selectedId: 'GA', loaded: true, loading: false,
     };

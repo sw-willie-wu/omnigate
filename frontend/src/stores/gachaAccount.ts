@@ -5,6 +5,7 @@ import {
   SelectGachaAccount,
   SetGachaAccountLabel,
   DeleteGachaAccount,
+  SetGachaCredential,
 } from '../../wailsjs/go/app/App';
 
 export interface GachaAccount {
@@ -12,6 +13,7 @@ export interface GachaAccount {
   uid: string;
   label: string;
   email: string;
+  customLabel: string;
   active: boolean;
 }
 
@@ -26,9 +28,9 @@ function blank(): GachaAcctState {
   return { accounts: [], selectedId: '', loaded: false, loading: false };
 }
 
-// gachaAccountPrimary is the display identity: custom label, else email.
+// gachaAccountPrimary is the display identity: custom label > label > email > uid.
 export function gachaAccountPrimary(a: GachaAccount): string {
-  return a.label || a.email;
+  return a.customLabel || a.label || a.email || a.uid;
 }
 
 export const useGachaAccountStore = defineStore('gachaAccount', {
@@ -64,6 +66,12 @@ export const useGachaAccountStore = defineStore('gachaAccount', {
     },
     async addByLogin(gid: string, email: string, password: string): Promise<GachaAccount> {
       const acc = (await AddGachaAccountByLogin(gid, email, password)) as unknown as GachaAccount;
+      await this.load(gid);
+      if (this.byGid[gid]) this.byGid[gid].selectedId = acc.id;
+      return acc;
+    },
+    async addByPaste(gid: string, token: string): Promise<GachaAccount> {
+      const acc = (await SetGachaCredential(gid, token)) as unknown as GachaAccount;
       await this.load(gid);
       if (this.byGid[gid]) this.byGid[gid].selectedId = acc.id;
       return acc;

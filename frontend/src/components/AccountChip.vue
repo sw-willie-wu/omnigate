@@ -106,7 +106,7 @@ function pick(a: Acct) {
 // so the native autofocus attribute won't fire — focus after the DOM updates).
 async function startRename(a: Acct) {
   editingId.value = a.id;
-  draft.value = a.label;
+  draft.value = primary(a);
   await nextTick();
   const el = menuEl.value?.querySelector(
     `[data-test="account-rename-input-${a.id}"]`,
