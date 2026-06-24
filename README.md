@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="版本" src="https://img.shields.io/badge/版本-v0.3.1-2ea043?style=flat-square" />
+  <img alt="版本" src="https://img.shields.io/badge/版本-v0.4.0-2ea043?style=flat-square" />
   <img alt="平台" src="https://img.shields.io/badge/平台-Windows-0a7bbd?style=flat-square" />
   <img alt="技術" src="https://img.shields.io/badge/Wails-Go%20＋%20Vue%203-00b8a9?style=flat-square" />
   <img alt="授權" src="https://img.shields.io/badge/授權-AGPL--3.0-4c8eda?style=flat-square" />
@@ -49,10 +49,10 @@
 | 崩壞：星穹鐵道 | ✅ | ✅ | ✅ | ✅ |
 | 絕區零 | ✅ | ✅ | ✅ | ✅ |
 | 鳴潮 | ✅ | ✅ | ✅ | ✅ |
-| 明日方舟：終末地 | ✅ | ✅ | ✅ | ⚠️＊ |
+| 明日方舟：終末地 | ✅ | ✅ | ✅ | ✅＊ |
 | 異環 (Neverness to Everness) | 🚧 規劃中 | — | — | — |
 
-<sub>＊終末地新版客戶端改了抽卡授權機制，token 取得待更新。</sub>
+<sub>＊終末地抽卡分析需先以遊戲帳號登入（email／密碼或貼上 token）擷取紀錄；其餘遊戲自本機快取自動偵測。</sub>
 
 ## 🛠️ 技術棧
 
