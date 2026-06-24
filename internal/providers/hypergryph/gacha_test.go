@@ -121,7 +121,7 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 		// One page per pool; only the Standard pool returns a row.
 		if q.Get("pool_type") == "E_CharacterGachaPoolType_Standard" && q.Get("seq_id") == "" {
 			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[
-				{"seqId":"100","charId":"c1","charName":"Perlica","rarity":6,"gachaTs":"1769062855302","isFree":false}]}}`))
+				{"seqId":"100","charId":"c1","charName":"Perlica","rarity":6,"gachaTs":"1769062855302","isFree":false,"poolId":"special_1_3_1","poolName":"拳出無悔"}]}}`))
 			return
 		}
 		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
@@ -145,6 +145,9 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 	got := res.Pulls[0]
 	if got.ID != "100" || got.BannerKey != "standard" || got.ItemType != "char" || got.Rank != 6 || got.Name != "Perlica" {
 		t.Fatalf("pull = %+v", got)
+	}
+	if got.PoolID != "special_1_3_1" || got.PoolName != "拳出無悔" {
+		t.Fatalf("poolId/poolName = %q/%q; want special_1_3_1/拳出無悔", got.PoolID, got.PoolName)
 	}
 	if got.Time != "2026-01-22 14:20:55" { // 1769062855302 ms in LOCAL tz — adjust expected to your tz when running
 		t.Logf("time = %q (local-tz dependent; assert the parse, not the literal)", got.Time)

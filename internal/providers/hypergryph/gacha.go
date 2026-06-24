@@ -123,7 +123,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			5: {"zh-TW": "五星", "zh-CN": "五星", "en": "5★"},
 		},
 		Banners: []core.BannerConfig{
-			{Key: "special", Label: core.LocalizedString{"zh-TW": "特許尋訪", "zh-CN": "特许寻访", "en": "Limited"}, Pity: endfieldLimitedPity{}, Limited: true},
+			{Key: "special", Label: core.LocalizedString{"zh-TW": "特許尋訪", "zh-CN": "特许寻访", "en": "Limited"}, Pity: endfieldLimitedPity{}, Limited: true, PerPool: true},
 			{Key: "standard", Label: core.LocalizedString{"zh-TW": "基礎尋訪", "zh-CN": "基础寻访", "en": "Standard"}, Pity: endfieldStandardPity{}},
 			{Key: "beginner", Label: core.LocalizedString{"zh-TW": "啟程尋訪", "zh-CN": "启程寻访", "en": "Beginner"}, Pity: endfieldStandardPity{}},
 			// Joint pool (collab) exists in the live pool_type enum. Its exact pity
@@ -424,6 +424,8 @@ type endfieldRecordResp struct {
 			IsFree     bool    `json:"isFree"`
 			CharName   string  `json:"charName"`
 			WeaponName string  `json:"weaponName"`
+			PoolID     flexStr `json:"poolId"`
+			PoolName   string  `json:"poolName"`
 		} `json:"list"`
 		HasMore bool `json:"hasMore"`
 	} `json:"data"`
@@ -520,6 +522,8 @@ func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, 
 					Name:      name,
 					Time:      ts,
 					IsFree:    pool.itemType == "char" && e.IsFree,
+					PoolID:    string(e.PoolID),
+					PoolName:  e.PoolName,
 				})
 			}
 			// Incremental sync: records are newest-first, so once we reach a seqId we
