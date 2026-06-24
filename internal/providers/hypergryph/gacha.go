@@ -129,10 +129,10 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			// Joint pool (collab) exists in the live pool_type enum. Its exact pity
 			// rule is unverified → standard-pity placeholder so its pulls still count
 			// and display; refine if a live record set shows different behaviour.
-			{Key: "joint", Label: core.LocalizedString{"zh-TW": "聯動尋訪", "zh-CN": "联动寻访", "en": "Joint"}, Pity: endfieldStandardPity{}, Limited: true},
+			{Key: "joint", Label: core.LocalizedString{"zh-TW": "特殊尋訪", "zh-CN": "特殊寻访", "en": "Special"}, Pity: endfieldStandardPity{}, Limited: true},
 			// Weapon pity = standard placeholder per spec §12.1 (weapons are 4/5/6★ so
 			// headline=6 resets correctly; exact weapon guarantee rule unverified).
-			{Key: "weapon", Label: core.LocalizedString{"zh-TW": "武器", "zh-CN": "武器", "en": "Weapon"}, Pity: endfieldStandardPity{}, Limited: true},
+			{Key: "weapon", Label: core.LocalizedString{"zh-TW": "武庫申領", "zh-CN": "武库申领", "en": "Armory"}, Pity: endfieldStandardPity{}, Limited: true},
 		},
 		StandardPool: endfieldStandardPool,
 		PullPrice:    endfieldPullPrice, Currency: "endfield_oroberyl", ExpectedPity: endfieldExpectedPity,
@@ -169,12 +169,16 @@ func (p *Provider) LoginByEmailPassword(ctx context.Context, email, password str
 	req.Header.Set("X-Language", "zh-tw")
 	req.Header.Set("Origin", "https://www.skport.com")
 	req.Header.Set("Referer", "https://www.skport.com/")
+	p.logger.Info("ef login: requesting")
+	loginStart := time.Now()
 	resp, err := p.httpClient().Do(req)
 	if err != nil {
+		p.logger.Warn("ef login: request error", "err", err, "dur_ms", time.Since(loginStart).Milliseconds())
 		return core.GachaLoginResult{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		p.logger.Warn("ef login: non-200", "http", resp.StatusCode, "dur_ms", time.Since(loginStart).Milliseconds())
 		return core.GachaLoginResult{}, core.ErrGachaLoginFailed
 	}
 	var r struct {
@@ -186,8 +190,12 @@ func (p *Provider) LoginByEmailPassword(ctx context.Context, email, password str
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		p.logger.Warn("ef login: decode error", "err", err, "dur_ms", time.Since(loginStart).Milliseconds())
 		return core.GachaLoginResult{}, err
 	}
+	p.logger.Info("ef login: response", "http", resp.StatusCode, "api_status", r.Status,
+		"has_data", r.Data != nil, "has_token", r.Data != nil && r.Data.Token != "",
+		"dur_ms", time.Since(loginStart).Milliseconds())
 	if r.Status != 0 || r.Data == nil || r.Data.Token == "" {
 		return core.GachaLoginResult{}, core.ErrGachaLoginFailed
 	}
@@ -432,13 +440,18 @@ func parseEndfieldTime(ms string) (string, error) {
 
 // efFetchRecords paginates the given pools and returns normalized pulls (UID set
 // by the caller to the roleId).
-func (p *Provider) efFetchRecords(ctx context.Context, u8, serverID, lang string) (core.GachaFetchResult, error) {
-	return p.efFetchPools(ctx, u8, serverID, lang, endfieldAllPools)
+func (p *Provider) efFetchRecords(ctx context.Context, u8, serverID, lang string, known map[string]bool) (core.GachaFetchResult, error) {
+	return p.efFetchPools(ctx, u8, serverID, lang, endfieldAllPools, known)
 }
 
-func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, pools []endfieldPool) (core.GachaFetchResult, error) {
+// efFetchPools paginates each pool newest-first. known is the set of seqIds already
+// stored for this account; a pool stops as soon as it reaches a known record
+// (incremental sync — only new pulls are fetched). A nil/empty known set fetches
+// the full history (first sync).
+func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, pools []endfieldPool, known map[string]bool) (core.GachaFetchResult, error) {
 	out := core.GachaFetchResult{Pulls: []core.GachaPull{}}
 	for i, pool := range pools {
+		p.logger.Info("ef records: pool", "index", i+1, "total", len(pools), "banner", pool.bannerKey)
 		seqID := ""
 		for page := 0; page < endfieldMaxPages; page++ {
 			if err := ctx.Err(); err != nil {
@@ -462,8 +475,11 @@ func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, 
 				return out, err
 			}
 			req.Header.Set("User-Agent", endfieldUA)
+			p.logger.Debug("ef records: page requesting", "pool", i+1, "page", page+1, "has_cursor", seqID != "")
+			pageStart := time.Now()
 			resp, err := p.httpClient().Do(req)
 			if err != nil {
+				p.logger.Warn("ef records: page http error", "pool", i+1, "page", page+1, "err", err, "dur_ms", time.Since(pageStart).Milliseconds())
 				return out, err
 			}
 			body, _ := io.ReadAll(resp.Body)
@@ -475,20 +491,29 @@ func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, 
 			if err := json.Unmarshal(body, &r); err != nil {
 				return out, err
 			}
+			p.logger.Debug("ef records: page done", "pool", i+1, "page", page+1, "code", r.Code,
+				"n", func() int { if r.Data != nil { return len(r.Data.List) }; return -1 }(),
+				"has_more", r.Data != nil && r.Data.HasMore, "dur_ms", time.Since(pageStart).Milliseconds())
 			if r.Code == -101 || r.Code == 40100 { // bad/expired u8_token
 				return out, core.ErrGachaCredentialExpired
 			}
 			if r.Code != 0 || r.Data == nil {
 				return out, core.ErrGachaURLUnavailable
 			}
+			reachedKnown := false
 			for _, e := range r.Data.List {
+				id := string(e.SeqID)
+				if known[id] { // nil map → always false (full first sync)
+					reachedKnown = true
+					break
+				}
 				name := e.CharName
 				if pool.itemType == "weapon" {
 					name = e.WeaponName
 				}
 				ts, _ := parseEndfieldTime(string(e.GachaTs))
 				out.Pulls = append(out.Pulls, core.GachaPull{
-					ID:        string(e.SeqID),
+					ID:        id,
 					BannerKey: pool.bannerKey,
 					ItemType:  pool.itemType,
 					Rank:      e.Rarity,
@@ -497,13 +522,19 @@ func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, 
 					IsFree:    pool.itemType == "char" && e.IsFree,
 				})
 			}
+			// Incremental sync: records are newest-first, so once we reach a seqId we
+			// already have, everything older is known too — stop paginating this pool.
+			if reachedKnown {
+				break
+			}
 			if !r.Data.HasMore || len(r.Data.List) == 0 {
 				break
 			}
 			seqID = string(r.Data.List[len(r.Data.List)-1].SeqID)
 			if p.pageDelay > 0 {
-				// jitter so paging lands in the spec'd ~500–1000ms band (anti-风控).
-				time.Sleep(p.pageDelay + time.Duration(rand.Intn(300))*time.Millisecond)
+				// politeness jitter (~100–500ms) between pages to avoid tripping rate
+				// limiting on the record API.
+				time.Sleep(p.pageDelay + time.Duration(rand.Intn(400))*time.Millisecond)
 			}
 		}
 	}
@@ -511,7 +542,9 @@ func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, 
 }
 
 // FetchGachaWithCredential runs the full chain and returns pulls + roleId uid.
-func (p *Provider) FetchGachaWithCredential(ctx context.Context, gid core.GameID, credential, lang string) (core.GachaFetchResult, error) {
+// known is the set of seqIds already stored for this account; pools stop early
+// once they reach a known record (incremental sync). Pass nil for a full fetch.
+func (p *Provider) FetchGachaWithCredential(ctx context.Context, gid core.GameID, credential, lang string, known map[string]bool) (core.GachaFetchResult, error) {
 	if findByID(gid) == nil {
 		return core.GachaFetchResult{}, core.ErrUnknownGame
 	}
@@ -521,22 +554,38 @@ func (p *Provider) FetchGachaWithCredential(ctx context.Context, gid core.GameID
 	if lang == "" {
 		lang = "en-us"
 	}
+	p.logger.Info("ef fetch: start", "lang", lang)
+	t := time.Now()
 	oauth, err := p.efGrant(ctx, credential)
 	if err != nil {
+		p.logger.Warn("ef fetch: efGrant failed", "err", err, "dur_ms", time.Since(t).Milliseconds())
 		return core.GachaFetchResult{}, err
 	}
+	p.logger.Info("ef fetch: efGrant ok", "dur_ms", time.Since(t).Milliseconds())
+
+	t = time.Now()
 	uid, roleID, serverID, err := p.efBinding(ctx, oauth)
 	if err != nil {
+		p.logger.Warn("ef fetch: efBinding failed", "err", err, "dur_ms", time.Since(t).Milliseconds())
 		return core.GachaFetchResult{}, err
 	}
+	p.logger.Info("ef fetch: efBinding ok", "uid_present", uid != "", "role_present", roleID != "", "server", serverID, "dur_ms", time.Since(t).Milliseconds())
+
+	t = time.Now()
 	u8, err := p.efU8Token(ctx, oauth, uid)
 	if err != nil {
+		p.logger.Warn("ef fetch: efU8Token failed", "err", err, "dur_ms", time.Since(t).Milliseconds())
 		return core.GachaFetchResult{}, err
 	}
-	res, err := p.efFetchRecords(ctx, u8, serverID, lang)
+	p.logger.Info("ef fetch: efU8Token ok", "dur_ms", time.Since(t).Milliseconds())
+
+	t = time.Now()
+	res, err := p.efFetchRecords(ctx, u8, serverID, lang, known)
 	if err != nil {
+		p.logger.Warn("ef fetch: records failed", "err", err, "dur_ms", time.Since(t).Milliseconds())
 		return core.GachaFetchResult{}, err
 	}
+	p.logger.Info("ef fetch: records ok", "pulls", len(res.Pulls), "dur_ms", time.Since(t).Milliseconds())
 	res.UID = roleID
 	return res, nil
 }

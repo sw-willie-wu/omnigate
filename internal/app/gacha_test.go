@@ -253,7 +253,7 @@ type fakeCredProvider struct {
 	gotLang            string
 }
 
-func (f *fakeCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, cred, lang string) (core.GachaFetchResult, error) {
+func (f *fakeCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, cred, lang string, _ map[string]bool) (core.GachaFetchResult, error) {
 	f.gotLang = lang
 	if f.err != nil {
 		return core.GachaFetchResult{}, f.err

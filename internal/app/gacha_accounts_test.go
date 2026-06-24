@@ -27,7 +27,7 @@ func (f *fakeLoginCredProvider) LoginByEmailPassword(_ context.Context, _, _ str
 	return f.loginRes, f.loginErr
 }
 
-func (f *fakeLoginCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, _, _ string) (core.GachaFetchResult, error) {
+func (f *fakeLoginCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, _, _ string, _ map[string]bool) (core.GachaFetchResult, error) {
 	return f.fetchRes, f.fetchErr
 }
 
@@ -112,23 +112,54 @@ func seedAccount(t *testing.T, a *App, id, uid string, n int) {
 	}
 }
 
-func TestAddGachaAccountByLogin_WritesBackRoleIdUID(t *testing.T) {
+func TestAddGachaAccountByLogin_SavesAccountThenRefreshWritesBackUID(t *testing.T) {
 	a := newTestAppWithEndfield(t) // fake: Login→{tok,hg,e@x}, Fetch→res.UID="ROLE42", 1 pull
 	acc, err := a.AddGachaAccountByLogin("hypergryph/endfield", "e@x", "pw")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if acc.UID != "ROLE42" {
-		t.Fatalf("uid = %q, want ROLE42 (roleId via write-back, NOT binding hash)", acc.UID)
+	// Add no longer blocks on the (slow) record fetch: the account is saved with an
+	// empty uid + email-default label, and is set active. The board drives the
+	// refresh-with-progress separately.
+	if acc.UID != "" {
+		t.Fatalf("uid = %q, want empty pre-refresh (fetch is deferred to the board)", acc.UID)
 	}
 	if acc.Email != "e@x" || acc.Label != "e@x" {
 		t.Fatalf("acc = %+v (label defaults to email)", acc)
 	}
-	// records landed under the roleId partition (assert via the STORE directly —
-	// GetGachaSummary per-account resolution is wired in Task 6, NOT here)
-	all, err := a.gachaStore.AllPulls("hypergryph/endfield", acc.UID)
-	if err != nil || len(all) == 0 {
-		t.Fatalf("no pulls under roleId partition: %d err=%v", len(all), err)
+	accts, _ := a.gachaStore.ListGachaAccounts("hypergryph/endfield")
+	if len(accts) != 1 || !accts[0].Active {
+		t.Fatalf("want one active saved account, got %+v", accts)
+	}
+
+	// A subsequent refresh (what the board triggers) fetches the records and writes
+	// back the roleId uid onto the account.
+	sum, err := a.RefreshGacha("hypergryph/endfield", acc.ID)
+	if err != nil || sum.TotalPulls == 0 {
+		t.Fatalf("refresh: sum=%+v err=%v", sum, err)
+	}
+	got, err := a.gachaStore.GetGachaAccount(acc.ID)
+	if err != nil || got.UID != "ROLE42" {
+		t.Fatalf("uid not written back: %+v err=%v", got, err)
+	}
+}
+
+func TestAddGachaAccountByLogin_DedupsByHgID(t *testing.T) {
+	a := newTestAppWithEndfield(t) // fake login always returns HgID="hg"
+	acc1, err := a.AddGachaAccountByLogin("hypergryph/endfield", "e@x", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc2, err := a.AddGachaAccountByLogin("hypergryph/endfield", "e@x", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc1.ID != acc2.ID {
+		t.Errorf("re-login created a new row: %s vs %s (should dedup by HgID)", acc1.ID, acc2.ID)
+	}
+	accts, _ := a.gachaStore.ListGachaAccounts("hypergryph/endfield")
+	if len(accts) != 1 {
+		t.Fatalf("want 1 account after re-login, got %d", len(accts))
 	}
 }
 

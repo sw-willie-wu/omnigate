@@ -135,7 +135,7 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 	p.recordAPIBase = srv.URL
 	p.pageDelay = 0
 
-	res, err := p.efFetchRecords(context.Background(), "u8-TOK", "2", "zh-tw")
+	res, err := p.efFetchRecords(context.Background(), "u8-TOK", "2", "zh-tw", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,6 +154,59 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 	}
 }
 
+// Incremental sync: once pagination reaches a seqId already in `known`, the pool
+// stops — only newer pulls are returned and no further pages are requested.
+func TestEndfieldFetchRecords_IncrementalStopsAtKnown(t *testing.T) {
+	var specialReqs int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/record/char", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("pool_type") != "E_CharacterGachaPoolType_Special" {
+			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`)) // other char pools empty
+			return
+		}
+		specialReqs++
+		switch r.URL.Query().Get("seq_id") {
+		case "": // page 1 — all new
+			w.Write([]byte(`{"code":0,"data":{"hasMore":true,"list":[
+				{"seqId":"105","charName":"a","rarity":6,"gachaTs":"1769062855302"},
+				{"seqId":"104","charName":"b","rarity":5,"gachaTs":"1769062855302"},
+				{"seqId":"103","charName":"c","rarity":5,"gachaTs":"1769062855302"}]}}`))
+		case "103": // page 2 — contains a KNOWN seqId (102) → must stop here
+			w.Write([]byte(`{"code":0,"data":{"hasMore":true,"list":[
+				{"seqId":"102","charName":"d","rarity":5,"gachaTs":"1769062855302"},
+				{"seqId":"101","charName":"e","rarity":5,"gachaTs":"1769062855302"}]}}`))
+		default:
+			t.Errorf("page %s requested — should have stopped at known", r.URL.Query().Get("seq_id"))
+			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+		}
+	})
+	mux.HandleFunc("/api/record/weapon", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.recordAPIBase = srv.URL
+	p.pageDelay = 0
+
+	known := map[string]bool{"102": true, "101": true, "100": true}
+	res, err := p.efFetchRecords(context.Background(), "u8", "2", "en-us", known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Pulls) != 3 {
+		t.Fatalf("pulls = %d; want 3 (only the new 105/104/103)", len(res.Pulls))
+	}
+	for _, pull := range res.Pulls {
+		if known[pull.ID] {
+			t.Errorf("returned an already-known pull: %s", pull.ID)
+		}
+	}
+	if specialReqs != 2 {
+		t.Errorf("special-pool requests = %d; want 2 (stopped at known on page 2, no page 3)", specialReqs)
+	}
+}
+
 func TestEndfieldRecord_AuthTimeoutExpired(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"code":-101,"message":"auth key timeout"}`))
@@ -162,7 +215,7 @@ func TestEndfieldRecord_AuthTimeoutExpired(t *testing.T) {
 	p := New(Settings{}, nil)
 	p.recordAPIBase = srv.URL
 	p.pageDelay = 0
-	if _, err := p.efFetchRecords(context.Background(), "stale", "2", "en-us"); !errors.Is(err, core.ErrGachaCredentialExpired) {
+	if _, err := p.efFetchRecords(context.Background(), "stale", "2", "en-us", nil); !errors.Is(err, core.ErrGachaCredentialExpired) {
 		t.Fatalf("err = %v; want ErrGachaCredentialExpired", err)
 	}
 }
@@ -191,7 +244,7 @@ func TestEndfieldFetchRecords_IncludesWeapon(t *testing.T) {
 	p.recordAPIBase = srv.URL
 	p.pageDelay = 0
 
-	res, err := p.efFetchRecords(context.Background(), "u8", "2", "en-us")
+	res, err := p.efFetchRecords(context.Background(), "u8", "2", "en-us", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

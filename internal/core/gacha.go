@@ -101,5 +101,8 @@ type GachaProvider interface {
 // URL-based FetchGacha. `lang` is the already-mapped record-API language (App
 // resolves it from settings; the provider has no other source — mirrors GetNews).
 type GachaCredentialProvider interface {
-	FetchGachaWithCredential(ctx context.Context, gid GameID, credential, lang string) (GachaFetchResult, error)
+	// known is the set of pull ids (seqIds) already stored for this account, so the
+	// provider can stop paginating once it reaches them (incremental sync). Pass nil
+	// for a full fetch (first sync).
+	FetchGachaWithCredential(ctx context.Context, gid GameID, credential, lang string, known map[string]bool) (GachaFetchResult, error)
 }

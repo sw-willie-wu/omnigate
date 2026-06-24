@@ -179,15 +179,29 @@ const progressText = computed(() => {
     : t('gacha.loading');
 });
 
-onMounted(() => gacha.load(props.gid, accountID.value));
-// One watch covers two events: a GAME switch (gid changes) → guarded load; an
-// ACCOUNT switch in the chip (accountID changes within the same game) → forced
-// reload so the board re-resolves the chosen uid. accountID is fed by whichever
-// store matches the game's accountKind, so credential + switcher are both handled.
+// loadForSelection sources the board for the current selection. A credential
+// account that hasn't been fetched yet (uid still "" — e.g. just added via login)
+// triggers a full refresh, which streams pagination progress to the board, then
+// reloads the account list so the written-back uid sticks (no re-refresh next
+// select). Otherwise it's read-only: a GAME switch does a guarded load; an in-game
+// ACCOUNT switch a forced reload so the board re-resolves the chosen uid.
+async function loadForSelection(g: string, a: string, gameSwitch: boolean) {
+  if (games.accountKind(g) === 'credential') {
+    const acc = gachaAccount.selectedFor(g);
+    if (acc && !acc.uid) {
+      await gacha.refresh(g, a);
+      await gachaAccount.load(g);
+      return;
+    }
+  }
+  if (gameSwitch) gacha.load(g, a);
+  else gacha.reload(g, a);
+}
+
+onMounted(() => loadForSelection(props.gid, accountID.value, true));
 // Default immediate:false means no double-load against onMounted's first read.
 watch([() => props.gid, accountID], ([g, a], [og]) => {
-  if (g !== og) gacha.load(g, a);
-  else gacha.reload(g, a);
+  loadForSelection(g, a, g !== og);
 });
 // A global (titlebar) refresh calls gacha.reset(), clearing the store. If this
 // board is the one on screen, none of the watchers above fire (gid/account

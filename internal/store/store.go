@@ -31,9 +31,18 @@ type GachaStore interface {
 // durable passport token. UID is the roleId (record-partition key), "" until the
 // first refresh writes it back. Active marks the default account (resolved when
 // callers pass accountID="").
+// JSON tags are lowercase to match the frontend GachaAccount interface (the
+// Wails RPC serializes this struct directly; without tags the keys would be the
+// capitalized Go field names and the frontend would read undefined).
 type GachaAccount struct {
-	ID, Game, HgID, UID, Label, Email, Token string
-	Active                                    bool
+	ID     string `json:"id"`
+	Game   string `json:"game"`
+	HgID   string `json:"hgId"`
+	UID    string `json:"uid"`
+	Label  string `json:"label"`
+	Email  string `json:"email"`
+	Token  string `json:"token"`
+	Active bool   `json:"active"`
 }
 
 // GameOverride is a per-game settings row (install path + background image).

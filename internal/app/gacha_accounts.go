@@ -80,12 +80,28 @@ func (a *App) AddGachaAccountByLogin(gameID, email, password string) (store.Gach
 		return store.GachaAccount{}, err
 	}
 
+	// Reuse an existing row for the same hypergryph account so repeated logins
+	// (e.g. retries) update one row instead of piling up duplicates. Match on the
+	// stable HgID; preserve a user-customized label.
+	id := newAccountID()
+	label := res.Email // default label = email; user can rename via SetGachaAccountLabel
+	if existing, lerr := a.gachaStore.ListGachaAccounts(gameID); lerr == nil {
+		for _, x := range existing {
+			if res.HgID != "" && x.HgID == res.HgID {
+				id = x.ID
+				if x.Label != "" {
+					label = x.Label
+				}
+				break
+			}
+		}
+	}
 	acc := store.GachaAccount{
-		ID:    newAccountID(),
+		ID:    id,
 		Game:  gameID,
 		HgID:  res.HgID,
 		Email: res.Email,
-		Label: res.Email, // default label = email; user can rename via SetGachaAccountLabel
+		Label: label,
 		Token: res.Token,
 	}
 	if err := a.gachaStore.UpsertGachaAccount(acc); err != nil {
@@ -95,12 +111,10 @@ func (a *App) AddGachaAccountByLogin(gameID, email, password string) (store.Gach
 		return store.GachaAccount{}, err
 	}
 
-	// Best-effort: fetch pulls and write back the roleId uid. If this fails the
-	// account is already saved; the empty uid means the board is blank until the
-	// user triggers a manual refresh.
-	if err := a.refreshAndWriteBackUID(ctx, gid, &acc); err != nil {
-		return acc, err
-	}
+	// Return immediately after login — do NOT block on the (potentially slow, ~80s)
+	// record fetch. The account is saved with uid=""; the frontend closes the login
+	// modal and the gacha board drives the refresh-with-progress for the new account
+	// (which writes back the roleId uid). See GachaBoard.loadForSelection.
 	return acc, nil
 }
 
@@ -120,7 +134,19 @@ func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *
 	uiLang := a.settings.App.Language
 	a.settingsMu.RUnlock()
 
-	res, err := cp.FetchGachaWithCredential(ctx, gid, acc.Token, mapEndfieldLang(uiLang))
+	// Incremental sync: tell the provider which pulls we already have so it stops
+	// paginating once it reaches them (only the first sync fetches the full history).
+	// Empty until the account's uid is known (a brand-new account fetches in full).
+	known := map[string]bool{}
+	if acc.UID != "" {
+		if existing, perr := a.gachaStore.AllPulls(acc.Game, acc.UID); perr == nil {
+			for _, pull := range existing {
+				known[pull.ID] = true
+			}
+		}
+	}
+
+	res, err := cp.FetchGachaWithCredential(ctx, gid, acc.Token, mapEndfieldLang(uiLang), known)
 	if err != nil {
 		return err
 	}

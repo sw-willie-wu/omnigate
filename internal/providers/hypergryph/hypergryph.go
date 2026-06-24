@@ -40,7 +40,7 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 		clock:    realRetryClock{},
 	}
 	p.recordAPIBase = "https://ef-webview.gryphline.com"
-	p.pageDelay = 700 * time.Millisecond
+	p.pageDelay = 100 * time.Millisecond // + up to 400ms jitter per page (politeness throttle)
 	p.oauthBase = "https://as.gryphline.com"
 	p.bindingBase = "https://binding-api-account-prod.gryphline.com"
 	return p
