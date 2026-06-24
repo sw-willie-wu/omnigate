@@ -6,7 +6,8 @@ import { useAccountStore } from '../stores/account';
 import { useGachaAccountStore } from '../stores/gachaAccount';
 import { useGamesStore } from '../stores/games';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
+import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum, buildBannerPanels, baseKey } from '../utils/gachaHighlights';
+import type { BannerPity } from '../stores/gacha';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
@@ -166,10 +167,28 @@ const visiblePity = computed(() => {
 // SPENT one-shot pools (那些已出 5★ 關閉的) but keeps an OPEN one-shot pool still accruing
 // toward its guarantee (e.g. WuWa 新手自選: pity to 80, closes on 出貨) — so we just split by
 // equip kind, no blanket one-shot exclusion.
-const charPity = computed(() => visiblePity.value.filter((b) => !isEquip(b.key)));
-const weaponPity = computed(() => visiblePity.value.filter((b) => isEquip(b.key)));
+// Cross-pool aggregate bars (topPity) come from the RAW sum.pity (NOT visiblePity): the
+// bare key "special" has perBanner==0 — its pulls are counted under composite keys — so
+// shouldShowPity would wrongly drop it. A bare key is a topPity ONLY when its base also has
+// ≥1 composite sibling (so standard/beginner/joint and other games' bare banners stay as
+// ordinary single-sub panels, NOT emptied into a top bar).
+const topPityByBase = computed(() => {
+  const raw = sum.value?.pity ?? [];
+  const basesWithComposite = new Set(raw.filter((p) => p.key.includes(':')).map((p) => baseKey(p.key)));
+  const m = new Map<string, BannerPity>();
+  for (const p of raw) {
+    if (!p.key.includes(':') && basesWithComposite.has(p.key)) m.set(p.key, p);
+  }
+  return m;
+});
+// Sub pity rows = visiblePity minus the bare aggregate rows (those render as topPity only).
+const subPity = computed(() => visiblePity.value.filter((b) => !topPityByBase.value.has(b.key)));
+const charPity = computed(() => subPity.value.filter((b) => !isEquip(b.key)));
+const weaponPity = computed(() => subPity.value.filter((b) => isEquip(b.key)));
 const charSections = computed(() => buildPoolSections(hlSplit.value.chars, charPity.value, bannerOrder.value, hlVisible.value));
 const weaponSections = computed(() => buildPoolSections(hlSplit.value.weapons, weaponPity.value, bannerOrder.value, hlVisible.value));
+const charPanels = computed(() => buildBannerPanels(charSections.value, topPityByBase.value));
+const weaponPanels = computed(() => buildBannerPanels(weaponSections.value, topPityByBase.value));
 // Loading line: live "{banner} · page N (i/total)" when a progress tick has
 // arrived (refresh), else generic loading (initial store read).
 const progressText = computed(() => {
@@ -352,48 +371,74 @@ watch(() => st.value.loaded, (loaded) => {
       <div class="gacha-hl">
         <div class="hl-cols">
           <div class="hl-col">
-            <div v-if="charSections.length === 0" class="hl-empty">—</div>
-            <div v-for="s in charSections" :key="'cs' + s.key" class="panel hl-pool">
-              <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
-              <div v-if="s.pity" class="hl-row hl-pity">
+            <div v-if="charPanels.length === 0" class="hl-empty">—</div>
+            <div v-for="p in charPanels" :key="'cp' + p.base" class="panel hl-pool">
+              <!-- single-sub panel keeps today's record-count badge on the title (sub-title is
+                   suppressed below); grouped panels show counts on each sub-title instead. -->
+              <div class="panel-title hl-pool-title">{{ localize(p.label) || p.base }}<span v-if="!(p.topPity || p.subs.length > 1) && p.subs[0] && p.subs[0].total" class="hl-n">{{ p.subs[0].total }}</span></div>
+              <div v-if="p.topPity" class="hl-row hl-pity hl-pity--top">
                 <span class="hl-name-wrap">
                   <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
                   <span class="hl-name">{{ t('gacha.pity_title') }}</span>
                 </span>
-                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
-                <span class="hl-count mono">{{ s.pity.current }}</span>
+                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(p.topPity)"></span></span>
+                <span class="hl-count mono">{{ p.topPity.current }}</span>
               </div>
-              <div v-for="(h, i) in s.entries" :key="'c' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
-                <span class="hl-name-wrap">
-                  <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
-                  <span v-else class="hl-ic hl-ic--ph"></span>
-                  <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
-                </span>
-                <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
-                <span class="hl-count mono">{{ h.count }}</span>
+              <div v-for="s in p.subs" :key="'cs' + s.key" class="hl-sub">
+                <div v-if="p.topPity || p.subs.length > 1" class="hl-sub-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
+                <div v-if="s.pity" class="hl-row hl-pity">
+                  <span class="hl-name-wrap">
+                    <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
+                    <span class="hl-name">{{ t('gacha.pity_title') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
+                  <span class="hl-count mono">{{ s.pity.current }}</span>
+                </div>
+                <div v-for="(h, i) in s.entries" :key="'c' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+                  <span class="hl-name-wrap">
+                    <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
+                    <span v-else class="hl-ic hl-ic--ph"></span>
+                    <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
+                  <span class="hl-count mono">{{ h.count }}</span>
+                </div>
               </div>
             </div>
           </div>
           <div class="hl-col">
-            <div v-if="weaponSections.length === 0" class="hl-empty">—</div>
-            <div v-for="s in weaponSections" :key="'ws' + s.key" class="panel hl-pool">
-              <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
-              <div v-if="s.pity" class="hl-row hl-pity">
+            <div v-if="weaponPanels.length === 0" class="hl-empty">—</div>
+            <div v-for="p in weaponPanels" :key="'wp' + p.base" class="panel hl-pool">
+              <!-- single-sub panel keeps today's record-count badge on the title (sub-title is
+                   suppressed below); grouped panels show counts on each sub-title instead. -->
+              <div class="panel-title hl-pool-title">{{ localize(p.label) || p.base }}<span v-if="!(p.topPity || p.subs.length > 1) && p.subs[0] && p.subs[0].total" class="hl-n">{{ p.subs[0].total }}</span></div>
+              <div v-if="p.topPity" class="hl-row hl-pity hl-pity--top">
                 <span class="hl-name-wrap">
                   <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
                   <span class="hl-name">{{ t('gacha.pity_title') }}</span>
                 </span>
-                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
-                <span class="hl-count mono">{{ s.pity.current }}</span>
+                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(p.topPity)"></span></span>
+                <span class="hl-count mono">{{ p.topPity.current }}</span>
               </div>
-              <div v-for="(h, i) in s.entries" :key="'w' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
-                <span class="hl-name-wrap">
-                  <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
-                  <span v-else class="hl-ic hl-ic--ph"></span>
-                  <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
-                </span>
-                <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
-                <span class="hl-count mono">{{ h.count }}</span>
+              <div v-for="s in p.subs" :key="'ws' + s.key" class="hl-sub">
+                <div v-if="p.topPity || p.subs.length > 1" class="hl-sub-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
+                <div v-if="s.pity" class="hl-row hl-pity">
+                  <span class="hl-name-wrap">
+                    <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
+                    <span class="hl-name">{{ t('gacha.pity_title') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
+                  <span class="hl-count mono">{{ s.pity.current }}</span>
+                </div>
+                <div v-for="(h, i) in s.entries" :key="'w' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+                  <span class="hl-name-wrap">
+                    <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
+                    <span v-else class="hl-ic hl-ic--ph"></span>
+                    <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
+                  <span class="hl-count mono">{{ h.count }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -531,4 +576,8 @@ watch(() => st.value.loaded, (loaded) => {
 .sk-hl-col { display: flex; flex-direction: column; gap: 10px; }
 .sk-pool { height: 96px; }
 @keyframes gacha-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+.hl-sub { margin-top: 8px; }
+.hl-sub-title { font-size: 12px; opacity: 0.75; margin: 4px 0 2px; }
+.hl-pity--top .hl-name { font-weight: 600; }
 </style>

@@ -457,14 +457,13 @@ describe('GachaBoard', () => {
     expect(w.findAll('.hl-off').length).toBe(1); // the 歪 chip is under the collab group
   });
 
-  it('renders N distinct per-期 character panels from composite special:<poolId> pity entries', async () => {
-    // Endfield emits one pity entry per 期 (e.g. special:A, special:B); the board must render
-    // each as its OWN titled panel with its OWN pity bar — the two must NOT be merged.
+  it('groups composite special:<poolId> into ONE panel: top cross-pool bar + per-期 sub bars', async () => {
     getSummary.mockResolvedValue({
       ...base,
       totalPulls: 42,
       perBanner: { 'special:A': 12, 'special:B': 30 },
       pity: [
+        { key: 'special', label: { 'zh-TW': '特許尋訪', en: 'Limited' }, current: 5, cap: 80, nearPity: false },
         { key: 'special:A', label: { 'zh-TW': '特許尋訪 - 狼珀', en: 'Limited - Wolf' }, current: 12, cap: 80, nearPity: false },
         { key: 'special:B', label: { 'zh-TW': '特許尋訪 - 拳出無悔', en: 'Limited - Fist' }, current: 30, cap: 80, nearPity: false },
       ],
@@ -474,25 +473,22 @@ describe('GachaBoard', () => {
       ],
     });
     const w = mountBoard(); await flushPromises();
-
-    // composite keys are NOT in EQUIP_BANNERS → both panels land in the character column (left)
     const charCol = w.findAll('.hl-col')[0];
-    const pools = charCol.findAll('.hl-pool');
-    expect(pools.length).toBe(2);
-
-    // titles use the `en` label (test mounts with locale 'en')
-    const titles = charCol.findAll('.hl-pool-title').map((n) => n.text());
-    expect(titles.some((t) => t.includes('Limited - Wolf'))).toBe(true);
-    expect(titles.some((t) => t.includes('Limited - Fist'))).toBe(true);
-
-    // each panel exposes its OWN pity bar — counts must be distinct (not merged)
-    const pityRows = charCol.findAll('.hl-pity');
-    expect(pityRows.length).toBe(2);
-    const pityCounts = pityRows.map((r) => r.find('.hl-count').text());
-    expect(pityCounts).toContain('12');
-    expect(pityCounts).toContain('30');
-
-    // composite keys are NOT in EQUIP_BANNERS → weapon column must be empty
+    // ONE grouped panel (special:A + special:B collapse under base "special")
+    expect(charCol.findAll('.hl-pool').length).toBe(1);
+    // panel title = base label (grouped → no count badge on the title). Substring match
+    // because sub-titles append a record-count badge (e.g. "Wolf1").
+    const poolTitles = charCol.findAll('.hl-pool-title').map((n) => n.text());
+    expect(poolTitles.some((t) => t.includes('Limited'))).toBe(true);
+    const subTitles = charCol.findAll('.hl-sub-title').map((n) => n.text());
+    expect(subTitles.some((s) => s.includes('Wolf'))).toBe(true);
+    expect(subTitles.some((s) => s.includes('Fist'))).toBe(true);
+    // pity bars: 1 cross-pool top (5) + 2 per-期 (12, 30)
+    const counts = charCol.findAll('.hl-pity .hl-count').map((n) => n.text());
+    expect(counts).toContain('5');
+    expect(counts).toContain('12');
+    expect(counts).toContain('30');
+    // weapon column empty (no weapon pulls in this fixture)
     expect(w.findAll('.hl-col')[1].findAll('.hl-pool').length).toBe(0);
   });
 });
