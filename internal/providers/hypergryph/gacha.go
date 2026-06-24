@@ -154,6 +154,7 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 var _ core.GachaProvider = (*Provider)(nil)
 var _ core.GachaCredentialProvider = (*Provider)(nil)
 var _ core.GachaLoginProvider = (*Provider)(nil)
+var _ core.GachaUserInfoProvider = (*Provider)(nil)
 
 const (
 	endfieldGrantCode    = "3dacefa138426cfe"                 // GLOBAL endfield OAuth grant appCode (distinct from news endfieldAppCode)
@@ -212,6 +213,48 @@ func (p *Provider) LoginByEmailPassword(ctx context.Context, email, password str
 		return core.GachaLoginResult{}, core.ErrGachaLoginFailed
 	}
 	return core.GachaLoginResult{Token: r.Data.Token, HgID: r.Data.HgID, Email: r.Data.Email}, nil
+}
+
+// FetchUserInfo fetches the passport profile {hgId,nickName,realEmail} for a durable
+// account token. The token rides in the URL query, so on EVERY failure path we return a
+// sentinel (ErrGachaCredentialExpired) and NEVER embed the URL/token in an error — do not
+// reuse efPostJSON (it formats the raw URL into its error).
+func (p *Provider) FetchUserInfo(ctx context.Context, accountToken string) (core.GachaUserInfo, error) {
+	u := p.oauthBase + "/user/info/v1/basic?token=" + url.QueryEscape(accountToken)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return core.GachaUserInfo{}, core.ErrGachaCredentialExpired
+	}
+	req.Header.Set("User-Agent", endfieldUA)
+	req.Header.Set("X-AppCode", endfieldLoginAppCode)
+	req.Header.Set("X-DeviceId", endfieldDeviceID)
+	req.Header.Set("X-DeviceType", "7")
+	req.Header.Set("X-DeviceModel", "Edge")
+	req.Header.Set("X-OSVer", "Windows")
+	req.Header.Set("X-Language", "zh-tw")
+	resp, err := p.httpClient().Do(req)
+	if err != nil {
+		return core.GachaUserInfo{}, core.ErrGachaCredentialExpired
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return core.GachaUserInfo{}, core.ErrGachaCredentialExpired
+	}
+	var r struct {
+		Status int `json:"status"`
+		Data   *struct {
+			HgID      string `json:"hgId"`
+			NickName  string `json:"nickName"`
+			RealEmail string `json:"realEmail"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return core.GachaUserInfo{}, core.ErrGachaCredentialExpired
+	}
+	if r.Status != 0 || r.Data == nil {
+		return core.GachaUserInfo{}, core.ErrGachaCredentialExpired
+	}
+	return core.GachaUserInfo{HgID: r.Data.HgID, NickName: r.Data.NickName, RealEmail: r.Data.RealEmail}, nil
 }
 
 // FetchGacha (URL path) is unused for Endfield — auth is credential-based. Kept to

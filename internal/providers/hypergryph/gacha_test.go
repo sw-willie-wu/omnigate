@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"omnigate/internal/core"
@@ -388,5 +389,48 @@ func TestEndfieldStandardPoolLimited(t *testing.T) {
 	}
 	if lim["standard"] || lim["beginner"] {
 		t.Error("standard/beginner must NOT be Limited")
+	}
+}
+
+func TestFetchUserInfo(t *testing.T) {
+	var gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/user/info/v1/basic") {
+			w.WriteHeader(404)
+			return
+		}
+		gotToken = r.URL.Query().Get("token")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":0,"data":{"hgId":"HG","nickName":"暱稱","realEmail":"a@b.com"}}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.oauthBase = srv.URL
+	info, err := p.FetchUserInfo(context.Background(), "TOK&x")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if info.HgID != "HG" || info.NickName != "暱稱" || info.RealEmail != "a@b.com" {
+		t.Fatalf("info=%+v", info)
+	}
+	if gotToken != "TOK&x" {
+		t.Fatalf("token param=%q want TOK&x", gotToken)
+	}
+}
+
+func TestFetchUserInfo_ErrorNoTokenLeak(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":10001,"msg":"bad token"}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.oauthBase = srv.URL
+	_, err := p.FetchUserInfo(context.Background(), "SECRET-TOKEN")
+	if err == nil {
+		t.Fatal("want error on status!=0")
+	}
+	if strings.Contains(err.Error(), "SECRET-TOKEN") || strings.Contains(err.Error(), srv.URL) {
+		t.Fatalf("error leaks token/url: %v", err)
 	}
 }
