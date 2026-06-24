@@ -34,6 +34,11 @@ func iconURL(gid core.GameID, kind, iconRef string) string {
 		return zzzIconURL(kind, iconRef)
 	case "kurogames/wutheringwaves":
 		return wuwaIconURL(kind, iconRef)
+	case "hypergryph/endfield":
+		if strings.HasPrefix(iconRef, "http://") || strings.HasPrefix(iconRef, "https://") {
+			return iconRef
+		}
+		return ""
 	}
 	return ""
 }

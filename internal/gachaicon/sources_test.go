@@ -3,6 +3,8 @@ package gachaicon
 import (
 	"strings"
 	"testing"
+
+	"omnigate/internal/core"
 )
 
 func TestIconURL_HakushGames(t *testing.T) {
@@ -13,5 +15,16 @@ func TestIconURL_HakushGames(t *testing.T) {
 	}
 	if got := zzzIconURL("char", "IconRole01"); got == "" || !strings.HasPrefix(got, "https://") {
 		t.Errorf("zzzIconURL=%q", got)
+	}
+}
+
+func TestIconURL_EndfieldPassthrough(t *testing.T) {
+	gid := core.GameID("hypergryph/endfield")
+	full := "https://static.skport.com/x/aa.png"
+	if got := iconURL(gid, "char", full); got != full {
+		t.Errorf("iconURL full passthrough = %q want %q", got, full)
+	}
+	if got := iconURL(gid, "char", "not-a-url"); got != "" {
+		t.Errorf("iconURL non-url = %q want empty", got)
 	}
 }

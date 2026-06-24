@@ -159,3 +159,38 @@ func TestBuildFromHakush_ZZZ(t *testing.T) {
 		t.Errorf("resolve 钢铁肉垫 = %+v ok=%v", e, ok)
 	}
 }
+
+func TestBuildFromEndfieldCatalog(t *testing.T) {
+	gid := core.GameID("hypergryph/endfield")
+	raw := []byte(`{"code":0,"data":{"catalog":[{"typeSub":[{"items":[
+		{"itemId":"23","name":"卡契爾","brief":{"cover":"https://static.skport.com/x/aa.png"}},
+		{"itemId":"24","name":"螢石","brief":{"cover":"https://static.skport.com/x/bb.png"}}
+	]}]}]}}`)
+	idx := NewIndex()
+	if err := buildFromEndfieldCatalog(idx, gid, "char", raw); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := idx.Resolve(gid, "卡契爾", false)
+	if !ok || e.ID != "23" || e.IconRef != "https://static.skport.com/x/aa.png" || e.Kind != "char" {
+		t.Fatalf("Resolve 卡契爾 = %+v ok=%v", e, ok)
+	}
+	// t2s key: a simplified-Chinese record name (萤石) must resolve (zh_Hans catalog is empty).
+	if _, ok := idx.Resolve(gid, "萤石", false); !ok {
+		t.Errorf("simplified 萤石 must resolve via t2s-keyed entry")
+	}
+}
+
+func TestBuildFromEndfieldCatalog_Weapon(t *testing.T) {
+	gid := core.GameID("hypergryph/endfield")
+	raw := []byte(`{"code":0,"data":{"catalog":[{"typeSub":[{"items":[
+		{"itemId":"733","name":"狼之緋","brief":{"cover":"https://static.skport.com/x/wolf.png"}}
+	]}]}]}}`)
+	idx := NewIndex()
+	if err := buildFromEndfieldCatalog(idx, gid, "weapon", raw); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := idx.Resolve(gid, "狼之緋", true)
+	if !ok || e.ID != "733" || e.Kind != "weapon" {
+		t.Fatalf("Resolve 狼之緋(equip) = %+v ok=%v", e, ok)
+	}
+}
