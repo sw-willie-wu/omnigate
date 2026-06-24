@@ -177,6 +177,60 @@ export function buildPoolSections(
   return out;
 }
 
+export interface BannerPanel {
+  base: string;                       // banner base key (e.g. "special", "weapon", "standard")
+  label: Record<string, string>;      // base banner title (no 期名)
+  topPity: BannerPity | null;         // cross-pool aggregate bar; null = no top bar
+  subs: PoolSection[];                // per-期 sections (label = 期名 only), order preserved
+}
+
+// splitLabel splits a composeLabel value "<base> - <poolName>" into [base, poolName] per the
+// FIRST " - "; a bare label (no " - ") yields [whole, whole] so a non-PerPool panel keeps its
+// title and its single sub both show the full banner name.
+function splitLabel(label: Record<string, string>): { base: Record<string, string>; pool: Record<string, string> } {
+  const base: Record<string, string> = {};
+  const pool: Record<string, string> = {};
+  for (const [loc, v] of Object.entries(label)) {
+    const i = v.indexOf(' - ');
+    if (i === -1) {
+      base[loc] = v;
+      pool[loc] = v;
+    } else {
+      base[loc] = v.slice(0, i);
+      pool[loc] = v.slice(i + 3);
+    }
+  }
+  return { base, pool };
+}
+
+// buildBannerPanels groups per-pool sections by their base banner key into one panel each,
+// preserving section order. topPityByBase supplies the cross-pool aggregate bar (sourced from
+// the RAW sum.pity by the caller); a base absent from the map has no top bar. Each sub's label
+// is reduced to the 期名 (the part after " - "); the panel title is the base banner name.
+export function buildBannerPanels(
+  sections: PoolSection[],
+  topPityByBase: Map<string, BannerPity>,
+): BannerPanel[] {
+  const order: string[] = [];
+  const byBase = new Map<string, PoolSection[]>();
+  for (const s of sections) {
+    const b = baseKey(s.key);
+    const arr = byBase.get(b);
+    if (arr) arr.push(s);
+    else {
+      byBase.set(b, [s]);
+      order.push(b);
+    }
+  }
+  return order.map((b) => {
+    const group = byBase.get(b)!;
+    const top = topPityByBase.get(b) ?? null;
+    const title = top ? top.label : splitLabel(group[0].label).base;
+    const subs = group.map((s) => ({ ...s, label: splitLabel(s.label).pool }));
+    return { base: b, label: title, topPity: top, subs };
+  });
+}
+
 // compactNum keeps values under 10k in full (e.g. "1,200") and abbreviates larger ones as
 // K/M (12,800 → "12.8K", 420,640 → "421K", 1,200,000 → "1.2M"): 1 decimal when the
 // abbreviated value is under 100, integer at or above. Used for the (potentially large)

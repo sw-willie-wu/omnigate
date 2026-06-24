@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections, computeCardMetrics, compactNum, baseKey } from '../utils/gachaHighlights';
+import { isEquip, equipTypeKey, splitByType, distinctRanks, groupByBanner, capGroups, shouldShowPity, isOneShotPool, buildPoolSections, computeCardMetrics, compactNum, baseKey, buildBannerPanels } from '../utils/gachaHighlights';
+import type { PoolSection } from '../utils/gachaHighlights';
 import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
 const mk = (bannerKey: string, rank: number, name = 'x', extra: Partial<HeadlineEntry> = {}): HeadlineEntry => ({
@@ -334,5 +335,46 @@ describe('baseKey + composite-aware classification', () => {
     ]);
     expect(r.weapons.map((h) => h.name)).toEqual(['WX']);
     expect(r.chars.map((h) => h.name)).toEqual(['Lim']);
+  });
+});
+
+describe('buildBannerPanels', () => {
+  const pity = (key: string, label: Record<string, string>, current = 0, cap = 80): BannerPity => ({ key, label, current, cap, nearPity: false });
+  const sec = (key: string, label: Record<string, string>, p: BannerPity | null): PoolSection => ({ key, label, pity: p, entries: [], total: 0 });
+
+  it('groups composite subs under one panel with the bare-key topPity', () => {
+    const topByBase = new Map<string, BannerPity>([['special', pity('special', { 'zh-TW': '特許尋訪' }, 5)]]);
+    const sections = [
+      sec('special:B', { 'zh-TW': '特許尋訪 - 期B' }, pity('special:B', { 'zh-TW': '特許尋訪 - 期B' }, 4)),
+      sec('special:A', { 'zh-TW': '特許尋訪 - 期A' }, pity('special:A', { 'zh-TW': '特許尋訪 - 期A' }, 1)),
+    ];
+    const panels = buildBannerPanels(sections, topByBase);
+    expect(panels).toHaveLength(1);
+    expect(panels[0].base).toBe('special');
+    expect(panels[0].label['zh-TW']).toBe('特許尋訪');
+    expect(panels[0].topPity?.current).toBe(5);
+    expect(panels[0].subs.map((s) => s.label['zh-TW'])).toEqual(['期B', '期A']);
+  });
+
+  it('weapon panel has no topPity (base absent from topByBase)', () => {
+    const sections = [
+      sec('weapon:X', { 'zh-TW': '緋珀申領' }, pity('weapon:X', { 'zh-TW': '緋珀申領' }, 0, 40)),
+      sec('weapon:Y', { 'zh-TW': '行舟申領' }, pity('weapon:Y', { 'zh-TW': '行舟申領' }, 1, 40)),
+    ];
+    const panels = buildBannerPanels(sections, new Map());
+    expect(panels).toHaveLength(1);
+    expect(panels[0].base).toBe('weapon');
+    expect(panels[0].topPity).toBeNull();
+    expect(panels[0].subs).toHaveLength(2);
+  });
+
+  it('non-PerPool bare banner is a single-sub panel, no topPity', () => {
+    const sections = [sec('standard', { 'zh-TW': '基礎尋訪' }, pity('standard', { 'zh-TW': '基礎尋訪' }, 7))];
+    const panels = buildBannerPanels(sections, new Map());
+    expect(panels).toHaveLength(1);
+    expect(panels[0].topPity).toBeNull();
+    expect(panels[0].subs).toHaveLength(1);
+    expect(panels[0].label['zh-TW']).toBe('基礎尋訪');
+    expect(panels[0].subs[0].label['zh-TW']).toBe('基礎尋訪');
   });
 });
