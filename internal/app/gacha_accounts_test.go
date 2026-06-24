@@ -58,6 +58,7 @@ func (f *fakeLoginCredProvider) GachaConfig(_ core.GameID) core.GachaConfig {
 		HeadlineRank: 6,
 		Banners: []core.BannerConfig{
 			{Key: "special", PerPool: true, Pity: testPity{}},
+			{Key: "weapon", PerPool: true, Pity: testPity{}},
 			{Key: "standard", Pity: testPity{}},
 		},
 		Currency:     "NT$",
@@ -299,5 +300,26 @@ func TestBackfillPoolID_NonPerPoolEmptyDoesNotForceFullFetch(t *testing.T) {
 	// known must be non-nil → incremental (the empty standard pull must NOT force full fetch).
 	if prov.lastKnown == nil {
 		t.Errorf("lastKnown is nil; want non-nil map — empty non-PerPool pull must not force full re-fetch")
+	}
+}
+
+// Weapon is PerPool: a stored weapon pull that already has a PoolID must NOT force a
+// full re-fetch (no perpetual-wedge); refresh stays incremental.
+func TestBackfillPoolID_WeaponPopulatedStaysIncremental(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	const game = "hypergryph/endfield"
+	seedAccount(t, a, "acc-w", "ROLE42", 0)
+	if _, err := a.gachaStore.UpsertPulls(game, "ROLE42", []core.GachaPull{
+		{ID: "wp-1", BannerKey: "weapon", Rank: 5, Name: "W", Time: "2026-01-01 00:00:00", PoolID: "weponbox_1_1_2"},
+	}); err != nil {
+		t.Fatalf("UpsertPulls: %v", err)
+	}
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.lastKnown = map[string]bool{} // sentinel: must become non-nil (incremental)
+	if _, err := a.RefreshGacha(game, "acc-w"); err != nil {
+		t.Fatalf("RefreshGacha: %v", err)
+	}
+	if prov.lastKnown == nil {
+		t.Errorf("lastKnown is nil; weapon pull WITH poolId must stay incremental (no wedge)")
 	}
 }
