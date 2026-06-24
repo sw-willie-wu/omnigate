@@ -22,19 +22,26 @@ func (testPity) Has5050() bool { return false }
 func (testPity) Walk(_ []core.GachaPull, _ int) ([]core.PityHit, int) { return nil, 0 }
 
 // fakeLoginCredProvider satisfies core.Provider (via embedded fakeProvider),
-// core.GachaLoginProvider, and core.GachaCredentialProvider. Used by
-// newTestAppWithEndfield to simulate the Endfield per-account gacha flow.
+// core.GachaLoginProvider, core.GachaCredentialProvider, and
+// core.GachaUserInfoProvider. Used by newTestAppWithEndfield to simulate the
+// Endfield per-account gacha flow.
 type fakeLoginCredProvider struct {
 	fakeProvider
-	loginRes  core.GachaLoginResult
-	loginErr  error
-	fetchRes  core.GachaFetchResult
-	fetchErr  error
-	lastKnown map[string]bool // captures the `known` arg of the most recent FetchGachaWithCredential call
+	loginRes    core.GachaLoginResult
+	loginErr    error
+	fetchRes    core.GachaFetchResult
+	fetchErr    error
+	lastKnown   map[string]bool // captures the `known` arg of the most recent FetchGachaWithCredential call
+	userInfo    core.GachaUserInfo
+	userInfoErr error
 }
 
 func (f *fakeLoginCredProvider) LoginByEmailPassword(_ context.Context, _, _ string) (core.GachaLoginResult, error) {
 	return f.loginRes, f.loginErr
+}
+
+func (f *fakeLoginCredProvider) FetchUserInfo(_ context.Context, _ string) (core.GachaUserInfo, error) {
+	return f.userInfo, f.userInfoErr
 }
 
 func (f *fakeLoginCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, _, _ string, known map[string]bool) (core.GachaFetchResult, error) {
@@ -321,5 +328,56 @@ func TestBackfillPoolID_WeaponPopulatedStaysIncremental(t *testing.T) {
 	}
 	if prov.lastKnown == nil {
 		t.Errorf("lastKnown is nil; weapon pull WITH poolId must stay incremental (no wedge)")
+	}
+}
+
+func TestAddGachaAccountByLogin_LabelFromNickName(t *testing.T) {
+	a := newTestAppWithEndfield(t) // login → {tok,hg,e@x}
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.userInfo = core.GachaUserInfo{HgID: "HG", NickName: "暱稱", RealEmail: "r@e.com"}
+	acc, err := a.AddGachaAccountByLogin("hypergryph/endfield", "e@x", "pw")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if acc.Label != "暱稱" {
+		t.Errorf("Label=%q want 暱稱 (nickName)", acc.Label)
+	}
+	if acc.Email != "r@e.com" {
+		t.Errorf("Email=%q want r@e.com (realEmail)", acc.Email)
+	}
+}
+
+func TestAddGachaAccountByLogin_UserInfoFailFallsBackToEmail(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.userInfoErr = core.ErrGachaCredentialExpired
+	acc, err := a.AddGachaAccountByLogin("hypergryph/endfield", "e@x", "pw")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if acc.Label != acc.Email || acc.Email == "" {
+		t.Errorf("on user/info fail Label must fall back to login email; got Label=%q Email=%q", acc.Label, acc.Email)
+	}
+}
+
+func TestCustomLabelPreservedAcrossReLogin(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.userInfo = core.GachaUserInfo{HgID: "HG", NickName: "暱稱", RealEmail: "r@e.com"}
+	acc, _ := a.AddGachaAccountByLogin("hypergryph/endfield", "e@x", "pw")
+	if err := a.SetGachaAccountLabel("hypergryph/endfield", acc.ID, "我的別名"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	prov.userInfo = core.GachaUserInfo{HgID: "HG", NickName: "新暱", RealEmail: "r@e.com"}
+	acc2, _ := a.AddGachaAccountByLogin("hypergryph/endfield", "e@x", "pw")
+	if acc2.ID != acc.ID {
+		t.Fatalf("dedup failed: new id %s vs %s", acc2.ID, acc.ID)
+	}
+	got, _ := a.gachaStore.GetGachaAccount(acc.ID)
+	if got.CustomLabel != "我的別名" {
+		t.Errorf("CustomLabel=%q want 我的別名 (preserved)", got.CustomLabel)
+	}
+	if got.Label != "新暱" {
+		t.Errorf("Label=%q want 新暱 (refreshed)", got.Label)
 	}
 }

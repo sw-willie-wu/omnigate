@@ -2,6 +2,8 @@ package app
 
 import (
 	"testing"
+
+	"omnigate/internal/core"
 )
 
 func TestExtractAccountToken(t *testing.T) {
@@ -26,26 +28,54 @@ func TestExtractAccountToken(t *testing.T) {
 // to write back the roleId uid. Assert the row exists with the extracted token.
 func TestSetGachaCredential_CreatesAccount(t *testing.T) {
 	a := newTestAppWithEndfield(t)
-	if err := a.SetGachaCredential("hypergryph/endfield", `  {"data":{"content":"pasted-tok"}}  `); err != nil {
+	acc, err := a.SetGachaCredential("hypergryph/endfield", `  {"data":{"content":"pasted-tok"}}  `)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if acc.Token != "pasted-tok" {
+		t.Errorf("returned acc.Token=%q, want pasted-tok", acc.Token)
 	}
 	accts, _ := a.gachaStore.ListGachaAccounts("hypergryph/endfield")
 	if len(accts) != 1 || accts[0].Token != "pasted-tok" {
 		t.Fatalf("accts = %+v, want one row token=pasted-tok", accts)
 	}
 	// write-back populated the roleId uid from the fake fetch (ROLE42).
+	if acc.UID != "ROLE42" {
+		t.Fatalf("returned acc.UID = %q, want ROLE42 (write-back)", acc.UID)
+	}
 	if accts[0].UID != "ROLE42" {
-		t.Fatalf("uid = %q, want ROLE42 (write-back)", accts[0].UID)
+		t.Fatalf("stored uid = %q, want ROLE42 (write-back)", accts[0].UID)
 	}
 }
 
 func TestSetGachaCredential_AcceptsRawToken(t *testing.T) {
 	a := newTestAppWithEndfield(t)
-	if err := a.SetGachaCredential("hypergryph/endfield", "  pasted-TOK  "); err != nil {
+	acc, err := a.SetGachaCredential("hypergryph/endfield", "  pasted-TOK  ")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if acc.Token != "pasted-TOK" {
+		t.Errorf("returned acc.Token=%q, want pasted-TOK (trimmed)", acc.Token)
 	}
 	accts, _ := a.gachaStore.ListGachaAccounts("hypergryph/endfield")
 	if len(accts) != 1 || accts[0].Token != "pasted-TOK" {
 		t.Fatalf("accts = %+v, want one row token=pasted-TOK (trimmed)", accts)
+	}
+}
+
+func TestSetGachaCredential_UserInfoErrStillCreatesAccount(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.userInfoErr = core.ErrGachaCredentialExpired
+	acc, err := a.SetGachaCredential("hypergryph/endfield", "raw-token")
+	if err != nil {
+		t.Fatalf("SetGachaCredential should succeed even when FetchUserInfo fails: %v", err)
+	}
+	if acc.Token != "raw-token" {
+		t.Errorf("Token=%q want raw-token", acc.Token)
+	}
+	accts, _ := a.gachaStore.ListGachaAccounts("hypergryph/endfield")
+	if len(accts) != 1 {
+		t.Fatalf("want 1 account after credential paste with user/info err, got %d", len(accts))
 	}
 }

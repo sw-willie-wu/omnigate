@@ -12,32 +12,34 @@ import (
 // SetGachaCredential (RPC): manual-paste fallback — create a per-account row from a
 // pasted account_token, then refresh to populate its roleId uid. Shares the
 // write-back path with AddGachaAccountByLogin (Task 6).
-func (a *App) SetGachaCredential(gameID, credential string) error {
+// Returns the fully-populated account (with UID written back after the refresh).
+func (a *App) SetGachaCredential(gameID, credential string) (store.GachaAccount, error) {
 	gid := core.GameID(gameID)
 	p, err := a.provider(gid)
 	if err != nil {
-		return err
+		return store.GachaAccount{}, err
 	}
 	if _, ok := p.(core.GachaCredentialProvider); !ok {
-		return core.ErrGachaURLUnavailable // not a credential game
+		return store.GachaAccount{}, core.ErrGachaURLUnavailable // not a credential game
 	}
 	if a.gachaStore == nil {
-		return fmt.Errorf("gacha store unavailable")
+		return store.GachaAccount{}, fmt.Errorf("gacha store unavailable")
 	}
 	token := extractAccountToken(credential)
 	if token == "" {
-		return core.ErrGachaCredentialRequired
-	}
-	acc := store.GachaAccount{ID: newAccountID(), Game: gameID, Token: token}
-	if err := a.gachaStore.UpsertGachaAccount(acc); err != nil {
-		return err
-	}
-	if err := a.gachaStore.SetActiveGachaAccount(gameID, acc.ID); err != nil {
-		return err
+		return store.GachaAccount{}, core.ErrGachaCredentialRequired
 	}
 	ctx, cancel := a.gachaCtx()
 	defer cancel()
-	return a.refreshAndWriteBackUID(ctx, gid, &acc)
+	hgID, email, label := a.resolveCredentialIdentity(ctx, gid, token, "", "")
+	acc, err := a.upsertDedupedCredentialAccount(gameID, hgID, email, label, token)
+	if err != nil {
+		return store.GachaAccount{}, err
+	}
+	if err := a.refreshAndWriteBackUID(ctx, gid, &acc); err != nil {
+		return acc, err
+	}
+	return acc, nil
 }
 
 // extractAccountToken normalises a captured/pasted credential: it accepts either

@@ -80,34 +80,9 @@ func (a *App) AddGachaAccountByLogin(gameID, email, password string) (store.Gach
 		return store.GachaAccount{}, err
 	}
 
-	// Reuse an existing row for the same hypergryph account so repeated logins
-	// (e.g. retries) update one row instead of piling up duplicates. Match on the
-	// stable HgID; preserve a user-customized label.
-	id := newAccountID()
-	label := res.Email // default label = email; user can rename via SetGachaAccountLabel
-	if existing, lerr := a.gachaStore.ListGachaAccounts(gameID); lerr == nil {
-		for _, x := range existing {
-			if res.HgID != "" && x.HgID == res.HgID {
-				id = x.ID
-				if x.Label != "" {
-					label = x.Label
-				}
-				break
-			}
-		}
-	}
-	acc := store.GachaAccount{
-		ID:    id,
-		Game:  gameID,
-		HgID:  res.HgID,
-		Email: res.Email,
-		Label: label,
-		Token: res.Token,
-	}
-	if err := a.gachaStore.UpsertGachaAccount(acc); err != nil {
-		return store.GachaAccount{}, err
-	}
-	if err := a.gachaStore.SetActiveGachaAccount(gameID, acc.ID); err != nil {
+	hgID, resolvedEmail, label := a.resolveCredentialIdentity(ctx, gid, res.Token, res.HgID, res.Email)
+	acc, err := a.upsertDedupedCredentialAccount(gameID, hgID, resolvedEmail, label, res.Token)
+	if err != nil {
 		return store.GachaAccount{}, err
 	}
 
@@ -115,6 +90,58 @@ func (a *App) AddGachaAccountByLogin(gameID, email, password string) (store.Gach
 	// record fetch. The account is saved with uid=""; the frontend closes the login
 	// modal and the gacha board drives the refresh-with-progress for the new account
 	// (which writes back the roleId uid). See GachaBoard.loadForSelection.
+	return acc, nil
+}
+
+// resolveCredentialIdentity fetches passport identity for a durable token (best-effort).
+// label = nickName > realEmail. On FetchUserInfo failure, fall back to fb* and label=fbEmail;
+// log only the error CODE (never err.Error()/token).
+func (a *App) resolveCredentialIdentity(ctx context.Context, gid core.GameID, token, fbHgID, fbEmail string) (hgID, email, label string) {
+	hgID, email = fbHgID, fbEmail
+	label = email
+	p, _ := a.provider(gid)
+	if uip, ok := p.(core.GachaUserInfoProvider); ok {
+		if info, err := uip.FetchUserInfo(ctx, token); err == nil {
+			if info.HgID != "" {
+				hgID = info.HgID
+			}
+			if info.RealEmail != "" {
+				email = info.RealEmail
+			}
+			if info.NickName != "" {
+				label = info.NickName
+			} else {
+				label = email
+			}
+		} else {
+			a.logger.Warn("gacha user/info failed", "gid", gid, "code", core.ErrorCode(err))
+		}
+	}
+	return hgID, email, label
+}
+
+// upsertDedupedCredentialAccount upserts a credential account, deduping by HgID. label is the
+// fresh API value (overwritten each login). An existing row's CustomLabel (user alias) is
+// PRESERVED onto the returned acc so the subsequent refresh write-back doesn't null it.
+func (a *App) upsertDedupedCredentialAccount(gameID, hgID, email, label, token string) (store.GachaAccount, error) {
+	id := newAccountID()
+	custom := ""
+	if existing, err := a.gachaStore.ListGachaAccounts(gameID); err == nil {
+		for _, x := range existing {
+			if hgID != "" && x.HgID == hgID {
+				id = x.ID
+				custom = x.CustomLabel
+				break
+			}
+		}
+	}
+	acc := store.GachaAccount{ID: id, Game: gameID, HgID: hgID, Email: email, Label: label, CustomLabel: custom, Token: token}
+	if err := a.gachaStore.UpsertGachaAccount(acc); err != nil {
+		return store.GachaAccount{}, err
+	}
+	if err := a.gachaStore.SetActiveGachaAccount(gameID, acc.ID); err != nil {
+		return store.GachaAccount{}, err
+	}
 	return acc, nil
 }
 
