@@ -296,6 +296,33 @@ func TestEndfieldGachaConfig_PriceCurrencyWeaponBanner(t *testing.T) {
 	}
 }
 
+func TestEndfieldConfig_PerPoolPityShape(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("hypergryph/endfield")
+
+	special := cfg.BannerOf("special")
+	if special == nil || !special.PerPool || !special.CrossPoolBar {
+		t.Fatalf("special = %+v want PerPool && CrossPoolBar", special)
+	}
+
+	weapon := cfg.BannerOf("weapon")
+	if weapon == nil || !weapon.PerPool {
+		t.Fatalf("weapon = %+v want PerPool", weapon)
+	}
+	if weapon.CrossPoolBar {
+		t.Errorf("weapon must NOT have CrossPoolBar (no top bar)")
+	}
+	if weapon.Pity == nil || weapon.Pity.HardPity() != 40 {
+		t.Errorf("weapon HardPity = %v want 40", weapon.Pity)
+	}
+
+	for _, k := range []string{"standard", "beginner", "joint"} {
+		if b := cfg.BannerOf(k); b == nil || b.PerPool || b.CrossPoolBar {
+			t.Errorf("%s = %+v want non-PerPool, non-CrossPoolBar", k, b)
+		}
+	}
+}
+
 func TestEndfieldStandardPoolLimited(t *testing.T) {
 	p := New(Settings{}, nil)
 	cfg := p.GachaConfig("hypergryph/endfield")

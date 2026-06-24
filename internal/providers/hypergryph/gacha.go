@@ -143,16 +143,16 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 			5: {"zh-TW": "五星", "zh-CN": "五星", "en": "5★"},
 		},
 		Banners: []core.BannerConfig{
-			{Key: "special", Label: core.LocalizedString{"zh-TW": "特許尋訪", "zh-CN": "特许寻访", "en": "Limited"}, Pity: endfieldLimitedPity{}, Limited: true, PerPool: true},
+			{Key: "special", Label: core.LocalizedString{"zh-TW": "特許尋訪", "zh-CN": "特许寻访", "en": "Limited"}, Pity: endfieldLimitedPity{}, Limited: true, PerPool: true, CrossPoolBar: true},
 			{Key: "standard", Label: core.LocalizedString{"zh-TW": "基礎尋訪", "zh-CN": "基础寻访", "en": "Standard"}, Pity: endfieldStandardPity{}},
 			{Key: "beginner", Label: core.LocalizedString{"zh-TW": "啟程尋訪", "zh-CN": "启程寻访", "en": "Beginner"}, Pity: endfieldStandardPity{}},
 			// Joint pool (collab) exists in the live pool_type enum. Its exact pity
 			// rule is unverified → standard-pity placeholder so its pulls still count
 			// and display; refine if a live record set shows different behaviour.
 			{Key: "joint", Label: core.LocalizedString{"zh-TW": "特殊尋訪", "zh-CN": "特殊寻访", "en": "Special"}, Pity: endfieldStandardPity{}, Limited: true},
-			// Weapon pity = standard placeholder per spec §12.1 (weapons are 4/5/6★ so
-			// headline=6 resets correctly; exact weapon guarantee rule unverified).
-			{Key: "weapon", Label: core.LocalizedString{"zh-TW": "武庫申領", "zh-CN": "武库申领", "en": "Armory"}, Pity: endfieldStandardPity{}, Limited: true},
+			// Weapon (武庫申領) is per-期 (PerPool): each pool 申領 has its own cap-40
+			// pity bar, no cross-pool top bar (CrossPoolBar omitted = false).
+			{Key: "weapon", Label: core.LocalizedString{"zh-TW": "武庫申領", "zh-CN": "武库申领", "en": "Armory"}, Pity: endfieldWeaponPity{}, Limited: true, PerPool: true},
 		},
 		StandardPool: endfieldStandardPool,
 		PullPrice:    endfieldPullPrice, Currency: "endfield_oroberyl", ExpectedPity: endfieldExpectedPity,
