@@ -33,7 +33,14 @@ func defaultConvLogPaths(installDir string) []string {
 func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 	paths := p.convLogPathsFn(installDir)
 	p.logger.Debug("wuwa convene: scanning logs", "installDir", installDir, "paths", len(paths))
+	// Pick the convene URL from the NEWEST log file by mtime, not the last in the
+	// fixed path order. A stale leftover debug.log (frozen from an old session)
+	// must never override a freshly written Client.log — the last-file-wins logic
+	// did exactly that on a user's PC, yielding an expired record_id → API code!=0
+	// → gacha_url. Mirrors wuwatracker's newest-first selection.
 	var last string
+	var lastMod time.Time
+	var haveLast bool
 	for _, path := range paths {
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -49,10 +56,16 @@ func (p *Provider) extractConveneParams(installDir string) (url.Values, error) {
 			xorHits = len(xm)
 			m = xm
 		}
-		// Diagnostic only: counts + size, never the URL/token content.
-		p.logger.Debug("wuwa convene: log scanned", "path", path, "size", len(b), "rawHits", len(raw), "xorHits", xorHits)
-		if len(m) > 0 {
-			last = string(m[len(m)-1]) // most recent in this file
+		var mod time.Time
+		if fi, statErr := os.Stat(path); statErr == nil {
+			mod = fi.ModTime()
+		}
+		// Diagnostic only: counts + size + mtime, never the URL/token content.
+		p.logger.Debug("wuwa convene: log scanned", "path", path, "size", len(b), "rawHits", len(raw), "xorHits", xorHits, "modTime", mod)
+		if len(m) > 0 && (!haveLast || mod.After(lastMod)) {
+			last = string(m[len(m)-1]) // most recent in this (newest) file
+			lastMod = mod
+			haveLast = true
 		}
 	}
 	if last == "" {
@@ -94,9 +107,15 @@ func xorDecryptClientLog(b []byte) []byte {
 }
 
 // wuwaPity: every pull counts, reset on a headline; WuWa has no 50/50.
-type wuwaPity struct{}
+// hard is the per-banner hard-pity cap (0 → default 80); the beginner banner caps at 50.
+type wuwaPity struct{ hard int }
 
-func (wuwaPity) HardPity() int { return 80 }
+func (p wuwaPity) HardPity() int {
+	if p.hard > 0 {
+		return p.hard
+	}
+	return 80
+}
 func (wuwaPity) Has5050() bool { return false }
 func (wuwaPity) Walk(sorted []core.GachaPull, headline int) ([]core.PityHit, int) {
 	hits, pity := []core.PityHit{}, 0
@@ -113,6 +132,19 @@ func (wuwaPity) Walk(sorted []core.GachaPull, headline int) ([]core.PityHit, int
 var wuwaPoolBanner = map[int]string{
 	1: "character", 2: "weapon", 3: "standard_char", 4: "standard_weapon",
 	5: "beginner", 6: "beginner_choice", 7: "other",
+	8: "char_exchange", 9: "weapon_exchange", 10: "collab", 11: "collab_weapon",
+}
+
+// wuwaStandardPool is the fixed set of standard 5★ resonators in WuWa.
+// WuWa does not add limited resonators to the standard pool after their
+// debut, so this list is stable. en + zh-TW + zh-CN forms.
+// Weapon banner is guaranteed (no 50/50) → no weapon pool needed.
+var wuwaStandardPool = map[string]bool{
+	"Calcharo": true, "卡卡羅": true, "卡卡罗": true,
+	"Encore": true, "安可": true,
+	"Jianxin": true, "鑒心": true, "鉴心": true,
+	"Lingyang": true, "凌陽": true, "凌阳": true,
+	"Verina": true, "維里奈": true, "维里奈": true,
 }
 
 func poolBanner(t int) string {
@@ -130,16 +162,23 @@ func (p *Provider) GachaConfig(gid core.GameID) core.GachaConfig {
 	return core.GachaConfig{
 		HeadlineRank: 5,
 		RankLabels:   map[int]core.LocalizedString{5: wuwaLoc("五星", "五星", "5★"), 4: wuwaLoc("四星", "四星", "4★")},
+		// Order drives both the dashboard pity-bar order and the high-star panel group
+		// order (per column, via pity[]). Collab sits right under its limited sibling.
 		Banners: []core.BannerConfig{
-			{Key: "character", Label: wuwaLoc("限定共鳴者", "限定共鸣者", "Featured Resonator"), Pity: wuwaPity{}},
-			{Key: "weapon", Label: wuwaLoc("限定武器", "限定武器", "Featured Weapon"), Pity: wuwaPity{}},
-			{Key: "standard_char", Label: wuwaLoc("常駐共鳴者", "常驻共鸣者", "Standard Resonator"), Pity: wuwaPity{}},
-			{Key: "standard_weapon", Label: wuwaLoc("常駐武器", "常驻武器", "Standard Weapon"), Pity: wuwaPity{}},
-			{Key: "beginner", Label: wuwaLoc("新手", "新手", "Beginner"), Pity: wuwaPity{}},
-			{Key: "beginner_choice", Label: wuwaLoc("新手自選", "新手自选", "Beginner Choice"), Pity: wuwaPity{}},
-			{Key: "other", Label: wuwaLoc("感恩定向", "感恩定向", "Other"), Pity: wuwaPity{}},
+			{Key: "character", Label: wuwaLoc("角色活動喚取", "角色活动唤取", "Featured Resonator Convene"), Pity: wuwaPity{}, Limited: true},
+			{Key: "collab", Label: wuwaLoc("角色連動喚取", "角色联动唤取", "Collab Resonator Convene"), Pity: wuwaPity{}, Limited: true},
+			{Key: "weapon", Label: wuwaLoc("武器活動喚取", "武器活动唤取", "Featured Weapon Convene"), Pity: wuwaPity{}, Limited: true},
+			{Key: "collab_weapon", Label: wuwaLoc("武器連動喚取", "武器联动唤取", "Collab Weapon Convene"), Pity: wuwaPity{}, Limited: true},
+			{Key: "standard_char", Label: wuwaLoc("角色常駐喚取", "角色常驻唤取", "Standard Resonator Convene"), Pity: wuwaPity{}},
+			{Key: "standard_weapon", Label: wuwaLoc("武器常駐喚取", "武器常驻唤取", "Standard Weapon Convene"), Pity: wuwaPity{}},
+			{Key: "beginner", Label: wuwaLoc("新手喚取", "新手唤取", "Beginner Convene"), Pity: wuwaPity{hard: 50}},
+			{Key: "beginner_choice", Label: wuwaLoc("新手自選喚取", "新手自选唤取", "Beginner's Choice Convene"), Pity: wuwaPity{}},
+			{Key: "other", Label: wuwaLoc("感恩定向喚取", "感恩定向唤取", "Thanksgiving Convene"), Pity: wuwaPity{}},
+			{Key: "char_exchange", Label: wuwaLoc("角色新旅喚取", "角色新旅唤取", "Character New-Journey Convene"), Pity: wuwaPity{}, Limited: true},
+			{Key: "weapon_exchange", Label: wuwaLoc("武器新旅喚取", "武器新旅唤取", "Weapon New-Journey Convene"), Pity: wuwaPity{}, Limited: true},
 		},
-		PullPrice: 160, Currency: "astrite", ExpectedPity: 62.5,
+		StandardPool: wuwaStandardPool,
+		PullPrice:    160, Currency: "astrite", ExpectedPity: 54.1, ExpectedFeaturedWeapon: 54.1,
 	}
 }
 
@@ -203,12 +242,12 @@ func (p *Provider) fetchWuwa(ctx context.Context, f url.Values) (core.GachaFetch
 	out.URL = "https://aki-gm-resources-oversea.aki-game.net/aki/gacha/index.html#/record?" + f.Encode()
 
 	endpoint := p.recordAPI() + "/gacha/record/query"
-	for pool := 1; pool <= 7; pool++ {
+	for pool := 1; pool <= 11; pool++ {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
 		core.ReportGachaProgress(ctx, core.GachaProgress{
-			BannerKey: poolBanner(pool), Page: 1, PoolIndex: pool, PoolTotal: 7,
+			BannerKey: poolBanner(pool), Page: 1, PoolIndex: pool, PoolTotal: 11,
 		})
 		reqBody, _ := json.Marshal(map[string]any{
 			"cardPoolId":   f.Get("resources_id"),
@@ -238,6 +277,10 @@ func (p *Provider) fetchWuwa(ctx context.Context, f url.Values) (core.GachaFetch
 			return out, err
 		}
 		if r.Code != 0 {
+			// Surface the API's real verdict — a blanket ErrGachaURLUnavailable hid
+			// why fetches failed (e.g. expired record_id) and made the stale-log bug
+			// hard to diagnose. Code/message only; no token content.
+			p.logger.Debug("wuwa record api rejected", "code", r.Code, "msg", r.Message, "pool", pool)
 			return out, core.ErrGachaURLUnavailable
 		}
 		// API returns newest-first; reverse to oldest-first for stable ordinals.

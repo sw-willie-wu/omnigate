@@ -12,6 +12,7 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
 }));
 
 import NewsPanel from '../NewsPanel.vue';
+import { useNewsStore } from '../../stores/news';
 
 const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
 
@@ -68,5 +69,19 @@ describe('NewsPanel', () => {
     expect(w.text()).toContain('Info1');
     expect(w.text()).not.toContain('Ann1');
     expect(w.text()).not.toContain('Act1');
+  });
+
+  it('self-reloads after a global refresh clears the store (titlebar-refresh blank fix)', async () => {
+    getNewsMock.mockResolvedValue([
+      { title: 'Ann1', category: 'announce', date: '2026-01-01', url: 'https://x/1' },
+    ]);
+    const w = mountPanel();
+    await flushPromises();
+    expect(w.text()).toContain('Ann1');
+    const callsAfterMount = getNewsMock.mock.calls.length;
+    useNewsStore().reset(); // what the titlebar refreshAll() does
+    await flushPromises();
+    expect(getNewsMock.mock.calls.length).toBeGreaterThan(callsAfterMount); // refetched, not blank
+    expect(w.text()).toContain('Ann1');
   });
 });

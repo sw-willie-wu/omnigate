@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 2
+const schemaVersion = 6
 
 type SQLiteStore struct {
 	db   *sql.DB
@@ -45,6 +45,7 @@ func (s *SQLiteStore) migrate() error {
 		`CREATE TABLE IF NOT EXISTS pulls (
   game TEXT NOT NULL, uid TEXT NOT NULL, id TEXT NOT NULL,
   banner_key TEXT, item_type TEXT, rank INTEGER, name TEXT, time TEXT, is_free INTEGER,
+  pool_id TEXT, pool_name TEXT,
   PRIMARY KEY (game, uid, id)
 )`,
 		`CREATE INDEX IF NOT EXISTS idx_pulls_game_uid ON pulls(game, uid)`,
@@ -52,6 +53,25 @@ func (s *SQLiteStore) migrate() error {
   game TEXT NOT NULL, uid TEXT NOT NULL, url TEXT, fetched_at INTEGER,
   PRIMARY KEY (game, uid)
 )`,
+		`CREATE TABLE IF NOT EXISTS gacha_cred (
+  game TEXT PRIMARY KEY, cred TEXT NOT NULL, updated_at INTEGER NOT NULL
+)`,
+		`CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)`,
+		`CREATE TABLE IF NOT EXISTS game_settings (
+  game_id TEXT PRIMARY KEY, path TEXT, background_path TEXT
+)`,
+		`CREATE TABLE IF NOT EXISTS playstate (
+  game TEXT PRIMARY KEY, last_played_unix INTEGER
+)`,
+		`CREATE TABLE IF NOT EXISTS account_uid (
+  cuid TEXT PRIMARY KEY, uid TEXT, label TEXT
+)`,
+		`CREATE TABLE IF NOT EXISTS gacha_accounts (
+  account_id TEXT PRIMARY KEY, game TEXT NOT NULL, hg_id TEXT, uid TEXT,
+  label TEXT, custom_label TEXT, email TEXT, token TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+)`,
+		`CREATE INDEX IF NOT EXISTS idx_gacha_accounts_game ON gacha_accounts(game)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -70,6 +90,39 @@ func (s *SQLiteStore) migrate() error {
 	ver, _ := strconv.Atoi(verStr)
 	if ver < 2 {
 		if err := s.migrateV2RekeyWuwa(); err != nil {
+			return err
+		}
+	}
+	// schema_version writeback: the const bump alone never reaches existing DBs —
+	// the only writes are INSERT OR IGNORE (new DBs only) and the '2' inside
+	// migrateV2RekeyWuwa. Gate on the original `ver` read above; ordered AFTER the
+	// rekey so it overwrites the rekey's '2'.
+	if ver < 3 {
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','3')`); err != nil {
+			return err
+		}
+	}
+	if ver < 4 {
+		if err := s.migrateV4GachaCredToAccount(); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','4')`); err != nil {
+			return err
+		}
+	}
+	if ver < 5 {
+		if err := s.migrateV5PoolColumns(); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','5')`); err != nil {
+			return err
+		}
+	}
+	if ver < 6 {
+		if err := s.migrateV6CustomLabelColumn(); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','6')`); err != nil {
 			return err
 		}
 	}
@@ -161,6 +214,100 @@ func (s *SQLiteStore) migrateV2RekeyWuwa() error {
 	return tx.Commit()
 }
 
+// migrateV4GachaCredToAccount converts each legacy per-game gacha_cred row into a
+// single active gacha_accounts row, seeding uid from latest_uid (== roleId,
+// offline) so existing analysis stays visible, then deletes the legacy row.
+// Gated on ver < 4; safe to call on an empty gacha_cred table (no-op loop).
+func (s *SQLiteStore) migrateV4GachaCredToAccount() error {
+	rows, err := s.db.Query(`SELECT game, cred FROM gacha_cred`)
+	if err != nil {
+		return err
+	}
+	type credRow struct{ game, token string }
+	var creds []credRow
+	for rows.Next() {
+		var c credRow
+		if err := rows.Scan(&c.game, &c.token); err != nil {
+			rows.Close()
+			return err
+		}
+		creds = append(creds, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, c := range creds {
+		var uid string
+		_ = s.db.QueryRow(`SELECT value FROM meta WHERE key=?`, "latest_uid:"+c.game).Scan(&uid)
+		id := "mig-" + c.game // deterministic; one legacy cred per game
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO gacha_accounts(account_id,game,hg_id,uid,label,email,token,active,updated_at)
+VALUES(?,?,?,?,?,?,?,1,strftime('%s','now'))`, id, c.game, "", uid, "", "", c.token); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`DELETE FROM gacha_cred WHERE game=?`, c.game); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// columnExists reports whether column col exists in table tbl,
+// using PRAGMA table_info (cid, name, type, notnull, dflt_value, pk).
+func (s *SQLiteStore) columnExists(tbl, col string) (bool, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + tbl + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var dfltVal sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltVal, &pk); err != nil {
+			return false, err
+		}
+		if name == col {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// migrateV5PoolColumns adds pool_id and pool_name to the pulls table.
+// Each ALTER is guarded by a column-exists check so the migration is
+// crash-idempotent: re-running after a partial failure never errors with
+// "duplicate column name".
+func (s *SQLiteStore) migrateV5PoolColumns() error {
+	for _, col := range []string{"pool_id", "pool_name"} {
+		ok, err := s.columnExists("pulls", col)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if _, err := s.db.Exec(`ALTER TABLE pulls ADD COLUMN ` + col + ` TEXT`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// migrateV6CustomLabelColumn adds custom_label (user-set alias) to gacha_accounts.
+// Guarded by columnExists so a crash-retry never errors "duplicate column name".
+func (s *SQLiteStore) migrateV6CustomLabelColumn() error {
+	ok, err := s.columnExists("gacha_accounts", "custom_label")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if _, err := s.db.Exec(`ALTER TABLE gacha_accounts ADD COLUMN custom_label TEXT`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int, error) {
@@ -170,20 +317,33 @@ func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int
 	}
 	defer tx.Rollback()
 	stmt, err := tx.Prepare(`INSERT OR IGNORE INTO pulls
-		(game,uid,id,banner_key,item_type,rank,name,time,is_free)
-		VALUES (?,?,?,?,?,?,?,?,?)`)
+		(game,uid,id,banner_key,item_type,rank,name,time,is_free,pool_id,pool_name)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
+	// updStmt backfills pool columns on rows that pre-date v5 (where the INSERT
+	// OR IGNORE above is a no-op and their pool columns remain NULL/'').
+	updStmt, err := tx.Prepare(`UPDATE pulls SET pool_id=?, pool_name=?
+		WHERE game=? AND uid=? AND id=? AND (pool_id IS NULL OR pool_id='')`)
+	if err != nil {
+		return 0, err
+	}
+	defer updStmt.Close()
 	added := 0
 	for _, p := range pulls {
-		res, err := stmt.Exec(game, uid, p.ID, p.BannerKey, p.ItemType, p.Rank, p.Name, p.Time, boolInt(p.IsFree))
+		res, err := stmt.Exec(game, uid, p.ID, p.BannerKey, p.ItemType, p.Rank, p.Name, p.Time, boolInt(p.IsFree), p.PoolID, p.PoolName)
 		if err != nil {
 			return 0, err
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
 			added++
+		}
+		// Backfill pool_id/pool_name onto rows inserted before v5 (INSERT OR IGNORE
+		// above is a no-op for an existing row, so its pool columns would stay empty).
+		if _, err := updStmt.Exec(p.PoolID, p.PoolName, game, uid, p.ID); err != nil {
+			return 0, err
 		}
 	}
 	if added > 0 {
@@ -195,7 +355,8 @@ func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int
 }
 
 func (s *SQLiteStore) AllPulls(game, uid string) ([]core.GachaPull, error) {
-	rows, err := s.db.Query(`SELECT id,banner_key,item_type,rank,name,time,is_free
+	rows, err := s.db.Query(`SELECT id,banner_key,item_type,rank,name,time,is_free,
+		COALESCE(pool_id,''),COALESCE(pool_name,'')
 		FROM pulls WHERE game=? AND uid=?`, game, uid)
 	if err != nil {
 		return nil, err
@@ -205,7 +366,7 @@ func (s *SQLiteStore) AllPulls(game, uid string) ([]core.GachaPull, error) {
 	for rows.Next() {
 		var p core.GachaPull
 		var isFree int
-		if err := rows.Scan(&p.ID, &p.BannerKey, &p.ItemType, &p.Rank, &p.Name, &p.Time, &isFree); err != nil {
+		if err := rows.Scan(&p.ID, &p.BannerKey, &p.ItemType, &p.Rank, &p.Name, &p.Time, &isFree, &p.PoolID, &p.PoolName); err != nil {
 			return nil, err
 		}
 		p.IsFree = isFree != 0
@@ -257,9 +418,92 @@ func (s *SQLiteStore) PutURLCache(game, uid, url string) error {
 	return err
 }
 
+func (s *SQLiteStore) GetGachaCred(game string) (string, time.Time, error) {
+	var cred string
+	var ts int64
+	err := s.db.QueryRow(`SELECT cred,updated_at FROM gacha_cred WHERE game=?`, game).Scan(&cred, &ts)
+	if err == sql.ErrNoRows {
+		return "", time.Time{}, nil
+	}
+	return cred, time.Unix(ts, 0), err
+}
+
+func (s *SQLiteStore) PutGachaCred(game, cred string) error {
+	if cred == "" {
+		_, err := s.db.Exec(`DELETE FROM gacha_cred WHERE game=?`, game)
+		return err
+	}
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO gacha_cred(game,cred,updated_at) VALUES(?,?,?)`,
+		game, cred, time.Now().Unix())
+	return err
+}
+
 func boolInt(b bool) int {
 	if b {
 		return 1
 	}
 	return 0
+}
+
+func (s *SQLiteStore) ListGachaAccounts(game string) ([]GachaAccount, error) {
+	rows, err := s.db.Query(`SELECT account_id,game,hg_id,uid,label,COALESCE(custom_label,''),email,token,active FROM gacha_accounts WHERE game=? ORDER BY updated_at, account_id`, game)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []GachaAccount{}
+	for rows.Next() {
+		var a GachaAccount
+		var active int
+		if err := rows.Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.CustomLabel, &a.Email, &a.Token, &active); err != nil {
+			return nil, err
+		}
+		a.Active = active == 1
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) GetGachaAccount(id string) (GachaAccount, error) {
+	var a GachaAccount
+	var active int
+	err := s.db.QueryRow(`SELECT account_id,game,hg_id,uid,label,COALESCE(custom_label,''),email,token,active FROM gacha_accounts WHERE account_id=?`, id).
+		Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.CustomLabel, &a.Email, &a.Token, &active)
+	a.Active = active == 1
+	return a, err
+}
+
+func (s *SQLiteStore) UpsertGachaAccount(a GachaAccount) error {
+	_, err := s.db.Exec(`INSERT INTO gacha_accounts(account_id,game,hg_id,uid,label,custom_label,email,token,active,updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,strftime('%s','now'))
+ON CONFLICT(account_id) DO UPDATE SET game=excluded.game,hg_id=excluded.hg_id,uid=excluded.uid,
+  label=excluded.label,custom_label=excluded.custom_label,email=excluded.email,token=excluded.token,updated_at=excluded.updated_at`,
+		a.ID, a.Game, a.HgID, a.UID, a.Label, a.CustomLabel, a.Email, a.Token, boolInt(a.Active))
+	return err
+}
+
+func (s *SQLiteStore) SetGachaAccountLabel(id, label string) error {
+	_, err := s.db.Exec(`UPDATE gacha_accounts SET custom_label=?, updated_at=strftime('%s','now') WHERE account_id=?`, label, id)
+	return err
+}
+
+func (s *SQLiteStore) DeleteGachaAccount(id string) error {
+	_, err := s.db.Exec(`DELETE FROM gacha_accounts WHERE account_id=?`, id)
+	return err
+}
+
+// SetActiveGachaAccount flips active to exactly the given id within its game.
+func (s *SQLiteStore) SetActiveGachaAccount(game, id string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`UPDATE gacha_accounts SET active=0 WHERE game=?`, game); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE gacha_accounts SET active=1 WHERE account_id=? AND game=?`, id, game); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

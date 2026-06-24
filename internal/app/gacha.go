@@ -3,21 +3,12 @@ package app
 import (
 	"context"
 	"errors"
-	"path/filepath"
+	"fmt"
+	"strings"
 	"time"
 
 	"omnigate/internal/core"
 )
-
-// gachaDBPathFor puts gacha.db beside the settings file (same dir convention as
-// playstate). Mirrors playStatePathFor.
-func gachaDBPathFor(settingsPath string) string {
-	dir := filepath.Dir(settingsPath)
-	if dir == "." || dir == "" {
-		return "gacha.db"
-	}
-	return filepath.Join(dir, "gacha.db")
-}
 
 // gachaUIDFor resolves the gacha uid for a specific account. For switcher
 // providers (WuWa): accountID=="" → the written-active account's uid; else the
@@ -66,6 +57,23 @@ func gachaProgressPayload(cfg core.GachaConfig, p core.GachaProgress) map[string
 	}
 }
 
+// mapEndfieldLang maps a UI locale (zh-TW/zh-CN/en) to a legal Endfield record lang.
+func mapEndfieldLang(uiLang string) string {
+	switch uiLang {
+	case "zh-TW", "zh-HK":
+		return "zh-tw"
+	case "zh-CN":
+		return "zh-cn"
+	case "en":
+		return "en-us"
+	default:
+		if strings.HasPrefix(uiLang, "zh") {
+			return "zh-cn"
+		}
+		return "en-us"
+	}
+}
+
 // RefreshGacha extracts the local history URL, fetches the record API, upserts
 // into the store (dedup), and returns the recomputed summary. Network-touching.
 func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) {
@@ -88,6 +96,55 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 
 	game := string(gid)
 
+	base := a.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, 120*time.Second)
+	defer cancel()
+
+	// Stream pagination progress to the UI (banner/page/pool — never the URL).
+	cfg := gp.GachaConfig(gid)
+	ctx = core.WithGachaProgress(ctx, func(pr core.GachaProgress) {
+		a.emit("gacha:progress", gameID, gachaProgressPayload(cfg, pr))
+	})
+
+	// Credential path (Endfield): durable account_token, per-account resolution
+	// (Task 6). Fetch + write back the roleId uid via the shared helper, then
+	// compute the summary from that account's partition.
+	if _, isCred := p.(core.GachaCredentialProvider); isCred {
+		acc, err := a.resolveGachaAccount(game, accountID)
+		if err != nil {
+			return core.GachaSummary{}, err
+		}
+		if err := a.refreshAndWriteBackUID(ctx, gid, &acc); err != nil {
+			a.logger.Warn("RefreshGacha credential fetch failed", "gid", gameID, "code", core.ErrorCode(err))
+			// Token hygiene (spec §10): *url.Error from transport failures embeds the
+			// record URL carrying the live u8_token — never let it reach the frontend.
+			// Sentinel errors (Required/Expired/NoGameRole) are token-free and drive the link UX.
+			if errors.Is(err, core.ErrGachaCredentialRequired) || errors.Is(err, core.ErrGachaCredentialExpired) || errors.Is(err, core.ErrGachaNoGameRole) {
+				return core.GachaSummary{}, err
+			}
+			return core.GachaSummary{}, fmt.Errorf("endfield gacha refresh failed (%s)", core.ErrorCode(err))
+		}
+		all, err := a.gachaStore.AllPulls(game, acc.UID)
+		if err != nil {
+			return core.GachaSummary{}, err
+		}
+		// Best-effort SYNC warm so the just-refreshed board shows icons in the
+		// returned summary. WarmAsync is TTL-gated + in-flight-guarded and never
+		// blocks the refresh: a warm index lets decorate below resolve icons
+		// immediately; a cold/stale index refetches in the background and the
+		// SetOnWarm callback emits "gacha:icons" to repaint once it resolves.
+		if a.gachaIcons != nil {
+			a.gachaIcons.WarmAsync(gid)
+		}
+		sum := core.ComputeSummary(acc.UID, all, cfg)
+		a.decorateGachaIcons(gid, &sum)
+		return sum, nil
+	}
+
+	// ── Existing URL/switcher path (UNCHANGED below) ──
 	uid, isSwitcher := a.gachaUIDFor(gid, accountID)
 	if isSwitcher && uid == "" {
 		return core.GachaSummary{}, core.ErrGachaActiveUnknown
@@ -102,19 +159,6 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 	if cacheUID != "" {
 		cachedURL, _, _ = a.gachaStore.GetURLCache(game, cacheUID)
 	}
-
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	// Stream pagination progress to the UI (banner/page/pool — never the URL).
-	cfg := gp.GachaConfig(gid)
-	ctx = core.WithGachaProgress(ctx, func(p core.GachaProgress) {
-		a.emit("gacha:progress", gameID, gachaProgressPayload(cfg, p))
-	})
 
 	res, err := gp.FetchGacha(ctx, gid, installDir, cachedURL)
 	if err != nil {
@@ -142,7 +186,14 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 	if err != nil {
 		return core.GachaSummary{}, err
 	}
-	return core.ComputeSummary(res.UID, all, gp.GachaConfig(gid)), nil
+	// Async warm (see credential path above): TTL-gated, non-blocking; repaints via
+	// the gacha:icons event once the index is warm.
+	if a.gachaIcons != nil {
+		a.gachaIcons.WarmAsync(gid)
+	}
+	sum := core.ComputeSummary(res.UID, all, gp.GachaConfig(gid))
+	a.decorateGachaIcons(gid, &sum)
+	return sum, nil
 }
 
 // GetGachaSummary reads the store (no network) and computes the summary for the
@@ -162,6 +213,28 @@ func (a *App) GetGachaSummary(gameID, accountID string) (core.GachaSummary, erro
 		return core.GachaSummary{Supported: false}, nil
 	}
 	game := string(gid)
+	if _, isCred := p.(core.GachaCredentialProvider); isCred {
+		// Per-account resolution (Task 6): pick the named/active/first credential
+		// account. A new account not yet refreshed (UID=="") → empty summary, NOT
+		// the LatestUID fallback (which would leak another account's records).
+		acc, err := a.resolveGachaAccount(game, accountID)
+		if err != nil {
+			return core.GachaSummary{}, err
+		}
+		if acc.UID == "" {
+			return a.emptyCredentialSummary(), nil
+		}
+		all, err := a.gachaStore.AllPulls(game, acc.UID)
+		if err != nil {
+			return core.GachaSummary{}, err
+		}
+		sum := core.ComputeSummary(acc.UID, all, gp.GachaConfig(gid))
+		a.decorateGachaIcons(gid, &sum)
+		if a.gachaIcons != nil {
+			a.gachaIcons.WarmAsync(gid)
+		}
+		return sum, nil
+	}
 	uid, isSwitcher := a.gachaUIDFor(gid, accountID)
 	if !isSwitcher {
 		uid, _ = a.gachaStore.LatestUID(game)
@@ -176,5 +249,12 @@ func (a *App) GetGachaSummary(gameID, accountID string) (core.GachaSummary, erro
 	if err != nil {
 		return core.GachaSummary{}, err
 	}
-	return core.ComputeSummary(uid, all, gp.GachaConfig(gid)), nil
+	sum := core.ComputeSummary(uid, all, gp.GachaConfig(gid))
+	a.decorateGachaIcons(gid, &sum)
+	// Fire-and-forget warm; the SetOnWarm callback emits "gacha:icons" so the
+	// frontend reloads icons once the index becomes resolvable.
+	if a.gachaIcons != nil {
+		a.gachaIcons.WarmAsync(gid)
+	}
+	return sum, nil
 }

@@ -33,10 +33,12 @@ func (f *fakeProvider) DefaultScan(context.Context) (map[core.GameID]string, err
 }
 func (f *fakeProvider) SetResolvedPaths(paths map[core.GameID]string) { f.injected = paths }
 
-func (f *fakeProvider) ID() core.BackendID                                  { return f.id }
-func (f *fakeProvider) DisplayName() core.LocalizedString                   { return core.LocalizedString{"en": string(f.id)} }
-func (f *fakeProvider) Games() []core.GameDescriptor                        { return f.games }
-func (f *fakeProvider) SettingsSchema() []core.SettingField                 { return nil }
+func (f *fakeProvider) ID() core.BackendID { return f.id }
+func (f *fakeProvider) DisplayName() core.LocalizedString {
+	return core.LocalizedString{"en": string(f.id)}
+}
+func (f *fakeProvider) Games() []core.GameDescriptor        { return f.games }
+func (f *fakeProvider) SettingsSchema() []core.SettingField { return nil }
 func (f *fakeProvider) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
 	return f.installs, nil
 }
@@ -109,24 +111,23 @@ func TestRegisterProvider_RejectsMultiSlashGID(t *testing.T) {
 }
 
 func TestSetLanguage_PersistsAndValidates(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "settings.toml")
+	st := openState(t)
 	a := &App{
-		settingsP: p,
-		settings:  defaultSettings(),
+		store:    st,
+		settings: defaultSettings(),
 	}
 
-	// A supported language updates both in-memory state and the TOML file
-	// without going through the heavy UpdateSettings (no provider rebuild).
+	// A supported language updates both in-memory state and the DB without going
+	// through the heavy UpdateSettings (no provider rebuild).
 	if err := a.SetLanguage("en"); err != nil {
 		t.Fatalf("SetLanguage(en) error: %v", err)
 	}
 	if got := a.GetSettings().App.Language; got != "en" {
 		t.Errorf("in-memory language = %q, want en", got)
 	}
-	loaded, err := LoadSettings(p)
+	loaded, err := loadSettingsFromDB(st)
 	if err != nil {
-		t.Fatalf("LoadSettings: %v", err)
+		t.Fatalf("loadSettingsFromDB: %v", err)
 	}
 	if loaded.App.Language != "en" {
 		t.Errorf("persisted language = %q, want en", loaded.App.Language)
@@ -225,6 +226,7 @@ func buildAppWithResolved(t *testing.T, gid core.GameID, dir string) *App {
 	}
 	a := &App{
 		settings: Settings{Version: 2, Games: map[string]GameSettings{}},
+		store:    openState(t), // real DB so SetGameOverride/ClearGameOverride exercise saveSettingsToDB
 		detect:   map[core.BackendID]detectEntry{},
 		resolved: map[core.GameID]resolvedEntry{},
 		logger:   slog.Default(),
@@ -307,7 +309,6 @@ func TestResolveAll_InjectsUnderWriteLock(t *testing.T) {
 func newAppForTest(t *testing.T, ps ...core.Provider) *App {
 	t.Helper()
 	a := &App{
-		settingsP: "",
 		providers: nil,
 		detect:    map[core.BackendID]detectEntry{},
 	}
@@ -342,7 +343,6 @@ func TestSetGameOverride_PersistsResolvesReturnsRow(t *testing.T) {
 	overrideDir := t.TempDir()
 	gid := core.GameID("fake/g")
 	a := buildAppWithResolved(t, gid, t.TempDir())
-	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
 	row, err := a.SetGameOverride(string(gid), overrideDir)
 	if err != nil {
 		t.Fatal(err)
@@ -362,7 +362,6 @@ func TestClearGameOverride_RevertsToDetection(t *testing.T) {
 	dir := t.TempDir()
 	gid := core.GameID("fake/g")
 	a := buildAppWithResolved(t, gid, dir) // default-scan resolves to dir
-	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
 	_, _ = a.SetGameOverride(string(gid), t.TempDir())
 	row, err := a.ClearGameOverride(string(gid))
 	if err != nil {
@@ -376,7 +375,6 @@ func TestClearGameOverride_RevertsToDetection(t *testing.T) {
 func TestSetGameOverride_PreservesBackgroundPath(t *testing.T) {
 	gid := core.GameID("fake/g")
 	a := buildAppWithResolved(t, gid, t.TempDir())
-	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
 	a.settings.Games = map[string]GameSettings{string(gid): {BackgroundPath: `D:\bg.png`}}
 	override := t.TempDir()
 	if _, err := a.SetGameOverride(string(gid), override); err != nil {
@@ -397,7 +395,6 @@ func TestClearGameOverride_KeepsEntryWhenBackgroundPathSet(t *testing.T) {
 	dir := t.TempDir()
 	gid := core.GameID("fake/g")
 	a := buildAppWithResolved(t, gid, dir)
-	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
 	a.settings.Games = map[string]GameSettings{string(gid): {Path: t.TempDir(), BackgroundPath: `D:\bg.png`}}
 	if _, err := a.ClearGameOverride(string(gid)); err != nil {
 		t.Fatal(err)
@@ -420,7 +417,6 @@ func TestRefreshGame_ReResolvesNoSettingsChange(t *testing.T) {
 	dir := t.TempDir()
 	gid := core.GameID("fake/g")
 	a := buildAppWithResolved(t, gid, dir)
-	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
 	row, err := a.RefreshGame(string(gid))
 	if err != nil {
 		t.Fatal(err)
@@ -440,7 +436,6 @@ func TestRefreshGame_ReResolvesNoSettingsChange(t *testing.T) {
 func TestSetGameOverride_UnknownGameErrors(t *testing.T) {
 	gid := core.GameID("fake/g")
 	a := buildAppWithResolved(t, gid, t.TempDir())
-	a.settingsP = filepath.Join(t.TempDir(), "settings.toml")
 	if _, err := a.SetGameOverride("other/missing", t.TempDir()); err == nil {
 		t.Fatalf("SetGameOverride(unknown) succeeded; want error")
 	}
@@ -450,7 +445,7 @@ func TestLaunch_RecordsLastPlayed(t *testing.T) {
 	dir := t.TempDir()
 	gid := core.GameID("fake/g")
 	a := buildAppWithResolved(t, gid, dir)
-	a.playState = loadPlayState(filepath.Join(t.TempDir(), "playstate.json"))
+	a.playState = loadPlayState(nil)
 
 	if _, err := a.Launch(string(gid), ""); err != nil {
 		t.Fatalf("Launch failed: %v", err)
@@ -558,7 +553,7 @@ func TestLastPlayedLocked_FileNewerThanPlaystate(t *testing.T) {
 	writeFileWithMtime(t, logf, fileMt)
 
 	a := &App{}
-	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	a.playState = loadPlayState(nil)
 	// playstate older than the file:
 	a.playState.last["g/x"] = fileMt.Add(-24 * time.Hour)
 
@@ -576,7 +571,7 @@ func TestLastPlayedLocked_PlaystateNewerThanFile(t *testing.T) {
 	writeFileWithMtime(t, logf, fileMt)
 
 	a := &App{}
-	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	a.playState = loadPlayState(nil)
 	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
 	a.playState.last["g/x"] = psMt
 
@@ -588,9 +583,8 @@ func TestLastPlayedLocked_PlaystateNewerThanFile(t *testing.T) {
 }
 
 func TestLastPlayedLocked_NoProbeInterface(t *testing.T) {
-	dir := t.TempDir()
 	a := &App{}
-	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	a.playState = loadPlayState(nil)
 	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
 	a.playState.last["g/x"] = psMt
 
@@ -604,7 +598,7 @@ func TestLastPlayedLocked_NoProbeInterface(t *testing.T) {
 func TestLastPlayedLocked_MissingFileFallsBack(t *testing.T) {
 	dir := t.TempDir()
 	a := &App{}
-	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	a.playState = loadPlayState(nil)
 	psMt := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
 	a.playState.last["g/x"] = psMt
 
@@ -626,7 +620,7 @@ func TestLastPlayedLocked_MultipleFilesNewestWins(t *testing.T) {
 	writeFileWithMtime(t, newer, newerMt)
 
 	a := &App{}
-	a.playState = loadPlayState(filepath.Join(dir, "playstate.json"))
+	a.playState = loadPlayState(nil)
 	a.playState.last["g/x"] = newerMt.Add(-24 * time.Hour) // older than both files
 
 	// Candidate order puts the OLDER file first; the loop must still pick newer.

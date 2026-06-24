@@ -1,8 +1,6 @@
 package app
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -11,8 +9,8 @@ import (
 )
 
 func TestUIDCache_RecordBackfill(t *testing.T) {
-	dir := t.TempDir()
-	c := loadUIDCache(filepath.Join(dir, "wuwa_uid_cache.json"))
+	st := openState(t)
+	c := loadUIDCache(st)
 	c.Record("535788351", "700001181")
 
 	accts := []core.GameAccount{
@@ -23,7 +21,7 @@ func TestUIDCache_RecordBackfill(t *testing.T) {
 	if accts[1].UID != "700001181" {
 		t.Errorf("active UID should remain: %+v", accts[1])
 	}
-	c2 := loadUIDCache(filepath.Join(dir, "wuwa_uid_cache.json"))
+	c2 := loadUIDCache(st) // reload from same store
 	again := []core.GameAccount{{ID: "535788351"}}
 	c2.Backfill(again)
 	if again[0].UID != "700001181" {
@@ -51,7 +49,7 @@ func TestListGameAccounts_Unsupported(t *testing.T) {
 	}
 }
 
-// Test 5: SetAccountLabel is capability-gated (requires AccountSwitcher).
+// SetAccountLabel is capability-gated (requires AccountSwitcher).
 func TestSetAccountLabel_Unsupported(t *testing.T) {
 	a := &App{}
 	if err := a.registerProvider(noSwitchProvider{}); err != nil {
@@ -62,30 +60,14 @@ func TestSetAccountLabel_Unsupported(t *testing.T) {
 	}
 }
 
-// Test 1: legacy {cuid:"uid"} string-form caches must still load and backfill.
-func TestUIDCache_LoadsLegacyStringFormat(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wuwa_uid_cache.json")
-	if err := os.WriteFile(path, []byte(`{"537195734":"700727240"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	c := loadUIDCache(path)
-	accts := []core.GameAccount{{ID: "537195734"}}
-	c.Backfill(accts)
-	if accts[0].UID != "700727240" {
-		t.Errorf("legacy string cache should backfill UID, got %+v", accts[0])
-	}
-}
-
-// Test 2: a label set then reloaded must backfill onto the ACTIVE account (the
-// one with a non-empty UID) — pins the B2 continue-branch fix.
+// A label set then reloaded must backfill onto the ACTIVE account (the one with
+// a non-empty UID) — pins the B2 continue-branch fix.
 func TestUIDCache_SetLabelPersistsAndBackfillsActive(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wuwa_uid_cache.json")
-	c := loadUIDCache(path)
+	st := openState(t)
+	c := loadUIDCache(st)
 	c.SetLabel("537195734", "主帳")
 
-	c2 := loadUIDCache(path)
+	c2 := loadUIDCache(st) // reload from same store
 	accts := []core.GameAccount{{ID: "537195734", UID: "700727240", Active: true}}
 	c2.Backfill(accts)
 	if accts[0].Label != "主帳" {
@@ -96,11 +78,9 @@ func TestUIDCache_SetLabelPersistsAndBackfillsActive(t *testing.T) {
 	}
 }
 
-// Test 3: Record preserves an existing label; SetLabel preserves the existing uid.
+// Record preserves an existing label; SetLabel preserves the existing uid.
 func TestUIDCache_RecordPreservesLabel_SetLabelPreservesUID(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wuwa_uid_cache.json")
-	c := loadUIDCache(path)
+	c := loadUIDCache(openState(t))
 	c.Record("c1", "u1")
 	c.SetLabel("c1", "name")
 	c.Record("c1", "u1") // re-record same uid must not drop the label
@@ -119,12 +99,10 @@ func TestUIDCache_RecordPreservesLabel_SetLabelPreservesUID(t *testing.T) {
 	}
 }
 
-// Test 4: SetLabel trims, clamps to 24 runes, and an all-whitespace value clears
-// the label while keeping the uid.
+// SetLabel trims, clamps to 24 runes, and an all-whitespace value clears the
+// label while keeping the uid.
 func TestUIDCache_SetLabelTrimClampClear(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wuwa_uid_cache.json")
-	c := loadUIDCache(path)
+	c := loadUIDCache(openState(t))
 	c.Record("c1", "u1")
 
 	c.SetLabel("c1", "  hi  ")

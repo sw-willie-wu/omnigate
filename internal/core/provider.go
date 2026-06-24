@@ -216,6 +216,34 @@ type AccountSwitcher interface {
 	SwitchAccount(ctx context.Context, gid GameID, accountID string) error // accountID = GameAccount.ID
 }
 
+// GachaLoginResult is the outcome of an email/password gacha login: a durable
+// passport token (the value the credential chain consumes) plus identity. No uid
+// — the account's uid (roleId) is resolved later by writing back the first
+// refresh's res.UID (binding's hashed uid is NOT the record-partition key).
+type GachaLoginResult struct {
+	Token string
+	HgID  string
+	Email string
+}
+
+// GachaLoginProvider is an optional capability: exchange email+password for a
+// durable gacha token without persisting the password. Implemented by Endfield.
+type GachaLoginProvider interface {
+	LoginByEmailPassword(ctx context.Context, email, password string) (GachaLoginResult, error)
+}
+
+// GachaUserInfo is the passport profile for a durable account token.
+type GachaUserInfo struct {
+	HgID      string
+	NickName  string
+	RealEmail string
+}
+
+// GachaUserInfoProvider is an optional capability: fetch passport profile from a token.
+type GachaUserInfoProvider interface {
+	FetchUserInfo(ctx context.Context, accountToken string) (GachaUserInfo, error)
+}
+
 // Provider is the integration point for one launcher backend (one publisher).
 // Phase 1 = hoyoverse only.
 type Provider interface {

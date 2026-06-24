@@ -59,3 +59,30 @@ func TestErrorCode_GachaLinkageSentinels(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorCode_GachaCredentialSentinels(t *testing.T) {
+	if got := ErrorCode(ErrGachaCredentialRequired); got != "gacha_credential" {
+		t.Errorf("required code = %q, want gacha_credential", got)
+	}
+	if got := ErrorCode(fmt.Errorf("wrap: %w", ErrGachaCredentialExpired)); got != "gacha_credential" {
+		t.Errorf("expired code = %q, want gacha_credential", got)
+	}
+	if ErrGachaCredentialRequired.Error() != "gacha credential required" {
+		t.Errorf("required msg = %q", ErrGachaCredentialRequired.Error())
+	}
+	if ErrGachaCredentialExpired.Error() != "gacha credential expired" {
+		t.Errorf("expired msg = %q", ErrGachaCredentialExpired.Error())
+	}
+}
+
+func TestErrorCode_GachaLoginSentinels(t *testing.T) {
+	cases := map[error]string{
+		ErrGachaLoginFailed: "gacha_login_failed",
+		ErrGachaNoGameRole:  "gacha_no_role",
+	}
+	for err, want := range cases {
+		if got := ErrorCode(err); got != want {
+			t.Errorf("ErrorCode(%v) = %q, want %q", err, got, want)
+		}
+	}
+}

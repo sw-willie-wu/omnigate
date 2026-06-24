@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // GachaPull is one normalized pull record (backend-agnostic).
 // ID is the provider's unique id (HoYoverse `id`, Endfield `seqId`) and doubles
@@ -16,6 +19,11 @@ type GachaPull struct {
 	Name      string `json:"name"`
 	Time      string `json:"time"`   // source's localized time string, display-only
 	IsFree    bool   `json:"isFree"` // free pull (Endfield); excluded from pity & spend
+	// PoolID and PoolName identify the specific banner期 within a pool
+	// (Endfield's rotating 特許尋訪 has e.g. poolId="special_1_3_1");
+	// empty for providers/pulls that don't set them.
+	PoolID   string `json:"poolId"`
+	PoolName string `json:"poolName"`
 }
 
 // GachaFetchResult is one refresh's outcome.
@@ -43,19 +51,38 @@ type PityModel interface {
 
 // BannerConfig describes one pool for UI + stats.
 type BannerConfig struct {
-	Key   string
-	Label LocalizedString
-	Pity  PityModel
+	Key     string
+	Label   LocalizedString
+	Pity    PityModel
+	Limited bool // a featured/event banner where losing the 50/50 (歪) can occur
+	// PerPool splits this banner into independent-pity sub-banners by pull PoolID
+	// (Endfield's rotating 特許尋訪); default false = unchanged.
+	PerPool bool `json:"perPool,omitempty"`
+	// CrossPoolBar, when PerPool, makes ComputeSummary ALSO emit one aggregate pity row
+	// over ALL the banner's pulls under the bare key (the true cross-pool pity, a
+	// display-only top bar). Its hits are discarded — they never enter the global pity
+	// stats. The empty-poolId fallback sub is folded into this aggregate. Endfield 特許尋訪.
+	CrossPoolBar bool `json:"crossPoolBar"`
+}
+
+// DualCitizen is a standard-pool unit that also had a single featured debut; a pull
+// of it inside [Start,End] is the debut win (not 歪), outside it is a 50/50 loss.
+type DualCitizen struct {
+	Names      []string // all stored language forms of the name
+	Start, End time.Time
 }
 
 // GachaConfig is a game's rarity/banner/pricing config for the stats engine.
 type GachaConfig struct {
-	HeadlineRank int                     // top rarity (Endfield 6)
-	RankLabels   map[int]LocalizedString // display labels per rank
-	Banners      []BannerConfig
-	PullPrice    int     // estimated price per (non-free) pull
-	Currency     string  // e.g. "NT$"
-	ExpectedPity float64 // theoretical avg pulls-per-headline (for the luck score)
+	HeadlineRank           int                     // top rarity (Endfield 6)
+	RankLabels             map[int]LocalizedString // display labels per rank
+	Banners                []BannerConfig
+	PullPrice              int             // estimated price per (non-free) pull
+	Currency               string          // e.g. "NT$"
+	ExpectedPity           float64         // theoretical avg pulls-per-headline (出金 expectation; luck score + card note)
+	ExpectedFeaturedWeapon float64         // theoretical avg pulls per featured weapon (出限定武器期望); 0 = unknown
+	StandardPool           map[string]bool // top-rarity standard/permanent item names (all stored langs); a limited-banner pull of one = 歪
+	DualCitizens           []DualCitizen   // standard-pool units that were also featured once (Genshin); 歪 only OUTSIDE the debut window
 }
 
 // BannerOf returns the BannerConfig for key, or nil.
@@ -78,4 +105,17 @@ type GachaProvider interface {
 	// usable URL is found (the App turns this into a "re-open in game" prompt).
 	FetchGacha(ctx context.Context, gid GameID, installDir, cachedURL string) (GachaFetchResult, error)
 	GachaConfig(gid GameID) GachaConfig
+}
+
+// GachaCredentialProvider is an optional capability for providers that
+// authenticate with a durable, account-level credential (Endfield's Gryphline
+// account_token) rather than a per-uid history URL. When a provider implements
+// it, App.RefreshGacha reads the stored credential and calls this instead of the
+// URL-based FetchGacha. `lang` is the already-mapped record-API language (App
+// resolves it from settings; the provider has no other source — mirrors GetNews).
+type GachaCredentialProvider interface {
+	// known is the set of pull ids (seqIds) already stored for this account, so the
+	// provider can stop paginating once it reaches them (incremental sync). Pass nil
+	// for a full fetch (first sync).
+	FetchGachaWithCredential(ctx context.Context, gid GameID, credential, lang string, known map[string]bool) (GachaFetchResult, error)
 }

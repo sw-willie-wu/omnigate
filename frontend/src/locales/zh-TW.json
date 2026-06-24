@@ -27,10 +27,19 @@
     "wrong_account": "最近一次的喚取紀錄屬於其他帳號。請在遊戲內以此帳號開啟喚取紀錄頁後再重整。",
     "url_expired": "喚取連結已過期。請在遊戲內重新開啟喚取紀錄頁後再重整。",
     "refresh": "重新整理紀錄",
+    "refresh_failed": "重新整理失敗——沿用上次載入的資料。",
+    "import": "匯入紀錄",
+    "import_soon": "UIGF 匯入——即將支援",
     "total_pulls": "總抽數",
     "spend_est": "消耗",
     "headline_cnt": "最高星數",
     "avg_pity": "平均出貨",
+    "lim_char_cnt": "限定/聯動角色",
+    "lim_weapon_cnt": "限定/聯動武器",
+    "hit_rate": "出限定率",
+    "avg_char": "限定/聯動角色平均",
+    "avg_weapon": "限定/聯動武器平均",
+    "hit_rate_sub": "中 {n} / 共 {m}",
     "luck": "幸運值",
     "worst": "最非",
     "pull_count": "{n} 抽出貨",
@@ -49,7 +58,8 @@
     "dist_axis_low": "1-9",
     "dist_axis_mid": "抽數區間",
     "dist_axis_high": "80+",
-    "recent_title": "最近高星紀錄",
+    "recent_title": "高星紀錄",
+    "off": "歪",
     "error_other": "讀取失敗，請重試。",
     "luck_band": {
       "superb": "極歐 · 天選之人",
@@ -71,7 +81,23 @@
       "stellar_jade": "星瓊",
       "polychrome": "菲林",
       "astrite": "星聲",
-      "endfield_pull": "尋訪"
+      "endfield_oroberyl": "嵌晶玉"
+    },
+    "login_prompt": "請點右上角帳號登入。",
+    "login": {
+      "title": "以帳號密碼登入",
+      "email_label": "帳號（Email）",
+      "password_label": "密碼",
+      "submit": "登入",
+      "signing_in": "登入中…",
+      "err_bad_creds": "帳號或密碼錯誤",
+      "err_no_role": "此帳號尚未綁定遊戲角色",
+      "err_generic": "登入失敗，請稍後再試",
+      "advanced": "進階：改貼 token",
+      "paste_label": "貼上 token",
+      "paste_submit": "送出",
+      "paste_submitting": "送出中…",
+      "paste_err": "送出失敗，請稍後再試"
     }
   },
   "buttons": {
@@ -247,6 +273,8 @@
     "rename": "重新命名",
     "namePlaceholder": "自訂名稱",
     "uidPending": "登入後取得",
-    "currentlyLoggedIn": "目前登入"
+    "currentlyLoggedIn": "目前登入",
+    "addAccount": "＋ 新增帳號",
+    "delete": "移除帳號"
   }
 }

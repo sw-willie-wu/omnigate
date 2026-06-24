@@ -11,15 +11,17 @@ import (
 // newAssetHandler returns the http.Handler mounted at /_asset/* on the
 // existing Wails AssetServer. Dispatches:
 //
-//   GET /_asset/<backendID>/icon/<key>  → uniform: cachedDetect + iconext.Extract
-//   GET /_asset/<backendID>/bg/<key>    → delegate to provider's core.AssetServer
+//   GET /_asset/<backendID>/icon/<key>       → uniform: cachedDetect + iconext.Extract
+//   GET /_asset/<backendID>/bg/<key>         → delegate to provider's core.AssetServer
+//   GET /_asset/<backendID>/gachaicon/<key>  → gachaicon.Manager; key="<gameToken>.<kind>.<id>"
 //
 // Returns 404 for unknown backends, unknown kinds, "." or ".." in the key
 // path component, or providers that don't implement core.AssetServer for bg
 // requests.
 //
-// Adds Cache-Control: max-age=3600 on successful responses; the WebView's
-// in-memory cache absorbs repeated same-session requests.
+// Adds Cache-Control on successful responses (max-age=3600 for icon/bg,
+// max-age=86400 for gachaicon); the WebView's in-memory cache absorbs repeated
+// same-session requests.
 func newAssetHandler(a *App) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Strip "/_asset/" prefix.
@@ -37,7 +39,7 @@ func newAssetHandler(a *App) http.Handler {
 		backendID, kind, key := parts[0], parts[1], parts[2]
 
 		// Validate kind allowlist.
-		if kind != "icon" && kind != "bg" {
+		if kind != "icon" && kind != "bg" && kind != "gachaicon" {
 			http.NotFound(w, r)
 			return
 		}
@@ -58,6 +60,8 @@ func newAssetHandler(a *App) http.Handler {
 		switch kind {
 		case "icon":
 			a.serveIcon(w, r, p, key)
+		case "gachaicon":
+			a.serveGachaIcon(w, r, core.BackendID(backendID), key)
 		case "bg":
 			as, ok := p.(core.AssetServer)
 			if !ok {
@@ -117,6 +121,32 @@ func (a *App) serveIcon(w http.ResponseWriter, r *http.Request, p core.Provider,
 	}
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "max-age=3600")
+	_, _ = w.Write(data)
+}
+
+// serveGachaIcon serves a character/weapon icon via the gachaicon.Manager. The key
+// is "<gameToken>.<kind>.<id>"; the full gid is "<backendID>/<gameToken>".
+func (a *App) serveGachaIcon(w http.ResponseWriter, r *http.Request, backendID core.BackendID, key string) {
+	if a.gachaIcons == nil {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.SplitN(key, ".", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	gid := core.GameID(string(backendID) + "/" + parts[0])
+	data, mime, err := a.gachaIcons.ServeIcon(gid, parts[1], parts[2])
+	if err != nil {
+		if a.logger != nil {
+			a.logger.Debug("gachaicon serve failed", "gid", gid, "key", key, "err", err)
+		}
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Cache-Control", "max-age=86400")
 	_, _ = w.Write(data)
 }
 

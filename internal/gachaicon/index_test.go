@@ -1,0 +1,196 @@
+package gachaicon
+
+import (
+	"os"
+	"testing"
+
+	"omnigate/internal/core"
+)
+
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestBuildAmber_TopRarityOnly_AllLangKeys(t *testing.T) {
+	idx := NewIndex()
+	if err := buildFromAmber(idx, "char", 5,
+		map[string][]byte{
+			"cht": readFixture(t, "amber_avatar.json"),
+			"chs": readFixture(t, "amber_avatar.json"),
+			"en":  readFixture(t, "amber_avatar.json"),
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := idx.Resolve(core.GameID("hoyoverse/genshin"), "神里綾華", false); !ok || e.ID != "10000002" || e.IconRef != "UI_AvatarIcon_Ayaka" {
+		t.Errorf("resolve 神里綾華 = %+v ok=%v", e, ok)
+	}
+	if _, ok := idx.Resolve(core.GameID("hoyoverse/genshin"), "砂糖", false); ok {
+		t.Errorf("rank-4 砂糖 should be excluded")
+	}
+}
+
+func TestResolve_T2SBridge_ForHakushGames(t *testing.T) {
+	idx := NewIndex()
+	idx.put(core.GameID("kurogames/wutheringwaves"), "今汐", Entry{ID: "1404", IconRef: "T_IconRoleHead256_1404", Kind: "char"})
+	if e, ok := idx.Resolve(core.GameID("kurogames/wutheringwaves"), "今汐", false); !ok || e.ID != "1404" {
+		t.Errorf("simplified direct = %+v ok=%v", e, ok)
+	}
+	idx.put(core.GameID("kurogames/wutheringwaves"), "维里奈", Entry{ID: "1102", IconRef: "x", Kind: "char"})
+	if e, ok := idx.Resolve(core.GameID("kurogames/wutheringwaves"), "維里奈", false); !ok || e.ID != "1102" {
+		t.Errorf("traditional via t2s = %+v ok=%v", e, ok)
+	}
+}
+
+func TestResolve_EquipDisambiguates(t *testing.T) {
+	idx := NewIndex()
+	gid := core.GameID("hoyoverse/genshin")
+	idx.put(gid, "同名", Entry{ID: "C", IconRef: "c", Kind: "char"})
+	idx.putEquip(gid, "同名", Entry{ID: "W", IconRef: "w", Kind: "weapon"})
+	if e, _ := idx.Resolve(gid, "同名", false); e.ID != "C" {
+		t.Errorf("char side = %+v", e)
+	}
+	if e, _ := idx.Resolve(gid, "同名", true); e.ID != "W" {
+		t.Errorf("weapon side = %+v", e)
+	}
+}
+
+func TestBuildFromAmber_WeaponPath(t *testing.T) {
+	idx := NewIndex()
+	if err := buildFromAmber(idx, "weapon", 5,
+		map[string][]byte{"cht": readFixture(t, "amber_weapon.json")}); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := idx.Resolve(core.GameID("hoyoverse/genshin"), "霧切之回光", true); !ok ||
+		e.ID != "11509" || e.IconRef != "UI_EquipIcon_Sword_Narukami" || e.Kind != "weapon" {
+		t.Errorf("resolve 霧切之回光 = %+v ok=%v", e, ok)
+	}
+}
+
+func TestBuildFromYatta_CharAndEquip(t *testing.T) {
+	idx := NewIndex()
+	if err := buildFromYatta(idx, "char", 5,
+		map[string][]byte{"cht": readFixture(t, "yatta_avatar.json")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := buildFromYatta(idx, "weapon", 5,
+		map[string][]byte{"cht": readFixture(t, "yatta_equipment.json")}); err != nil {
+		t.Fatal(err)
+	}
+	gid := core.GameID("hoyoverse/starrail")
+	if e, ok := idx.Resolve(gid, "刃", false); !ok || e.ID != "1212" {
+		t.Errorf("resolve 刃 = %+v ok=%v", e, ok)
+	}
+	if _, ok := idx.Resolve(gid, "三月七", false); ok {
+		t.Errorf("rank-4 三月七 should be excluded")
+	}
+	if e, ok := idx.Resolve(gid, "鋒鏑", true); !ok || e.ID != "23000" || e.Kind != "weapon" {
+		t.Errorf("resolve 鋒鏑 = %+v ok=%v", e, ok)
+	}
+}
+
+func TestEntryByID(t *testing.T) {
+	idx := NewIndex()
+	if err := buildFromAmber(idx, "char", 5,
+		map[string][]byte{"cht": readFixture(t, "amber_avatar.json")}); err != nil {
+		t.Fatal(err)
+	}
+	gid := core.GameID("hoyoverse/genshin")
+	if e, ok := idx.EntryByID(gid, "10000002"); !ok || e.IconRef != "UI_AvatarIcon_Ayaka" {
+		t.Errorf("EntryByID known = %+v ok=%v", e, ok)
+	}
+	if _, ok := idx.EntryByID(gid, "nope"); ok {
+		t.Errorf("EntryByID unknown should be false")
+	}
+}
+
+func TestBuildFromHakush_WuWa(t *testing.T) {
+	idx := NewIndex()
+	gid := core.GameID("kurogames/wutheringwaves")
+	if err := buildFromHakush(idx, gid, "char", 5, readFixture(t, "hakush_ww_character.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := buildFromHakush(idx, gid, "weapon", 5, readFixture(t, "hakush_ww_weapon.json")); err != nil {
+		t.Fatal(err)
+	}
+	// Weapon resolves on the equip side. Note: its IconRef number (T_IconWeapon21020017)
+	// legitimately differs from the id (21020026), so we do NOT assert on IconRef.
+	if e, ok := idx.Resolve(gid, "裁春", true); !ok || e.ID != "21020026" || e.Kind != "weapon" {
+		t.Errorf("resolve 裁春 = %+v ok=%v", e, ok)
+	}
+	// A rank-5 character resolves to its id.
+	if e, ok := idx.Resolve(gid, "凌阳", false); !ok || e.ID != "1104" {
+		t.Errorf("resolve 凌阳 = %+v ok=%v", e, ok)
+	}
+	// A rank-4 character present in the fixture is excluded when topRank=5.
+	if _, ok := idx.Resolve(gid, "散华", false); ok {
+		t.Errorf("rank-4 散华 should be excluded")
+	}
+	// A non-Chinese name form (en) keys to the same id — proves multi-language keying.
+	if e, ok := idx.Resolve(gid, "Lingyang", false); !ok || e.ID != "1104" {
+		t.Errorf("resolve en Lingyang = %+v ok=%v", e, ok)
+	}
+}
+
+func TestBuildFromHakush_ZZZ(t *testing.T) {
+	idx := NewIndex()
+	gid := core.GameID("hoyoverse/zzz")
+	// ZZZ top rarity is 4 (S-rank).
+	if err := buildFromHakush(idx, gid, "char", 4, readFixture(t, "hakush_zzz_character.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := buildFromHakush(idx, gid, "weapon", 4, readFixture(t, "hakush_zzz_weapon.json")); err != nil {
+		t.Fatal(err)
+	}
+	// A rank-4 (S-rank) character resolves to its id.
+	if e, ok := idx.Resolve(gid, "艾莲", false); !ok || e.ID != "1191" {
+		t.Errorf("resolve 艾莲 = %+v ok=%v", e, ok)
+	}
+	// A rank-3 (A-rank) character is excluded when topRank=4.
+	if _, ok := idx.Resolve(gid, "安比", false); ok {
+		t.Errorf("rank-3 安比 should be excluded")
+	}
+	// A rank-4 W-Engine resolves on the equip side.
+	if e, ok := idx.Resolve(gid, "钢铁肉垫", true); !ok || e.ID != "14102" || e.Kind != "weapon" {
+		t.Errorf("resolve 钢铁肉垫 = %+v ok=%v", e, ok)
+	}
+}
+
+func TestBuildFromEndfieldCatalog(t *testing.T) {
+	gid := core.GameID("hypergryph/endfield")
+	raw := []byte(`{"code":0,"data":{"catalog":[{"typeSub":[{"items":[
+		{"itemId":"23","name":"卡契爾","brief":{"cover":"https://static.skport.com/x/aa.png"}},
+		{"itemId":"24","name":"螢石","brief":{"cover":"https://static.skport.com/x/bb.png"}}
+	]}]}]}}`)
+	idx := NewIndex()
+	if err := buildFromEndfieldCatalog(idx, gid, "char", raw); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := idx.Resolve(gid, "卡契爾", false)
+	if !ok || e.ID != "23" || e.IconRef != "https://static.skport.com/x/aa.png" || e.Kind != "char" {
+		t.Fatalf("Resolve 卡契爾 = %+v ok=%v", e, ok)
+	}
+	// t2s key: a simplified-Chinese record name (萤石) must resolve (zh_Hans catalog is empty).
+	if _, ok := idx.Resolve(gid, "萤石", false); !ok {
+		t.Errorf("simplified 萤石 must resolve via t2s-keyed entry")
+	}
+}
+
+func TestBuildFromEndfieldCatalog_Weapon(t *testing.T) {
+	gid := core.GameID("hypergryph/endfield")
+	raw := []byte(`{"code":0,"data":{"catalog":[{"typeSub":[{"items":[
+		{"itemId":"733","name":"狼之緋","brief":{"cover":"https://static.skport.com/x/wolf.png"}}
+	]}]}]}}`)
+	idx := NewIndex()
+	if err := buildFromEndfieldCatalog(idx, gid, "weapon", raw); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := idx.Resolve(gid, "狼之緋", true)
+	if !ok || e.ID != "733" || e.Kind != "weapon" {
+		t.Fatalf("Resolve 狼之緋(equip) = %+v ok=%v", e, ok)
+	}
+}

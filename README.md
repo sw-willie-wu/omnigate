@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="版本" src="https://img.shields.io/badge/版本-v0.3.0-2ea043?style=flat-square" />
+  <img alt="版本" src="https://img.shields.io/badge/版本-v0.4.0-2ea043?style=flat-square" />
   <img alt="平台" src="https://img.shields.io/badge/平台-Windows-0a7bbd?style=flat-square" />
   <img alt="技術" src="https://img.shields.io/badge/Wails-Go%20＋%20Vue%203-00b8a9?style=flat-square" />
   <img alt="授權" src="https://img.shields.io/badge/授權-AGPL--3.0-4c8eda?style=flat-square" />
@@ -29,7 +29,7 @@
 - 🎮 **多遊戲統一管理** — 自動偵測各遊戲安裝路徑（HoYoPlay / KRLauncher / GRYPHLINK），側欄依發行商分組一覽。
 - ⬇️ **更新與預下載** — HoYoverse Sophon 分塊更新、鳴潮 / 終末地增量更新，斷點可續、原子套用。
 - 📰 **最新情報** — 各遊戲官方公告 / 活動 / 最新消息直接內嵌首頁。
-- 🎰 **抽卡分析** — 總抽數、消耗資源（精確石頭數）、保底進度、歐非幸運評比、出貨分佈、最近高星時間軸；資料本機 SQLite 保存。
+- 🎰 **抽卡分析** — 依卡池分組的紀錄面板、限定角色／武器期望成本、保底進度、歐非幸運評比、出貨分佈；高星紀錄列附角色／武器圖示並標記抽歪（50/50）；資料本機 SQLite 保存。
 - 🖼️ **沉浸式首頁** — 各遊戲 key-art / 動態背景大圖，一鍵開始遊戲。
 - 🌐 **多語介面** — 繁體中文 / 簡體中文 / English。
 
@@ -49,10 +49,10 @@
 | 崩壞：星穹鐵道 | ✅ | ✅ | ✅ | ✅ |
 | 絕區零 | ✅ | ✅ | ✅ | ✅ |
 | 鳴潮 | ✅ | ✅ | ✅ | ✅ |
-| 明日方舟：終末地 | ✅ | ✅ | ✅ | ⚠️＊ |
+| 明日方舟：終末地 | ✅ | ✅ | ✅ | ✅＊ |
 | 異環 (Neverness to Everness) | 🚧 規劃中 | — | — | — |
 
-<sub>＊終末地新版客戶端改了抽卡授權機制，token 取得待更新。</sub>
+<sub>＊終末地抽卡分析需先以遊戲帳號登入（email／密碼或貼上 token）擷取紀錄；其餘遊戲自本機快取自動偵測。</sub>
 
 ## 🛠️ 技術棧
 
