@@ -25,16 +25,51 @@ func TestEndfieldStandardPityWalk(t *testing.T) {
 	}
 }
 
-func TestEndfieldLimitedPityExcludesFreeUntilMilestone(t *testing.T) {
+func TestEndfieldLimitedPityFreePulls(t *testing.T) {
 	m := endfieldLimitedPity{}
-	pulls := []core.GachaPull{
-		{ID: "1", Rank: 5, IsFree: true},
-		{ID: "2", Rank: 5, IsFree: true},
-		{ID: "3", Rank: 5, IsFree: false},
+	// (A) free non-6★ don't increment; paid pulls do.
+	_, trailing := m.Walk([]core.GachaPull{
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: true},
+		{Rank: 5, IsFree: true},
+		{Rank: 5, IsFree: false},
+	}, 6)
+	if trailing != 3 {
+		t.Fatalf("(A) trailing=%d want 3 (3 paid, 2 free skipped)", trailing)
 	}
-	_, trailing := m.Walk(pulls, 6)
+	// (B) a free 6★ records a hit at the current (paid-only) pity, then resets to 0.
+	hits, trailing := m.Walk([]core.GachaPull{
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: true},
+		{Rank: 6, IsFree: true}, // free 6★ (e.g. 伊馮)
+		{Rank: 5, IsFree: false},
+	}, 6)
+	if len(hits) != 1 || hits[0].Count != 2 {
+		t.Fatalf("(B) hits=%+v want 1 hit count 2 (free 6★ records paid-only pity)", hits)
+	}
 	if trailing != 1 {
-		t.Fatalf("trailing=%d want 1 (free pre-milestone ignored)", trailing)
+		t.Fatalf("(B) trailing=%d want 1 (1 paid after the free 6★ reset)", trailing)
+	}
+	// (C) red→green DRIVER: ≥60 paid, then a free pull, then a paid 6★. OLD milestone/carry
+	// code carries the free pull (milestone≥60), resets pity to carry=1 → count 60, trailing 2.
+	// NEW code ignores all free pulls, resets to 0 → count 61, trailing 1.
+	var pulls []core.GachaPull
+	for i := 0; i < 60; i++ {
+		pulls = append(pulls, core.GachaPull{Rank: 5, IsFree: false})
+	}
+	pulls = append(pulls,
+		core.GachaPull{Rank: 5, IsFree: true},
+		core.GachaPull{Rank: 6, IsFree: false},
+		core.GachaPull{Rank: 5, IsFree: false},
+	)
+	hits, trailing = m.Walk(pulls, 6)
+	if len(hits) != 1 || hits[0].Count != 61 {
+		t.Fatalf("(C) hits=%+v want 1 hit count 61 (60 paid + the paid 6★; free ignored)", hits)
+	}
+	if trailing != 1 {
+		t.Fatalf("(C) trailing=%d want 1 (reset to 0 not to carry)", trailing)
 	}
 }
 

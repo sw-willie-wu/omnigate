@@ -18,7 +18,6 @@ import (
 
 const endfieldHardPity = 80       // official: 6★ hard pity (char)
 const endfieldExpectedPity = 62.0 // theoretical avg pulls/6★ for the luck score
-const endfieldMilestone = 60      // free-pull carryover milestone (ref repo)
 const endfieldPullPrice = 500     // Endfield per-pull cost: 500 Oroberyl (嵌晶玉)
 const endfieldMaxPages = 200      // per-pool pagination safety cap (200×~20 ≫ any account)
 
@@ -59,30 +58,23 @@ func (endfieldWeaponPity) Walk(sorted []core.GachaPull, headline int) ([]core.Pi
 	return hits, pity
 }
 
-// endfieldLimitedPity: only non-free pulls count; free pulls add to carryover
-// only after milestone≥60; on a headline, pity resets to the carried-over count.
+// endfieldLimitedPity: free pulls (the 滿30贈 free 10-pull on 特許尋訪) do NOT count toward
+// pity — a non-free pull increments, a free pull does not. Any 6★ (free or paid) records a hit
+// at the current pity and resets to 0. (The cross-pool aggregate filters free pulls upstream so
+// a free 6★ doesn't reset it; here, in a per-期 sub, a free 6★ does record + reset that pool.)
 type endfieldLimitedPity struct{}
 
 func (endfieldLimitedPity) HardPity() int { return endfieldHardPity }
 func (endfieldLimitedPity) Has5050() bool { return false }
 func (endfieldLimitedPity) Walk(sorted []core.GachaPull, headline int) ([]core.PityHit, int) {
-	// A single scalar milestone/carry is correct because the stats engine groups
-	// pulls by BannerKey and calls Walk once per banner — so `sorted` only ever
-	// contains this one limited pool (the reference repo's per-gacha_type
-	// milestoneMap collapses to the single-banner case here).
-	hits := []core.PityHit{}
-	pity, carry, milestone := 0, 0, 0
+	hits, pity := []core.PityHit{}, 0
 	for _, p := range sorted {
+		if !p.IsFree {
+			pity++
+		}
 		if p.Rank == headline {
 			hits = append(hits, core.PityHit{Pull: p, Count: pity})
-			pity, carry, milestone = carry, 0, 0
-			continue
-		}
-		if !p.IsFree {
-			milestone++
-			pity++
-		} else if milestone >= endfieldMilestone {
-			carry++
+			pity = 0
 		}
 	}
 	return hits, pity
