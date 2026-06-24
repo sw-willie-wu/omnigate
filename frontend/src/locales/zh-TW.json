@@ -83,17 +83,21 @@
       "astrite": "星聲",
       "endfield_oroberyl": "嵌晶玉"
     },
-    "link": {
-      "title": "連結 Gryphline 帳號以讀取尋訪紀錄",
-      "step1": "1. 點「登入 Gryphline」，在開啟的瀏覽器登入你的鷹角通行證（gryphline 或 skport 帳號皆可）",
-      "step2": "2. 把下方書籤列工具拖到瀏覽器書籤列（或複製為新書籤）",
-      "step3": "3. 在已登入的 gryphline 或 skport 分頁點該書籤，omnigate 會自動收到 token",
-      "login": "登入 Gryphline",
-      "copy": "複製書籤工具",
-      "rearm": "重新開始連結",
-      "pasteLabel": "或手動取得：登入後在瀏覽器開 web-api.gryphline.com（或 web-api.skport.com）的 /cookie_store/account_token，把整段 JSON 或其中的 account_token 貼到下方：",
-      "paste": "送出",
-      "bookmarkletName": "omnigate 取得終末地 token"
+    "login_prompt": "請點右上角帳號登入。",
+    "login": {
+      "title": "以帳號密碼登入",
+      "email_label": "帳號（Email）",
+      "password_label": "密碼",
+      "submit": "登入",
+      "signing_in": "登入中…",
+      "err_bad_creds": "帳號或密碼錯誤",
+      "err_no_role": "此帳號尚未綁定遊戲角色",
+      "err_generic": "登入失敗，請稍後再試",
+      "advanced": "進階：改貼 token",
+      "paste_label": "貼上 token",
+      "paste_submit": "送出",
+      "paste_submitting": "送出中…",
+      "paste_err": "送出失敗，請稍後再試"
     }
   },
   "buttons": {
@@ -269,6 +273,8 @@
     "rename": "重新命名",
     "namePlaceholder": "自訂名稱",
     "uidPending": "登入後取得",
-    "currentlyLoggedIn": "目前登入"
+    "currentlyLoggedIn": "目前登入",
+    "addAccount": "＋ 新增帳號",
+    "delete": "移除帳號"
   }
 }

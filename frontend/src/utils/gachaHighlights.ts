@@ -1,19 +1,27 @@
 import type { HeadlineEntry, BannerPity } from '../stores/gacha';
 
+// baseKey strips a composite "<base>:<poolId>" key (Endfield PerPool banners) down to its
+// base banner key. A bare key (no ':') is returned unchanged → no-op for every other game.
+export function baseKey(key: string): string {
+  const i = key.indexOf(':');
+  return i === -1 ? key : key.slice(0, i);
+}
+
 // Banner keys whose high-rarity drops are equipment (weapon-slot), not characters.
 // Light cones (HSR) and W-engines (ZZZ) are the weapon equivalents → weapon side;
 // WuWa's weapon pools (incl. weapon_exchange 武器新旅換取, collab_weapon 武器聯動) too.
 const EQUIP_BANNERS = new Set(['weapon', 'standard_weapon', 'weapon_exchange', 'collab_weapon', 'lightcone', 'wengine']);
 
 export function isEquip(bannerKey: string): boolean {
-  return EQUIP_BANNERS.has(bannerKey);
+  return EQUIP_BANNERS.has(baseKey(bannerKey));
 }
 
 // The gacha.item_type.* key naming this game's equipment kind, from a banner key
 // (lightcone → 光錐, wengine → 音擎, else 武器). Used for the weapon column heading.
 export function equipTypeKey(bannerKey: string): 'lightcone' | 'wengine' | 'weapon' {
-  if (bannerKey === 'lightcone') return 'lightcone';
-  if (bannerKey === 'wengine') return 'wengine';
+  const b = baseKey(bannerKey);
+  if (b === 'lightcone') return 'lightcone';
+  if (b === 'wengine') return 'wengine';
   return 'weapon';
 }
 
@@ -84,7 +92,7 @@ const ONE_SHOT_BANNERS = new Set([
 // pity: the beginner banner, the 新手自選 selector, the 感恩定向 gift, and the new-account
 // 新旅換取 pools. Their per-pull pity count has no hard-pity cap to fill a bar against.
 export function isOneShotPool(key: string): boolean {
-  return ONE_SHOT_BANNERS.has(key);
+  return ONE_SHOT_BANNERS.has(baseKey(key));
 }
 
 // shouldShowPity decides whether to show a banner's pity-progress bar. Show it for any
@@ -167,6 +175,60 @@ export function buildPoolSections(
     out.push({ key: k, label, pity: p, entries, total: g?.total ?? 0 });
   }
   return out;
+}
+
+export interface BannerPanel {
+  base: string;                       // banner base key (e.g. "special", "weapon", "standard")
+  label: Record<string, string>;      // base banner title (no 期名)
+  topPity: BannerPity | null;         // cross-pool aggregate bar; null = no top bar
+  subs: PoolSection[];                // per-期 sections (label = 期名 only), order preserved
+}
+
+// splitLabel splits a composeLabel value "<base> - <poolName>" into [base, poolName] per the
+// FIRST " - "; a bare label (no " - ") yields [whole, whole] so a non-PerPool panel keeps its
+// title and its single sub both show the full banner name.
+function splitLabel(label: Record<string, string>): { base: Record<string, string>; pool: Record<string, string> } {
+  const base: Record<string, string> = {};
+  const pool: Record<string, string> = {};
+  for (const [loc, v] of Object.entries(label)) {
+    const i = v.indexOf(' - ');
+    if (i === -1) {
+      base[loc] = v;
+      pool[loc] = v;
+    } else {
+      base[loc] = v.slice(0, i);
+      pool[loc] = v.slice(i + 3);
+    }
+  }
+  return { base, pool };
+}
+
+// buildBannerPanels groups per-pool sections by their base banner key into one panel each,
+// preserving section order. topPityByBase supplies the cross-pool aggregate bar (sourced from
+// the RAW sum.pity by the caller); a base absent from the map has no top bar. Each sub's label
+// is reduced to the 期名 (the part after " - "); the panel title is the base banner name.
+export function buildBannerPanels(
+  sections: PoolSection[],
+  topPityByBase: Map<string, BannerPity>,
+): BannerPanel[] {
+  const order: string[] = [];
+  const byBase = new Map<string, PoolSection[]>();
+  for (const s of sections) {
+    const b = baseKey(s.key);
+    const arr = byBase.get(b);
+    if (arr) arr.push(s);
+    else {
+      byBase.set(b, [s]);
+      order.push(b);
+    }
+  }
+  return order.map((b) => {
+    const group = byBase.get(b)!;
+    const top = topPityByBase.get(b) ?? null;
+    const title = top ? top.label : splitLabel(group[0].label).base;
+    const subs = group.map((s) => ({ ...s, label: splitLabel(s.label).pool }));
+    return { base: b, label: title, topPity: top, subs };
+  });
 }
 
 // compactNum keeps values under 10k in full (e.g. "1,200") and abbreviates larger ones as

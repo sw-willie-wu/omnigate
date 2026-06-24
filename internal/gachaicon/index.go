@@ -123,6 +123,56 @@ func buildAY(idx *Index, gid core.GameID, kind string, topRank int, byLang map[s
 	return nil
 }
 
+// skportCatalogResp is the 2-level tree from /web/v1/wiki/item/catalog:
+// data.catalog[].typeSub[].items[]  (items are at the innermost level).
+type skportCatalogResp struct {
+	Code int `json:"code"`
+	Data struct {
+		Catalog []struct {
+			TypeSub []struct {
+				Items []struct {
+					ItemID string `json:"itemId"`
+					Name   string `json:"name"`
+					Brief  struct {
+						Cover string `json:"cover"`
+					} `json:"brief"`
+				} `json:"items"`
+			} `json:"typeSub"`
+		} `json:"catalog"`
+	} `json:"data"`
+}
+
+// buildFromEndfieldCatalog parses a skport catalog response and keys every item's name into
+// the index. The icon is the FULL brief.cover URL (stored in IconRef; iconURL passes it through).
+// Each name is keyed both verbatim AND as t2s(name) (繁→簡), because skport ships zh_Hant/en but
+// NOT zh_Hans — the t2s key lets a Simplified-Chinese record name resolve. (t2s of an English or
+// already-Simplified name is a no-op, so this is harmless across languages.)
+func buildFromEndfieldCatalog(idx *Index, gid core.GameID, kind string, raw []byte) error {
+	var r skportCatalogResp
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return fmt.Errorf("endfield catalog parse: %w", err)
+	}
+	for _, cat := range r.Data.Catalog {
+		for _, sub := range cat.TypeSub {
+			for _, it := range sub.Items {
+				if it.ItemID == "" || it.Name == "" {
+					continue
+				}
+				e := Entry{ID: it.ItemID, IconRef: it.Brief.Cover, Kind: kind}
+				keyer := idx.put
+				if kind == "weapon" {
+					keyer = idx.putEquip
+				}
+				keyer(gid, it.Name, e)
+				if s := t2s(it.Name); s != it.Name {
+					keyer(gid, s, e)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func toIDString(v any) string {
 	switch n := v.(type) {
 	case float64:

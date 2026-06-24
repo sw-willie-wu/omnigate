@@ -19,6 +19,8 @@ var (
 	ErrGachaActiveUnknown       = errors.New("gacha active account unknown")
 	ErrGachaCredentialRequired  = errors.New("gacha credential required")
 	ErrGachaCredentialExpired   = errors.New("gacha credential expired")
+	ErrGachaLoginFailed         = errors.New("gacha login failed (bad email/password)")
+	ErrGachaNoGameRole          = errors.New("no game role bound to this account")
 )
 
 // ErrorCode returns a stable JSON-friendly code for the given error. The
@@ -52,6 +54,10 @@ func ErrorCode(err error) string {
 		return "gacha_active_unknown"
 	case errors.Is(err, ErrGachaCredentialRequired), errors.Is(err, ErrGachaCredentialExpired):
 		return "gacha_credential"
+	case errors.Is(err, ErrGachaLoginFailed):
+		return "gacha_login_failed"
+	case errors.Is(err, ErrGachaNoGameRole):
+		return "gacha_no_role"
 	default:
 		return "internal"
 	}

@@ -3,16 +3,25 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGachaStore } from '../stores/gacha';
 import { useAccountStore } from '../stores/account';
-import { StartGachaLink, SetGachaCredential } from '../../wailsjs/go/app/App';
+import { useGachaAccountStore } from '../stores/gachaAccount';
+import { useGamesStore } from '../stores/games';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum } from '../utils/gachaHighlights';
+import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum, buildBannerPanels, baseKey } from '../utils/gachaHighlights';
+import type { BannerPity } from '../stores/gacha';
 
 const props = defineProps<{ gid: string }>();
 const { t, te, locale } = useI18n();
 const gacha = useGachaStore();
 const account = useAccountStore();
-// The board reflects the SELECTED account (switcher games); '' = active/LatestUID.
-const accountID = computed(() => account.selectedFor(props.gid)?.id ?? '');
+const gachaAccount = useGachaAccountStore();
+const games = useGamesStore();
+// The board reflects the SELECTED account. Credential games (Endfield) draw the
+// id from the gacha-account store; switcher games (WuWa) from the game-account
+// store; 'none' games (Genshin/HSR/ZZZ) yield '' → backend resolves via LatestUID.
+const accountID = computed(() =>
+  games.accountKind(props.gid) === 'credential'
+    ? gachaAccount.selectedFor(props.gid)?.id ?? ''
+    : account.selectedFor(props.gid)?.id ?? '');
 
 // Per-row icons: backend sets HeadlineEntry.icon ('/_asset/...' URL, or ''). Track URLs
 // that 404/fail to load so we fall back to the rarity-tinted placeholder for those.
@@ -158,10 +167,28 @@ const visiblePity = computed(() => {
 // SPENT one-shot pools (那些已出 5★ 關閉的) but keeps an OPEN one-shot pool still accruing
 // toward its guarantee (e.g. WuWa 新手自選: pity to 80, closes on 出貨) — so we just split by
 // equip kind, no blanket one-shot exclusion.
-const charPity = computed(() => visiblePity.value.filter((b) => !isEquip(b.key)));
-const weaponPity = computed(() => visiblePity.value.filter((b) => isEquip(b.key)));
+// Cross-pool aggregate bars (topPity) come from the RAW sum.pity (NOT visiblePity): the
+// bare key "special" has perBanner==0 — its pulls are counted under composite keys — so
+// shouldShowPity would wrongly drop it. A bare key is a topPity ONLY when its base also has
+// ≥1 composite sibling (so standard/beginner/joint and other games' bare banners stay as
+// ordinary single-sub panels, NOT emptied into a top bar).
+const topPityByBase = computed(() => {
+  const raw = sum.value?.pity ?? [];
+  const basesWithComposite = new Set(raw.filter((p) => p.key.includes(':')).map((p) => baseKey(p.key)));
+  const m = new Map<string, BannerPity>();
+  for (const p of raw) {
+    if (!p.key.includes(':') && basesWithComposite.has(p.key)) m.set(p.key, p);
+  }
+  return m;
+});
+// Sub pity rows = visiblePity minus the bare aggregate rows (those render as topPity only).
+const subPity = computed(() => visiblePity.value.filter((b) => !topPityByBase.value.has(b.key)));
+const charPity = computed(() => subPity.value.filter((b) => !isEquip(b.key)));
+const weaponPity = computed(() => subPity.value.filter((b) => isEquip(b.key)));
 const charSections = computed(() => buildPoolSections(hlSplit.value.chars, charPity.value, bannerOrder.value, hlVisible.value));
 const weaponSections = computed(() => buildPoolSections(hlSplit.value.weapons, weaponPity.value, bannerOrder.value, hlVisible.value));
+const charPanels = computed(() => buildBannerPanels(charSections.value, topPityByBase.value));
+const weaponPanels = computed(() => buildBannerPanels(weaponSections.value, topPityByBase.value));
 // Loading line: live "{banner} · page N (i/total)" when a progress tick has
 // arrived (refresh), else generic loading (initial store read).
 const progressText = computed(() => {
@@ -171,26 +198,29 @@ const progressText = computed(() => {
     : t('gacha.loading');
 });
 
-const linkInfo = ref<{ bookmarklet: string; loginUrl: string; port: number } | null>(null);
-const pasteToken = ref('');
-async function startLink() {
-  try { linkInfo.value = await StartGachaLink(props.gid) as any; }
-  catch { /* surfaced via errKind */ }
-}
-async function submitPaste() {
-  if (!pasteToken.value.trim()) return;
-  await SetGachaCredential(props.gid, pasteToken.value.trim());
-  pasteToken.value = '';
+// loadForSelection sources the board for the current selection. A credential
+// account that hasn't been fetched yet (uid still "" — e.g. just added via login)
+// triggers a full refresh, which streams pagination progress to the board, then
+// reloads the account list so the written-back uid sticks (no re-refresh next
+// select). Otherwise it's read-only: a GAME switch does a guarded load; an in-game
+// ACCOUNT switch a forced reload so the board re-resolves the chosen uid.
+async function loadForSelection(g: string, a: string, gameSwitch: boolean) {
+  if (games.accountKind(g) === 'credential') {
+    const acc = gachaAccount.selectedFor(g);
+    if (acc && !acc.uid) {
+      await gacha.refresh(g, a);
+      await gachaAccount.load(g);
+      return;
+    }
+  }
+  if (gameSwitch) gacha.load(g, a);
+  else gacha.reload(g, a);
 }
 
-onMounted(() => gacha.load(props.gid, accountID.value));
-watch(() => props.gid, (g) => gacha.load(g, accountID.value));
-// Re-resolve when the user selects another account in the chip. Skip the
-// initial undefined→defined transition (the account store populating after
-// mount) — onMounted's load already covers the first read; reloading there
-// would flash the summary→spinner and fire a redundant RPC for the same uid.
-watch(() => account.selectedFor(props.gid)?.id, (id, old) => {
-  if (old !== undefined) gacha.reload(props.gid, accountID.value);
+onMounted(() => loadForSelection(props.gid, accountID.value, true));
+// Default immediate:false means no double-load against onMounted's first read.
+watch([() => props.gid, accountID], ([g, a], [og]) => {
+  loadForSelection(g, a, g !== og);
 });
 // A global (titlebar) refresh calls gacha.reset(), clearing the store. If this
 // board is the one on screen, none of the watchers above fire (gid/account
@@ -234,22 +264,7 @@ watch(() => st.value.loaded, (loaded) => {
     </div>
 
     <div v-else-if="st.errKind === 'link'" class="gacha-empty gacha-link">
-      <p class="gacha-link-title">{{ t('gacha.link.title') }}</p>
-      <button data-test="gacha-link-login" @click="startLink">{{ t('gacha.link.login') }}</button>
-      <template v-if="linkInfo">
-        <ol class="gacha-link-steps">
-          <li>{{ t('gacha.link.step1') }}</li>
-          <li>{{ t('gacha.link.step2') }}</li>
-          <li>{{ t('gacha.link.step3') }}</li>
-        </ol>
-        <a class="gacha-bookmarklet" :href="linkInfo.bookmarklet">{{ t('gacha.link.bookmarkletName') }}</a>
-        <button @click="startLink">{{ t('gacha.link.rearm') }}</button>
-      </template>
-      <div class="gacha-link-paste">
-        <label>{{ t('gacha.link.pasteLabel') }}</label>
-        <input v-model="pasteToken" type="text" />
-        <button @click="submitPaste">{{ t('gacha.link.paste') }}</button>
-      </div>
+      <p class="gacha-login-prompt">{{ t('gacha.login_prompt') }}</p>
     </div>
 
     <div v-else-if="((st.errKind === 'url' || st.errKind === 'url_expired') && !sum) || isEmpty" class="gacha-empty">
@@ -356,48 +371,74 @@ watch(() => st.value.loaded, (loaded) => {
       <div class="gacha-hl">
         <div class="hl-cols">
           <div class="hl-col">
-            <div v-if="charSections.length === 0" class="hl-empty">—</div>
-            <div v-for="s in charSections" :key="'cs' + s.key" class="panel hl-pool">
-              <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
-              <div v-if="s.pity" class="hl-row hl-pity">
+            <div v-if="charPanels.length === 0" class="hl-empty">—</div>
+            <div v-for="p in charPanels" :key="'cp' + p.base" class="panel hl-pool">
+              <!-- single-sub panel keeps today's record-count badge on the title (sub-title is
+                   suppressed below); grouped panels show counts on each sub-title instead. -->
+              <div class="panel-title hl-pool-title">{{ localize(p.label) || p.base }}<span v-if="!(p.topPity || p.subs.length > 1) && p.subs[0] && p.subs[0].total" class="hl-n">{{ p.subs[0].total }}</span></div>
+              <div v-if="p.topPity" class="hl-row hl-pity hl-pity--top">
                 <span class="hl-name-wrap">
                   <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
                   <span class="hl-name">{{ t('gacha.pity_title') }}</span>
                 </span>
-                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
-                <span class="hl-count mono">{{ s.pity.current }}</span>
+                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(p.topPity)"></span></span>
+                <span class="hl-count mono">{{ p.topPity.current }}</span>
               </div>
-              <div v-for="(h, i) in s.entries" :key="'c' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
-                <span class="hl-name-wrap">
-                  <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
-                  <span v-else class="hl-ic hl-ic--ph"></span>
-                  <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
-                </span>
-                <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
-                <span class="hl-count mono">{{ h.count }}</span>
+              <div v-for="s in p.subs" :key="'cs' + s.key" class="hl-sub">
+                <div v-if="p.topPity || p.subs.length > 1" class="hl-sub-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
+                <div v-if="s.pity" class="hl-row hl-pity">
+                  <span class="hl-name-wrap">
+                    <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
+                    <span class="hl-name">{{ t('gacha.pity_title') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
+                  <span class="hl-count mono">{{ s.pity.current }}</span>
+                </div>
+                <div v-for="(h, i) in s.entries" :key="'c' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+                  <span class="hl-name-wrap">
+                    <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
+                    <span v-else class="hl-ic hl-ic--ph"></span>
+                    <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
+                  <span class="hl-count mono">{{ h.count }}</span>
+                </div>
               </div>
             </div>
           </div>
           <div class="hl-col">
-            <div v-if="weaponSections.length === 0" class="hl-empty">—</div>
-            <div v-for="s in weaponSections" :key="'ws' + s.key" class="panel hl-pool">
-              <div class="panel-title hl-pool-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
-              <div v-if="s.pity" class="hl-row hl-pity">
+            <div v-if="weaponPanels.length === 0" class="hl-empty">—</div>
+            <div v-for="p in weaponPanels" :key="'wp' + p.base" class="panel hl-pool">
+              <!-- single-sub panel keeps today's record-count badge on the title (sub-title is
+                   suppressed below); grouped panels show counts on each sub-title instead. -->
+              <div class="panel-title hl-pool-title">{{ localize(p.label) || p.base }}<span v-if="!(p.topPity || p.subs.length > 1) && p.subs[0] && p.subs[0].total" class="hl-n">{{ p.subs[0].total }}</span></div>
+              <div v-if="p.topPity" class="hl-row hl-pity hl-pity--top">
                 <span class="hl-name-wrap">
                   <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
                   <span class="hl-name">{{ t('gacha.pity_title') }}</span>
                 </span>
-                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
-                <span class="hl-count mono">{{ s.pity.current }}</span>
+                <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(p.topPity)"></span></span>
+                <span class="hl-count mono">{{ p.topPity.current }}</span>
               </div>
-              <div v-for="(h, i) in s.entries" :key="'w' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
-                <span class="hl-name-wrap">
-                  <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
-                  <span v-else class="hl-ic hl-ic--ph"></span>
-                  <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
-                </span>
-                <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
-                <span class="hl-count mono">{{ h.count }}</span>
+              <div v-for="s in p.subs" :key="'ws' + s.key" class="hl-sub">
+                <div v-if="p.topPity || p.subs.length > 1" class="hl-sub-title">{{ localize(s.label) || s.key }}<span v-if="s.total" class="hl-n">{{ s.total }}</span></div>
+                <div v-if="s.pity" class="hl-row hl-pity">
+                  <span class="hl-name-wrap">
+                    <span class="hl-ic hl-ic--ph hl-ic--pity"></span>
+                    <span class="hl-name">{{ t('gacha.pity_title') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="pityBarStyle(s.pity)"></span></span>
+                  <span class="hl-count mono">{{ s.pity.current }}</span>
+                </div>
+                <div v-for="(h, i) in s.entries" :key="'w' + s.key + '-' + i" class="hl-row" :class="'r' + h.rank">
+                  <span class="hl-name-wrap">
+                    <img v-if="showIcon(h)" class="hl-ic" :src="h.icon" :alt="h.name" @error="onIconErr(h.icon!)" />
+                    <span v-else class="hl-ic hl-ic--ph"></span>
+                    <span class="hl-name">{{ h.name }}</span><span v-if="h.off" class="hl-off">{{ t('gacha.off') }}</span>
+                  </span>
+                  <span class="hl-bar"><span class="hl-fill" :style="recBarStyle(h)"></span></span>
+                  <span class="hl-count mono">{{ h.count }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -535,4 +576,8 @@ watch(() => st.value.loaded, (loaded) => {
 .sk-hl-col { display: flex; flex-direction: column; gap: 10px; }
 .sk-pool { height: 96px; }
 @keyframes gacha-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+.hl-sub { margin-top: 8px; }
+.hl-sub-title { font-size: 12px; opacity: 0.75; margin: 4px 0 2px; }
+.hl-pity--top .hl-name { font-weight: 600; }
 </style>

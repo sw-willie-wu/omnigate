@@ -19,6 +19,11 @@ type GachaPull struct {
 	Name      string `json:"name"`
 	Time      string `json:"time"`   // source's localized time string, display-only
 	IsFree    bool   `json:"isFree"` // free pull (Endfield); excluded from pity & spend
+	// PoolID and PoolName identify the specific banner期 within a pool
+	// (Endfield's rotating 特許尋訪 has e.g. poolId="special_1_3_1");
+	// empty for providers/pulls that don't set them.
+	PoolID   string `json:"poolId"`
+	PoolName string `json:"poolName"`
 }
 
 // GachaFetchResult is one refresh's outcome.
@@ -50,6 +55,14 @@ type BannerConfig struct {
 	Label   LocalizedString
 	Pity    PityModel
 	Limited bool // a featured/event banner where losing the 50/50 (歪) can occur
+	// PerPool splits this banner into independent-pity sub-banners by pull PoolID
+	// (Endfield's rotating 特許尋訪); default false = unchanged.
+	PerPool bool `json:"perPool,omitempty"`
+	// CrossPoolBar, when PerPool, makes ComputeSummary ALSO emit one aggregate pity row
+	// over ALL the banner's pulls under the bare key (the true cross-pool pity, a
+	// display-only top bar). Its hits are discarded — they never enter the global pity
+	// stats. The empty-poolId fallback sub is folded into this aggregate. Endfield 特許尋訪.
+	CrossPoolBar bool `json:"crossPoolBar"`
 }
 
 // DualCitizen is a standard-pool unit that also had a single featured debut; a pull
@@ -101,5 +114,8 @@ type GachaProvider interface {
 // URL-based FetchGacha. `lang` is the already-mapped record-API language (App
 // resolves it from settings; the provider has no other source — mirrors GetNews).
 type GachaCredentialProvider interface {
-	FetchGachaWithCredential(ctx context.Context, gid GameID, credential, lang string) (GachaFetchResult, error)
+	// known is the set of pull ids (seqIds) already stored for this account, so the
+	// provider can stop paginating once it reaches them (incremental sync). Pass nil
+	// for a full fetch (first sync).
+	FetchGachaWithCredential(ctx context.Context, gid GameID, credential, lang string, known map[string]bool) (GachaFetchResult, error)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"omnigate/internal/core"
@@ -25,16 +26,51 @@ func TestEndfieldStandardPityWalk(t *testing.T) {
 	}
 }
 
-func TestEndfieldLimitedPityExcludesFreeUntilMilestone(t *testing.T) {
+func TestEndfieldLimitedPityFreePulls(t *testing.T) {
 	m := endfieldLimitedPity{}
-	pulls := []core.GachaPull{
-		{ID: "1", Rank: 5, IsFree: true},
-		{ID: "2", Rank: 5, IsFree: true},
-		{ID: "3", Rank: 5, IsFree: false},
+	// (A) free non-6★ don't increment; paid pulls do.
+	_, trailing := m.Walk([]core.GachaPull{
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: true},
+		{Rank: 5, IsFree: true},
+		{Rank: 5, IsFree: false},
+	}, 6)
+	if trailing != 3 {
+		t.Fatalf("(A) trailing=%d want 3 (3 paid, 2 free skipped)", trailing)
 	}
-	_, trailing := m.Walk(pulls, 6)
+	// (B) a free 6★ records a hit at the current (paid-only) pity, then resets to 0.
+	hits, trailing := m.Walk([]core.GachaPull{
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: false},
+		{Rank: 5, IsFree: true},
+		{Rank: 6, IsFree: true}, // free 6★ (e.g. 伊馮)
+		{Rank: 5, IsFree: false},
+	}, 6)
+	if len(hits) != 1 || hits[0].Count != 2 {
+		t.Fatalf("(B) hits=%+v want 1 hit count 2 (free 6★ records paid-only pity)", hits)
+	}
 	if trailing != 1 {
-		t.Fatalf("trailing=%d want 1 (free pre-milestone ignored)", trailing)
+		t.Fatalf("(B) trailing=%d want 1 (1 paid after the free 6★ reset)", trailing)
+	}
+	// (C) red→green DRIVER: ≥60 paid, then a free pull, then a paid 6★. OLD milestone/carry
+	// code carries the free pull (milestone≥60), resets pity to carry=1 → count 60, trailing 2.
+	// NEW code ignores all free pulls, resets to 0 → count 61, trailing 1.
+	var pulls []core.GachaPull
+	for i := 0; i < 60; i++ {
+		pulls = append(pulls, core.GachaPull{Rank: 5, IsFree: false})
+	}
+	pulls = append(pulls,
+		core.GachaPull{Rank: 5, IsFree: true},
+		core.GachaPull{Rank: 6, IsFree: false},
+		core.GachaPull{Rank: 5, IsFree: false},
+	)
+	hits, trailing = m.Walk(pulls, 6)
+	if len(hits) != 1 || hits[0].Count != 61 {
+		t.Fatalf("(C) hits=%+v want 1 hit count 61 (60 paid + the paid 6★; free ignored)", hits)
+	}
+	if trailing != 1 {
+		t.Fatalf("(C) trailing=%d want 1 (reset to 0 not to carry)", trailing)
 	}
 }
 
@@ -121,7 +157,7 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 		// One page per pool; only the Standard pool returns a row.
 		if q.Get("pool_type") == "E_CharacterGachaPoolType_Standard" && q.Get("seq_id") == "" {
 			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[
-				{"seqId":"100","charId":"c1","charName":"Perlica","rarity":6,"gachaTs":"1769062855302","isFree":false}]}}`))
+				{"seqId":"100","charId":"c1","charName":"Perlica","rarity":6,"gachaTs":"1769062855302","isFree":false,"poolId":"special_1_3_1","poolName":"拳出無悔"}]}}`))
 			return
 		}
 		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
@@ -135,7 +171,7 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 	p.recordAPIBase = srv.URL
 	p.pageDelay = 0
 
-	res, err := p.efFetchRecords(context.Background(), "u8-TOK", "2", "zh-tw")
+	res, err := p.efFetchRecords(context.Background(), "u8-TOK", "2", "zh-tw", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,11 +182,67 @@ func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 	if got.ID != "100" || got.BannerKey != "standard" || got.ItemType != "char" || got.Rank != 6 || got.Name != "Perlica" {
 		t.Fatalf("pull = %+v", got)
 	}
+	if got.PoolID != "special_1_3_1" || got.PoolName != "拳出無悔" {
+		t.Fatalf("poolId/poolName = %q/%q; want special_1_3_1/拳出無悔", got.PoolID, got.PoolName)
+	}
 	if got.Time != "2026-01-22 14:20:55" { // 1769062855302 ms in LOCAL tz — adjust expected to your tz when running
 		t.Logf("time = %q (local-tz dependent; assert the parse, not the literal)", got.Time)
 	}
 	if _, err := parseEndfieldTime("1769062855302"); err != nil {
 		t.Errorf("parseEndfieldTime: %v", err)
+	}
+}
+
+// Incremental sync: once pagination reaches a seqId already in `known`, the pool
+// stops — only newer pulls are returned and no further pages are requested.
+func TestEndfieldFetchRecords_IncrementalStopsAtKnown(t *testing.T) {
+	var specialReqs int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/record/char", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("pool_type") != "E_CharacterGachaPoolType_Special" {
+			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`)) // other char pools empty
+			return
+		}
+		specialReqs++
+		switch r.URL.Query().Get("seq_id") {
+		case "": // page 1 — all new
+			w.Write([]byte(`{"code":0,"data":{"hasMore":true,"list":[
+				{"seqId":"105","charName":"a","rarity":6,"gachaTs":"1769062855302"},
+				{"seqId":"104","charName":"b","rarity":5,"gachaTs":"1769062855302"},
+				{"seqId":"103","charName":"c","rarity":5,"gachaTs":"1769062855302"}]}}`))
+		case "103": // page 2 — contains a KNOWN seqId (102) → must stop here
+			w.Write([]byte(`{"code":0,"data":{"hasMore":true,"list":[
+				{"seqId":"102","charName":"d","rarity":5,"gachaTs":"1769062855302"},
+				{"seqId":"101","charName":"e","rarity":5,"gachaTs":"1769062855302"}]}}`))
+		default:
+			t.Errorf("page %s requested — should have stopped at known", r.URL.Query().Get("seq_id"))
+			w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+		}
+	})
+	mux.HandleFunc("/api/record/weapon", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"code":0,"data":{"hasMore":false,"list":[]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.recordAPIBase = srv.URL
+	p.pageDelay = 0
+
+	known := map[string]bool{"102": true, "101": true, "100": true}
+	res, err := p.efFetchRecords(context.Background(), "u8", "2", "en-us", known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Pulls) != 3 {
+		t.Fatalf("pulls = %d; want 3 (only the new 105/104/103)", len(res.Pulls))
+	}
+	for _, pull := range res.Pulls {
+		if known[pull.ID] {
+			t.Errorf("returned an already-known pull: %s", pull.ID)
+		}
+	}
+	if specialReqs != 2 {
+		t.Errorf("special-pool requests = %d; want 2 (stopped at known on page 2, no page 3)", specialReqs)
 	}
 }
 
@@ -162,7 +254,7 @@ func TestEndfieldRecord_AuthTimeoutExpired(t *testing.T) {
 	p := New(Settings{}, nil)
 	p.recordAPIBase = srv.URL
 	p.pageDelay = 0
-	if _, err := p.efFetchRecords(context.Background(), "stale", "2", "en-us"); !errors.Is(err, core.ErrGachaCredentialExpired) {
+	if _, err := p.efFetchRecords(context.Background(), "stale", "2", "en-us", nil); !errors.Is(err, core.ErrGachaCredentialExpired) {
 		t.Fatalf("err = %v; want ErrGachaCredentialExpired", err)
 	}
 }
@@ -191,7 +283,7 @@ func TestEndfieldFetchRecords_IncludesWeapon(t *testing.T) {
 	p.recordAPIBase = srv.URL
 	p.pageDelay = 0
 
-	res, err := p.efFetchRecords(context.Background(), "u8", "2", "en-us")
+	res, err := p.efFetchRecords(context.Background(), "u8", "2", "en-us", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,6 +301,26 @@ func TestEndfieldFetchRecords_IncludesWeapon(t *testing.T) {
 	}
 }
 
+func TestEndfieldWeaponPityWalk(t *testing.T) {
+	m := endfieldWeaponPity{}
+	if m.HardPity() != 40 {
+		t.Fatalf("HardPity=%d want 40", m.HardPity())
+	}
+	if m.Has5050() {
+		t.Fatalf("Has5050=true want false")
+	}
+	pulls := []core.GachaPull{
+		{ID: "1", Rank: 5}, {ID: "2", Rank: 5}, {ID: "3", Rank: 6, Name: "WX"}, {ID: "4", Rank: 5},
+	}
+	hits, trailing := m.Walk(pulls, 6)
+	if len(hits) != 1 || hits[0].Count != 3 {
+		t.Fatalf("hits=%+v want 1 hit cost 3", hits)
+	}
+	if trailing != 1 {
+		t.Fatalf("trailing=%d want 1", trailing)
+	}
+}
+
 func TestEndfieldGachaConfig_PriceCurrencyWeaponBanner(t *testing.T) {
 	p := New(Settings{}, nil)
 	cfg := p.GachaConfig("hypergryph/endfield")
@@ -217,6 +329,33 @@ func TestEndfieldGachaConfig_PriceCurrencyWeaponBanner(t *testing.T) {
 	}
 	if cfg.BannerOf("weapon") == nil {
 		t.Error("weapon banner missing")
+	}
+}
+
+func TestEndfieldConfig_PerPoolPityShape(t *testing.T) {
+	p := New(Settings{}, nil)
+	cfg := p.GachaConfig("hypergryph/endfield")
+
+	special := cfg.BannerOf("special")
+	if special == nil || !special.PerPool || !special.CrossPoolBar {
+		t.Fatalf("special = %+v want PerPool && CrossPoolBar", special)
+	}
+
+	weapon := cfg.BannerOf("weapon")
+	if weapon == nil || !weapon.PerPool {
+		t.Fatalf("weapon = %+v want PerPool", weapon)
+	}
+	if weapon.CrossPoolBar {
+		t.Errorf("weapon must NOT have CrossPoolBar (no top bar)")
+	}
+	if weapon.Pity == nil || weapon.Pity.HardPity() != 40 {
+		t.Errorf("weapon HardPity = %v want 40", weapon.Pity)
+	}
+
+	for _, k := range []string{"standard", "beginner", "joint"} {
+		if b := cfg.BannerOf(k); b == nil || b.PerPool || b.CrossPoolBar {
+			t.Errorf("%s = %+v want non-PerPool, non-CrossPoolBar", k, b)
+		}
 	}
 }
 
@@ -250,5 +389,48 @@ func TestEndfieldStandardPoolLimited(t *testing.T) {
 	}
 	if lim["standard"] || lim["beginner"] {
 		t.Error("standard/beginner must NOT be Limited")
+	}
+}
+
+func TestFetchUserInfo(t *testing.T) {
+	var gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/user/info/v1/basic") {
+			w.WriteHeader(404)
+			return
+		}
+		gotToken = r.URL.Query().Get("token")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":0,"data":{"hgId":"HG","nickName":"暱稱","realEmail":"a@b.com"}}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.oauthBase = srv.URL
+	info, err := p.FetchUserInfo(context.Background(), "TOK&x")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if info.HgID != "HG" || info.NickName != "暱稱" || info.RealEmail != "a@b.com" {
+		t.Fatalf("info=%+v", info)
+	}
+	if gotToken != "TOK&x" {
+		t.Fatalf("token param=%q want TOK&x", gotToken)
+	}
+}
+
+func TestFetchUserInfo_ErrorNoTokenLeak(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":10001,"msg":"bad token"}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.oauthBase = srv.URL
+	_, err := p.FetchUserInfo(context.Background(), "SECRET-TOKEN")
+	if err == nil {
+		t.Fatal("want error on status!=0")
+	}
+	if strings.Contains(err.Error(), "SECRET-TOKEN") || strings.Contains(err.Error(), srv.URL) {
+		t.Fatalf("error leaks token/url: %v", err)
 	}
 }

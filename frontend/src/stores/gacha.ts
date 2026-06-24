@@ -47,9 +47,6 @@ export const useGachaStore = defineStore('gacha', {
         const s = this.byGid[gid];
         if (s) s.progress = p;
       });
-      EventsOn('gacha:linked', (gid: string) => {
-        this.refresh(gid);
-      });
     },
     async load(gid: string, accountID = '') {
       if (!gid) return;

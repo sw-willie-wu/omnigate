@@ -2,33 +2,66 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAccountStore, accountPrimary, type Account } from '../stores/account';
+import { useGachaAccountStore, gachaAccountPrimary, type GachaAccount } from '../stores/gachaAccount';
+import { useGamesStore } from '../stores/games';
+import LoginModal from './LoginModal.vue';
 
 const props = defineProps<{ gameId: string }>();
 const { t } = useI18n();
 const account = useAccountStore();
+const gachaAccount = useGachaAccountStore();
+const games = useGamesStore();
+
+// Two account models share this chip. 'switcher' (WuWa) toggles which on-disk
+// account is written on Launch (account store). 'credential' (Endfield gacha)
+// stores per-account login tokens for gacha fetches (gachaAccount store) and adds
+// an in-chip login flow. Everything below sources data through `credential` so
+// the template stays branch-agnostic; the switcher path is byte-for-byte as before.
+const kind = computed(() => games.accountKind(props.gameId));
+const credential = computed(() => kind.value === 'credential');
+
+// Acct is the union the template renders; both models share id/uid/label/email/active.
+type Acct = Account | GachaAccount;
 
 const rootEl = ref<HTMLElement | null>(null);
 const menuEl = ref<HTMLElement | null>(null);
 const open = ref(false);
+const showLogin = ref(false);
 const menuStyle = ref<Record<string, string>>({});
 const editingId = ref<string | null>(null);
 const draft = ref('');
 
-const accounts = computed<Account[]>(() => account.accountsFor(props.gameId));
-const supported = computed(() => account.supportedFor(props.gameId));
+const accounts = computed<Acct[]>(() =>
+  credential.value ? gachaAccount.accountsFor(props.gameId) : account.accountsFor(props.gameId),
+);
+// The gacha store has no `supportedFor` getter — a credential chip is always shown
+// (even at 0 accounts) so the user can reach the add-account login flow.
+const supported = computed(() =>
+  credential.value ? true : account.supportedFor(props.gameId),
+);
 // The chip displays the SELECTED account (the user's intent); the dropdown marks
 // the currently-logged-in (active/written) account separately. Identity = custom
 // label, else email, else KRSDK name (Uxxx). UID is the secondary line; a
 // login-pending hint shows when it isn't known yet.
-const selected = computed(() => account.selectedFor(props.gameId));
+const selected = computed<Acct | undefined>(() =>
+  credential.value ? gachaAccount.selectedFor(props.gameId) : account.selectedFor(props.gameId),
+);
 
-function primary(a: Account): string { return accountPrimary(a); }
-function secondary(a: Account): string { return a.uid || t('account.uidPending'); }
+function primary(a: Acct): string {
+  return credential.value ? gachaAccountPrimary(a as GachaAccount) : accountPrimary(a as Account);
+}
+function secondary(a: Acct): string { return a.uid || t('account.uidPending'); }
 
 // Toggle the dropdown. The menu is teleported to <body> to escape the chip's
 // backdrop-filter root (so its own frosted blur actually works); position it as
 // a fixed box aligned to the chip's current rect.
 function openMenu() {
+  // Credential chip with no accounts yet: the chip IS the add-account button —
+  // jump straight to the login modal instead of opening an empty dropdown.
+  if (credential.value && accounts.value.length === 0) {
+    showLogin.value = true;
+    return;
+  }
   open.value = !open.value;
   if (!open.value) return;
   const r = rootEl.value?.getBoundingClientRect();
@@ -37,22 +70,43 @@ function openMenu() {
   }
 }
 
-function load() { account.load(props.gameId); }
+// openLogin opens the modal from the dropdown footer (closing the dropdown first).
+function openLogin() {
+  open.value = false;
+  showLogin.value = true;
+}
+
+// onAdded: the gachaAccount store already reloaded + selected the new account;
+// just dismiss the modal and let reactivity refresh the chip.
+function onAdded() { showLogin.value = false; }
+
+// removeAccount deletes a credential account (gacha store only). Cancel any
+// in-flight rename first so the dropdown doesn't reference a vanished row.
+function removeAccount(a: Acct) {
+  if (editingId.value === a.id) cancel();
+  gachaAccount.remove(props.gameId, a.id);
+}
+
+function load() {
+  if (credential.value) gachaAccount.load(props.gameId);
+  else account.load(props.gameId);
+}
 
 // pick is pure selection — no disk write, no game-running gate (the write moves
 // to Launch). It drives the chip identity + the gacha board (which watches the
 // shared selection).
-function pick(a: Account) {
+function pick(a: Acct) {
   if (editingId.value === a.id) return; // ignore row activation while editing
   open.value = false;
-  account.select(props.gameId, a.id);
+  if (credential.value) gachaAccount.select(props.gameId, a.id);
+  else account.select(props.gameId, a.id);
 }
 
 // Enter edit mode for one row and focus its input (the input is v-if-inserted,
 // so the native autofocus attribute won't fire — focus after the DOM updates).
-async function startRename(a: Account) {
+async function startRename(a: Acct) {
   editingId.value = a.id;
-  draft.value = a.label;
+  draft.value = primary(a);
   await nextTick();
   const el = menuEl.value?.querySelector(
     `[data-test="account-rename-input-${a.id}"]`,
@@ -63,12 +117,13 @@ async function startRename(a: Account) {
 // Commit the label. Commit-once guard: Enter clears editingId synchronously, so
 // the blur that fires when the input is removed re-enters here and no-ops
 // instead of re-committing an emptied draft.
-async function commit(a: Account) {
+async function commit(a: Acct) {
   if (editingId.value !== a.id) return;
   const value = draft.value;
   editingId.value = null;
   draft.value = '';
-  await account.setLabel(props.gameId, a.id, value);
+  if (credential.value) await gachaAccount.setLabel(props.gameId, a.id, value);
+  else await account.setLabel(props.gameId, a.id, value);
 }
 
 function cancel() {
@@ -85,12 +140,19 @@ function onDocClick(e: MouseEvent) {
   if (rootEl.value?.contains(target) || menuEl.value?.contains(target)) return;
   open.value = false;
 }
-onMounted(() => {
+// resolveKind ensures games.accountKind(gid) is populated, THEN loads from the
+// correct store. Awaiting first avoids a credential game momentarily hitting the
+// switcher store before its kind resolves (cached fetch returns immediately).
+async function resolveKind() {
+  await games.ensureAccountKind(props.gameId);
   load();
+}
+onMounted(() => {
   window.addEventListener('focus', onWindowFocus);
   document.addEventListener('click', onDocClick);
+  resolveKind();
 });
-watch(() => props.gameId, load);
+watch(() => props.gameId, resolveKind);
 onUnmounted(() => {
   window.removeEventListener('focus', onWindowFocus);
   document.removeEventListener('click', onDocClick);
@@ -146,10 +208,37 @@ onUnmounted(() => {
             :aria-label="t('account.rename')"
             @click.stop="startRename(a)"
           >✎</button>
+          <button
+            v-if="credential"
+            class="del-btn"
+            :data-test="`account-del-${a.id}`"
+            :title="t('account.delete')"
+            :aria-label="t('account.delete')"
+            @click.stop="removeAccount(a)"
+          >🗑</button>
         </template>
+      </div>
+      <div
+        v-if="credential"
+        class="account-opt account-add"
+        role="button"
+        tabindex="0"
+        data-test="account-add"
+        @click="openLogin"
+        @keydown.enter.prevent="openLogin"
+        @keydown.space.prevent="openLogin"
+      >
+        <span class="tick"></span>
+        <span class="opt-ident"><span class="primary">{{ t('account.addAccount') }}</span></span>
       </div>
     </div>
   </Teleport>
+  <LoginModal
+    v-if="showLogin"
+    :game-id="props.gameId"
+    @added="onAdded"
+    @close="showLogin = false"
+  />
 </template>
 
 <style scoped>
@@ -179,6 +268,12 @@ onUnmounted(() => {
 .rename-btn { margin-left: auto; background: none; border: none; color: inherit;
   opacity: 0.5; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
 .rename-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+.del-btn { background: none; border: none; color: inherit;
+  opacity: 0.5; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
+.del-btn:hover { opacity: 1; background: rgba(255,80,80,0.18); }
+.account-add { border-top: 1px solid var(--line-1); margin-top: 2px; opacity: 0.85; }
+.account-add:hover { opacity: 1; }
+.account-add .primary { font-size: 13px; }
 .rename-input { flex: 1; min-width: 0; background: rgba(0,0,0,0.3);
   border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; color: inherit;
   font-size: 13px; padding: 4px 6px; }

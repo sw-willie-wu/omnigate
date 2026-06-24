@@ -18,7 +18,32 @@ type GachaStore interface {
 	PutURLCache(game, uid, url string) error
 	GetGachaCred(game string) (cred string, updatedAt time.Time, err error)
 	PutGachaCred(game, cred string) error
+	ListGachaAccounts(game string) ([]GachaAccount, error)
+	GetGachaAccount(id string) (GachaAccount, error)
+	UpsertGachaAccount(a GachaAccount) error
+	SetGachaAccountLabel(id, label string) error
+	DeleteGachaAccount(id string) error
+	SetActiveGachaAccount(game, id string) error
 	Close() error
+}
+
+// GachaAccount is one per-account gacha credential (Endfield). Token is the
+// durable passport token. UID is the roleId (record-partition key), "" until the
+// first refresh writes it back. Active marks the default account (resolved when
+// callers pass accountID="").
+// JSON tags are lowercase to match the frontend GachaAccount interface (the
+// Wails RPC serializes this struct directly; without tags the keys would be the
+// capitalized Go field names and the frontend would read undefined).
+type GachaAccount struct {
+	ID          string `json:"id"`
+	Game        string `json:"game"`
+	HgID        string `json:"hgId"`
+	UID         string `json:"uid"`
+	Label       string `json:"label"`
+	CustomLabel string `json:"customLabel"` // user-set alias; highest display priority, preserved across logins
+	Email       string `json:"email"`
+	Token       string `json:"token"`
+	Active      bool   `json:"active"`
 }
 
 // GameOverride is a per-game settings row (install path + background image).

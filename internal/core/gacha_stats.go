@@ -69,7 +69,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	nonFree := 0
 	byBanner := map[string][]GachaPull{}
 	for _, p := range pulls {
-		s.PerBanner[p.BannerKey]++
+		s.PerBanner[outBannerKey(cfg, p)]++
 		if !p.IsFree {
 			nonFree++
 		}
@@ -83,14 +83,42 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 
 	var allHits []PityHit
 	for _, b := range cfg.Banners {
-		group := byBanner[b.Key]
-		sortChronological(group)
-		hits, trailing := b.Pity.Walk(group, cfg.HeadlineRank)
-		allHits = append(allHits, hits...)
-		near := b.Pity.HardPity() > 0 && trailing*100 >= b.Pity.HardPity()*80
-		s.Pity = append(s.Pity, BannerPity{
-			Key: b.Key, Label: b.Label, Current: trailing, Cap: b.Pity.HardPity(), NearPity: near,
-		})
+		// CrossPoolBar: a display-only aggregate pity over ALL this banner's pulls (the
+		// true cross-pool pity), emitted under the bare key BEFORE the per-期 subs. Its
+		// hits are DISCARDED (never appended to allHits) so it can't double-count the
+		// global pity stats; the per-期 subs below still feed allHits as before. The
+		// empty-poolId fallback sub is folded in here (skipped in the sub loop).
+		if b.PerPool && b.CrossPoolBar {
+			// The cross-pool aggregate counts PAID pulls only: the 滿30贈 free 10-pull (incl.
+			// a free 6★) is transparent to the top bar — it neither increments nor resets it.
+			all := make([]GachaPull, 0, len(byBanner[b.Key]))
+			for _, p := range byBanner[b.Key] {
+				if !p.IsFree {
+					all = append(all, p)
+				}
+			}
+			sortChronological(all)
+			_, trailing := b.Pity.Walk(all, cfg.HeadlineRank)
+			near := b.Pity.HardPity() > 0 && trailing*100 >= b.Pity.HardPity()*80
+			s.Pity = append(s.Pity, BannerPity{
+				Key: b.Key, Label: b.Label, Current: trailing, Cap: b.Pity.HardPity(), NearPity: near,
+			})
+		}
+		// byBanner is keyed by the RAW bannerKey; the per-期 split (independent pity
+		// for a PerPool banner) happens inside bannerSubGroups. Each sub sorts itself.
+		for _, sub := range bannerSubGroups(b, byBanner[b.Key]) {
+			// Under CrossPoolBar, the empty-poolId fallback sub (key == b.Key) is already
+			// represented by the aggregate above — skip its duplicate bare pity row.
+			if b.PerPool && b.CrossPoolBar && sub.key == b.Key {
+				continue
+			}
+			hits, trailing := b.Pity.Walk(sub.pulls, cfg.HeadlineRank)
+			allHits = append(allHits, hits...)
+			near := b.Pity.HardPity() > 0 && trailing*100 >= b.Pity.HardPity()*80
+			s.Pity = append(s.Pity, BannerPity{
+				Key: sub.key, Label: sub.label, Current: trailing, Cap: b.Pity.HardPity(), NearPity: near,
+			})
+		}
 	}
 
 	sumCount := 0
@@ -127,7 +155,7 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 		if i >= 8 {
 			break
 		}
-		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
+		s.RecentHeadline = append(s.RecentHeadline, headlineEntry(cfg, h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
 	}
 
 	// Highlights: ALL top-two-rarity pulls (top = HeadlineRank, second = one below)
@@ -138,24 +166,30 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 	r1, r2 := cfg.HeadlineRank, cfg.HeadlineRank-1
 	var hlHits []PityHit
 	for _, b := range cfg.Banners {
-		group := byBanner[b.Key] // already sorted chronological by the pity loop above
-		since1, since2 := 0, 0
-		for _, p := range group {
-			since1++
-			since2++
-			switch {
-			case p.Rank >= r1:
-				hlHits = append(hlHits, PityHit{Pull: p, Count: since1})
-				since1, since2 = 0, 0
-			case p.Rank >= r2:
-				hlHits = append(hlHits, PityHit{Pull: p, Count: since2})
-				since2 = 0
+		// Per-期 independent: since1/since2 reset within each sub (the sub owns its sort).
+		for _, sub := range bannerSubGroups(b, byBanner[b.Key]) {
+			since1, since2 := 0, 0
+			for _, p := range sub.pulls {
+				// Free pulls (滿30贈 免費10連) don't advance the per-record count; a 6★/5★
+				// (free or paid) still records its accumulated count and resets.
+				if !p.IsFree {
+					since1++
+					since2++
+				}
+				switch {
+				case p.Rank >= r1:
+					hlHits = append(hlHits, PityHit{Pull: p, Count: since1})
+					since1, since2 = 0, 0
+				case p.Rank >= r2:
+					hlHits = append(hlHits, PityHit{Pull: p, Count: since2})
+					since2 = 0
+				}
 			}
 		}
 	}
 	sort.SliceStable(hlHits, func(i, j int) bool { return headlineNewer(hlHits[i], hlHits[j]) })
 	for _, h := range hlHits {
-		s.Highlights = append(s.Highlights, headlineEntry(h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
+		s.Highlights = append(s.Highlights, headlineEntry(cfg, h, offFor(cfg, limited, h.Pull), limited[h.Pull.BannerKey]))
 	}
 	return s
 }
@@ -172,11 +206,97 @@ func headlineNewer(a, b PityHit) bool {
 	return numLess(b.Pull.ID, a.Pull.ID)
 }
 
-func headlineEntry(h PityHit, off bool, lim bool) HeadlineEntry {
+func headlineEntry(cfg GachaConfig, h PityHit, off bool, lim bool) HeadlineEntry {
 	return HeadlineEntry{
-		Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: h.Pull.BannerKey,
+		Name: h.Pull.Name, ItemType: h.Pull.ItemType, BannerKey: outBannerKey(cfg, h.Pull),
 		Time: h.Pull.Time, Count: h.Count, Rank: h.Pull.Rank, Off: off, Limited: lim,
 	}
+}
+
+// composeLabel prefixes each locale of base with the 期 name: "特許尋訪" + " - " + poolName.
+func composeLabel(base LocalizedString, poolName string) LocalizedString {
+	out := make(LocalizedString, len(base))
+	for loc, v := range base {
+		out[loc] = v + " - " + poolName
+	}
+	return out
+}
+
+// outBannerKey is the dashboard output key for a pull: the composite
+// "<bannerKey>:<poolId>" when its banner is PerPool and it has a poolId, else the
+// raw BannerKey. Kept consistent across PerBanner / Pity[].Key / HeadlineEntry.BannerKey
+// so the frontend groups records under the matching pity entry.
+func outBannerKey(cfg GachaConfig, p GachaPull) string {
+	if b := cfg.BannerOf(p.BannerKey); b != nil && b.PerPool && p.PoolID != "" {
+		return p.BannerKey + ":" + p.PoolID
+	}
+	return p.BannerKey
+}
+
+// bannerSub is one independent-pity sub-group of a banner.
+type bannerSub struct {
+	key   string
+	label LocalizedString
+	pulls []GachaPull // sorted chronological (oldest-first)
+}
+
+// bannerSubGroups splits a banner's pulls into independent-pity sub-groups: one per
+// poolId (newest-期 first) when b.PerPool, else the single whole group. Each sub is
+// sorted chronological internally. Pulls with empty PoolID collapse into a single
+// fallback sub keyed by the raw b.Key (shown under plain 特許尋訪 until backfilled),
+// sorted LAST.
+func bannerSubGroups(b BannerConfig, group []GachaPull) []bannerSub {
+	if !b.PerPool {
+		g := append([]GachaPull(nil), group...)
+		sortChronological(g)
+		return []bannerSub{{key: b.Key, label: b.Label, pulls: g}}
+	}
+	// Bucket by poolId; empty poolId collapses into a single fallback bucket.
+	type bucketT struct {
+		poolID, poolName string
+		pulls            []GachaPull
+	}
+	order := []string{}            // poolIDs in first-seen order, to stabilize before sort
+	buckets := map[string]*bucketT{}
+	for _, p := range group {
+		bk, ok := buckets[p.PoolID]
+		if !ok {
+			bk = &bucketT{poolID: p.PoolID, poolName: p.PoolName}
+			buckets[p.PoolID] = bk
+			order = append(order, p.PoolID)
+		}
+		bk.pulls = append(bk.pulls, p)
+	}
+	var nonEmpty []*bucketT
+	var fallback *bucketT
+	for _, id := range order {
+		bk := buckets[id]
+		sortChronological(bk.pulls)
+		if id == "" {
+			fallback = bk
+		} else {
+			nonEmpty = append(nonEmpty, bk)
+		}
+	}
+	// Non-empty buckets newest-期 first: compare by most-recent pull (already sorted
+	// chronological → last element), parsed Time desc with numLess(id) tiebreak.
+	sort.SliceStable(nonEmpty, func(i, j int) bool {
+		ai := nonEmpty[i].pulls[len(nonEmpty[i].pulls)-1]
+		aj := nonEmpty[j].pulls[len(nonEmpty[j].pulls)-1]
+		return headlineNewer(PityHit{Pull: ai}, PityHit{Pull: aj})
+	})
+	subs := make([]bannerSub, 0, len(nonEmpty)+1)
+	for _, bk := range nonEmpty {
+		subs = append(subs, bannerSub{
+			key:   b.Key + ":" + bk.poolID,
+			label: composeLabel(b.Label, bk.poolName),
+			pulls: bk.pulls,
+		})
+	}
+	if fallback != nil {
+		subs = append(subs, bannerSub{key: b.Key, label: b.Label, pulls: fallback.pulls})
+	}
+	return subs
 }
 
 // offFor reports whether a pull lost the 50/50: a standard-pool item on a limited

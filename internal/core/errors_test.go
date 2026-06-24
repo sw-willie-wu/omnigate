@@ -74,3 +74,15 @@ func TestErrorCode_GachaCredentialSentinels(t *testing.T) {
 		t.Errorf("expired msg = %q", ErrGachaCredentialExpired.Error())
 	}
 }
+
+func TestErrorCode_GachaLoginSentinels(t *testing.T) {
+	cases := map[error]string{
+		ErrGachaLoginFailed: "gacha_login_failed",
+		ErrGachaNoGameRole:  "gacha_no_role",
+	}
+	for err, want := range cases {
+		if got := ErrorCode(err); got != want {
+			t.Errorf("ErrorCode(%v) = %q, want %q", err, got, want)
+		}
+	}
+}

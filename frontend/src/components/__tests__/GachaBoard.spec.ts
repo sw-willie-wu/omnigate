@@ -12,8 +12,6 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
   RefreshGacha: (...a: unknown[]) => refreshGacha(...a),
   ListGameAccounts: (...a: unknown[]) => listAccounts(...a),
   SetAccountLabel: vi.fn(),
-  StartGachaLink: vi.fn(),
-  SetGachaCredential: vi.fn(),
 }));
 vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 
@@ -331,11 +329,40 @@ describe('GachaBoard', () => {
     w.unmount();
   });
 
-  it('renders the link panel when GetGachaSummary reports credential required', async () => {
+  it('renders the login prompt (no bookmarklet UI) when credential is required', async () => {
     getSummary.mockRejectedValue(new Error('gacha credential required'));
     const w = mountBoard(); await flushPromises();
-    expect(w.find('[data-test="gacha-link-login"]').exists()).toBe(true);
-    expect(w.text()).toContain('Link your Gryphline'); // en gacha.link.title
+    expect(w.find('.gacha-login-prompt').exists()).toBe(true);
+    expect(w.text()).toContain('Please log in'); // en gacha.login_prompt
+    // the old bookmarklet/link flow is gone
+    expect(w.find('[data-test="gacha-link-login"]').exists()).toBe(false);
+    expect(w.find('.gacha-bookmarklet').exists()).toBe(false);
+    expect(w.find('.gacha-link-paste').exists()).toBe(false);
+  });
+
+  it('credential game: sources accountID from gachaAccount and reloads on selection change', async () => {
+    getSummary.mockResolvedValue(base);
+    const { useGamesStore } = await import('../../stores/games');
+    const { useGachaAccountStore } = await import('../../stores/gachaAccount');
+    const games = useGamesStore();
+    games._accountKind['hypergryph/endfield'] = 'credential';
+    const ga = useGachaAccountStore();
+    ga.byGid['hypergryph/endfield'] = {
+      accounts: [
+        { id: 'GA', uid: 'uA', label: '', email: 'a', customLabel: '', active: true },
+        { id: 'GB', uid: 'uB', label: '', email: 'b', customLabel: '', active: false },
+      ],
+      selectedId: 'GA', loaded: true, loading: false,
+    };
+    const w = mountBoard(); await flushPromises();
+    // initial load resolves the selected credential account, NOT the switcher store
+    expect(getSummary).toHaveBeenCalledWith('hypergryph/endfield', 'GA');
+    getSummary.mockClear();
+    // switch the selected gacha account in the chip → board reloads with the new id
+    ga.byGid['hypergryph/endfield'].selectedId = 'GB';
+    await flushPromises();
+    expect(getSummary).toHaveBeenCalledWith('hypergryph/endfield', 'GB');
+    w.unmount();
   });
 
   it('renders a 歪 chip on pulls that lost the 50/50', async () => {
@@ -402,12 +429,9 @@ describe('GachaBoard', () => {
     const tw = (await import('../../locales/zh-TW.json')).default as Record<string, any>;
     const cn = (await import('../../locales/zh-CN.json')).default as Record<string, any>;
     for (const loc of [en, tw, cn]) {
-      for (const k of ['play_first', 'wrong_account', 'url_expired', 'off',
+      for (const k of ['play_first', 'wrong_account', 'url_expired', 'off', 'login_prompt',
         'lim_char_cnt', 'lim_weapon_cnt', 'hit_rate', 'avg_char', 'avg_weapon', 'hit_rate_sub']) {
         expect(((loc.gacha?.[k] ?? '') as string).length).toBeGreaterThan(0);
-      }
-      for (const k of ['title', 'login', 'step1', 'step2', 'step3', 'paste', 'pasteLabel', 'rearm']) {
-        expect(((loc.gacha?.link?.[k] ?? '') as string).length).toBeGreaterThan(0);
       }
       expect(((loc.gacha?.currency?.endfield_oroberyl ?? '') as string).length).toBeGreaterThan(0);
     }
@@ -431,5 +455,40 @@ describe('GachaBoard', () => {
     expect(heads.some((t) => t.includes('Featured'))).toBe(true);
     expect(heads.some((t) => t.includes('Collab'))).toBe(true);
     expect(w.findAll('.hl-off').length).toBe(1); // the 歪 chip is under the collab group
+  });
+
+  it('groups composite special:<poolId> into ONE panel: top cross-pool bar + per-期 sub bars', async () => {
+    getSummary.mockResolvedValue({
+      ...base,
+      totalPulls: 42,
+      perBanner: { 'special:A': 12, 'special:B': 30 },
+      pity: [
+        { key: 'special', label: { 'zh-TW': '特許尋訪', en: 'Limited' }, current: 5, cap: 80, nearPity: false },
+        { key: 'special:A', label: { 'zh-TW': '特許尋訪 - 狼珀', en: 'Limited - Wolf' }, current: 12, cap: 80, nearPity: false },
+        { key: 'special:B', label: { 'zh-TW': '特許尋訪 - 拳出無悔', en: 'Limited - Fist' }, current: 30, cap: 80, nearPity: false },
+      ],
+      highlights: [
+        { name: 'Wanbo', itemType: 'char', bannerKey: 'special:A', time: 't1', count: 12, rank: 5, off: false, limited: true, icon: '' },
+        { name: 'Fist',  itemType: 'char', bannerKey: 'special:B', time: 't2', count: 30, rank: 5, off: false, limited: true, icon: '' },
+      ],
+    });
+    const w = mountBoard(); await flushPromises();
+    const charCol = w.findAll('.hl-col')[0];
+    // ONE grouped panel (special:A + special:B collapse under base "special")
+    expect(charCol.findAll('.hl-pool').length).toBe(1);
+    // panel title = base label (grouped → no count badge on the title). Substring match
+    // because sub-titles append a record-count badge (e.g. "Wolf1").
+    const poolTitles = charCol.findAll('.hl-pool-title').map((n) => n.text());
+    expect(poolTitles.some((t) => t.includes('Limited'))).toBe(true);
+    const subTitles = charCol.findAll('.hl-sub-title').map((n) => n.text());
+    expect(subTitles.some((s) => s.includes('Wolf'))).toBe(true);
+    expect(subTitles.some((s) => s.includes('Fist'))).toBe(true);
+    // pity bars: 1 cross-pool top (5) + 2 per-期 (12, 30)
+    const counts = charCol.findAll('.hl-pity .hl-count').map((n) => n.text());
+    expect(counts).toContain('5');
+    expect(counts).toContain('12');
+    expect(counts).toContain('30');
+    // weapon column empty (no weapon pulls in this fixture)
+    expect(w.findAll('.hl-col')[1].findAll('.hl-pool').length).toBe(0);
   });
 });

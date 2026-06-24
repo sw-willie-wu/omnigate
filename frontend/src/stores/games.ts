@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ListGames, RefreshVersion, GetIcon, GetBackgrounds, GetCustomBackground, SetGameOverride, ClearGameOverride, RefreshGame, Launch } from '../../wailsjs/go/app/App';
+import { ListGames, RefreshVersion, GetIcon, GetBackgrounds, GetCustomBackground, SetGameOverride, ClearGameOverride, RefreshGame, Launch, GameAccountKind } from '../../wailsjs/go/app/App';
 
 export type GameRow = {
   id: string;
@@ -24,6 +24,8 @@ export const useGamesStore = defineStore('games', {
     games: [] as GameRow[],
     selectedID: '' as string,
     _customBg: {} as Record<string, string>,
+    // _accountKind[gid]: undefined = not yet fetched; value = cached RPC result.
+    _accountKind: {} as Record<string, 'switcher' | 'credential' | 'none'>,
   }),
   actions: {
     async load() {
@@ -132,10 +134,24 @@ export const useGamesStore = defineStore('games', {
       if (row) row.last_played = new Date().toISOString();
     },
     select(id: string) { this.selectedID = id; },
+    // Fetch GameAccountKind once per gid and cache it. Callers (e.g. AccountChip,
+    // GachaPanel) should call ensureAccountKind(gid) on mount, then read the
+    // accountKind getter reactively.
+    async ensureAccountKind(gid: string) {
+      if (!gid || this._accountKind[gid] !== undefined) return;
+      try {
+        this._accountKind[gid] = (await GameAccountKind(gid)) as 'switcher' | 'credential' | 'none';
+      } catch {
+        this._accountKind[gid] = 'none';
+      }
+    },
   },
   getters: {
     selected(state): GameRow | undefined {
       return state.games.find((g) => g.id === state.selectedID);
     },
+    // accountKind returns the cached kind for a game; 'none' until ensureAccountKind resolves.
+    accountKind: (state) => (gid: string): 'switcher' | 'credential' | 'none' =>
+      state._accountKind[gid] ?? 'none',
   },
 });

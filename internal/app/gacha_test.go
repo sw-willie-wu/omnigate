@@ -253,7 +253,7 @@ type fakeCredProvider struct {
 	gotLang            string
 }
 
-func (f *fakeCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, cred, lang string) (core.GachaFetchResult, error) {
+func (f *fakeCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, cred, lang string, _ map[string]bool) (core.GachaFetchResult, error) {
 	f.gotLang = lang
 	if f.err != nil {
 		return core.GachaFetchResult{}, f.err
@@ -294,7 +294,7 @@ func TestRefreshGacha_CredentialPath(t *testing.T) {
 		},
 	}
 	a := newTestAppWithCredProvider(t, "hypergryph/endfield", prov)
-	_ = a.gachaStore.PutGachaCred("hypergryph/endfield", "acct-TOK")
+	_ = a.gachaStore.UpsertGachaAccount(store.GachaAccount{ID: "ga_x", Game: "hypergryph/endfield", Token: "acct-TOK", Active: true})
 
 	sum, err := a.RefreshGacha("hypergryph/endfield", "")
 	if err != nil {
