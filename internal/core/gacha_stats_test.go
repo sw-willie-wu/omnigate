@@ -281,6 +281,177 @@ func TestComputeSummaryOff(t *testing.T) {
 	}
 }
 
+// perPoolConfig: a PerPool "special" limited banner (mirrors Endfield 特許尋訪) plus a
+// non-PerPool "standard" banner, sharing a StandardPool for 歪 detection.
+func perPoolConfig() GachaConfig {
+	return GachaConfig{
+		HeadlineRank: 6,
+		RankLabels:   map[int]LocalizedString{6: {"zh-TW": "6★"}, 5: {"zh-TW": "5★"}},
+		Banners: []BannerConfig{
+			{Key: "special", Label: LocalizedString{"zh-TW": "特許尋訪"}, Pity: stdPity{cap: 80}, Limited: true, PerPool: true},
+			{Key: "standard", Label: LocalizedString{"zh-TW": "常駐"}, Pity: stdPity{cap: 80}, Limited: false},
+		},
+		StandardPool: map[string]bool{"Std6": true},
+		PullPrice:    100, Currency: "NT$", ExpectedPity: 60,
+	}
+}
+
+// findPity returns the BannerPity with the given key, or nil.
+func findPity(s GachaSummary, key string) *BannerPity {
+	for i := range s.Pity {
+		if s.Pity[i].Key == key {
+			return &s.Pity[i]
+		}
+	}
+	return nil
+}
+
+// Tests 1+2+3: independent per-期 pity, newest-期-first ordering, and composite-key
+// consistency across PerBanner / Pity.Key / HeadlineEntry.BannerKey.
+func TestComputeSummaryPerPoolIndependentPity(t *testing.T) {
+	cfg := perPoolConfig()
+	// Two 期 (A older, B newer), interleaved in input order. Each期 has its own 6★.
+	// A: 3 pulls, 6★ at the 2nd pull, then 1 trailing → A.Current = 1.
+	// B: 4 pulls, 6★ at the 3rd pull, then 1 trailing → B.Current = 1.
+	pulls := []GachaPull{
+		{ID: "10", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a1", Time: "2026-01-01 10:00:00"},
+		{ID: "11", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 6, Name: "A6", Time: "2026-01-01 10:00:01"},
+		{ID: "20", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b1", Time: "2026-03-01 10:00:00"},
+		{ID: "12", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a3", Time: "2026-01-01 10:00:02"},
+		{ID: "21", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b2", Time: "2026-03-01 10:00:01"},
+		{ID: "22", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 6, Name: "B6", Time: "2026-03-01 10:00:02"},
+		{ID: "23", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b4", Time: "2026-03-01 10:00:03"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+
+	// Test 1: TWO independent Pity entries keyed special:A and special:B.
+	pa := findPity(s, "special:A")
+	pb := findPity(s, "special:B")
+	if pa == nil || pb == nil {
+		t.Fatalf("want pity keys special:A and special:B, got %+v", s.Pity)
+	}
+	// Independent trailing: B's 6★ did NOT touch A and vice-versa.
+	if pa.Current != 1 {
+		t.Errorf("special:A Current=%d want 1 (own trailing only)", pa.Current)
+	}
+	if pb.Current != 1 {
+		t.Errorf("special:B Current=%d want 1 (own trailing only)", pb.Current)
+	}
+	// Labels via composeLabel.
+	if pa.Label["zh-TW"] != "特許尋訪 - 期A" {
+		t.Errorf("special:A label=%q want %q", pa.Label["zh-TW"], "特許尋訪 - 期A")
+	}
+	if pb.Label["zh-TW"] != "特許尋訪 - 期B" {
+		t.Errorf("special:B label=%q want %q", pb.Label["zh-TW"], "特許尋訪 - 期B")
+	}
+
+	// Test 2: newer 期 B appears BEFORE older 期 A in s.Pity.
+	idxA, idxB := -1, -1
+	for i, p := range s.Pity {
+		if p.Key == "special:A" {
+			idxA = i
+		}
+		if p.Key == "special:B" {
+			idxB = i
+		}
+	}
+	if !(idxB < idxA) {
+		t.Errorf("want 期B (idx %d) before 期A (idx %d) — newest-first", idxB, idxA)
+	}
+
+	// Test 3: composite keys consistent across PerBanner.
+	if s.PerBanner["special:A"] != 3 || s.PerBanner["special:B"] != 4 {
+		t.Errorf("PerBanner composite=%+v want special:A=3 special:B=4", s.PerBanner)
+	}
+	if _, bare := s.PerBanner["special"]; bare {
+		t.Errorf("PerBanner has bare 'special' key; want only composites: %+v", s.PerBanner)
+	}
+	// HeadlineEntry.BannerKey for the 6★ pulls == matching composite, Limited still true.
+	wantKey := map[string]string{"A6": "special:A", "B6": "special:B"}
+	for _, h := range s.Highlights {
+		if h.Rank != 6 {
+			continue
+		}
+		if wk, ok := wantKey[h.Name]; ok {
+			if h.BannerKey != wk {
+				t.Errorf("Highlights[%s].BannerKey=%q want %q", h.Name, h.BannerKey, wk)
+			}
+			if !h.Limited {
+				t.Errorf("Highlights[%s].Limited=false want true", h.Name)
+			}
+		}
+	}
+	for _, h := range s.RecentHeadline {
+		if wk, ok := wantKey[h.Name]; ok && h.BannerKey != wk {
+			t.Errorf("RecentHeadline[%s].BannerKey=%q want %q", h.Name, h.BannerKey, wk)
+		}
+	}
+}
+
+// Test 4: 歪 preserved — a StandardPool name on the PerPool special banner is Off==true
+// even though the entry's BannerKey is composite (offFor uses the RAW key).
+func TestComputeSummaryPerPoolOffPreserved(t *testing.T) {
+	cfg := perPoolConfig()
+	pulls := []GachaPull{
+		{ID: "1", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 6, Name: "Std6", Time: "2026-01-01 10:00:00"}, // standard on limited → 歪
+		{ID: "2", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 6, Name: "Lim6", Time: "2026-01-01 10:00:01"}, // featured → not 歪
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	got := map[string]HeadlineEntry{}
+	for _, h := range s.Highlights {
+		got[h.Name] = h
+	}
+	if !got["Std6"].Off {
+		t.Errorf("Std6 Off=false want true (歪 on composite banner)")
+	}
+	if got["Std6"].BannerKey != "special:A" {
+		t.Errorf("Std6 BannerKey=%q want special:A", got["Std6"].BannerKey)
+	}
+	if got["Lim6"].Off {
+		t.Errorf("Lim6 Off=true want false")
+	}
+}
+
+// Test 5: empty-PoolID pulls collapse to ONE 'special' Pity entry and sort LAST.
+func TestComputeSummaryPerPoolEmptyFallback(t *testing.T) {
+	cfg := perPoolConfig()
+	pulls := []GachaPull{
+		// real 期 B (newer)
+		{ID: "20", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b1", Time: "2026-03-01 10:00:00"},
+		{ID: "21", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 6, Name: "B6", Time: "2026-03-01 10:00:01"},
+		// empty PoolID (un-backfilled) — newer in time but must sort LAST
+		{ID: "30", BannerKey: "special", PoolID: "", Rank: 5, Name: "e1", Time: "2026-05-01 10:00:00"},
+		{ID: "31", BannerKey: "special", PoolID: "", Rank: 6, Name: "E6", Time: "2026-05-01 10:00:01"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	pe := findPity(s, "special")
+	if pe == nil {
+		t.Fatalf("want fallback pity key 'special', got %+v", s.Pity)
+	}
+	if pe.Label["zh-TW"] != "特許尋訪" {
+		t.Errorf("fallback label=%q want plain 特許尋訪", pe.Label["zh-TW"])
+	}
+	// fallback sorts LAST among special subs.
+	idxB, idxFallback := -1, -1
+	for i, p := range s.Pity {
+		if p.Key == "special:B" {
+			idxB = i
+		}
+		if p.Key == "special" {
+			idxFallback = i
+		}
+	}
+	if !(idxB >= 0 && idxFallback > idxB) {
+		t.Errorf("fallback 'special' (idx %d) must sort after special:B (idx %d)", idxFallback, idxB)
+	}
+	// empty-PoolID headline keeps the bare key.
+	for _, h := range s.Highlights {
+		if h.Name == "E6" && h.BannerKey != "special" {
+			t.Errorf("E6 BannerKey=%q want bare 'special'", h.BannerKey)
+		}
+	}
+}
+
 func TestComputeSummaryLimitedFlag(t *testing.T) {
 	cfg := GachaConfig{
 		HeadlineRank: 5,
