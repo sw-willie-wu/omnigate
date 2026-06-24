@@ -177,8 +177,8 @@ func TestMigrate_FreshDB_SchemaVersion3AndTables(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "5" {
-		t.Fatalf("schema_version = %q, want 5", v)
+	if v != "6" {
+		t.Fatalf("schema_version = %q, want 6", v)
 	}
 	for _, tbl := range []string{"config", "game_settings", "playstate", "account_uid"} {
 		var name string
@@ -207,8 +207,8 @@ func TestMigrate_ExistingV2DB_BumpedTo4(t *testing.T) {
 	if err := s2.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "5" {
-		t.Fatalf("schema_version = %q, want 5 after re-open", v)
+	if v != "6" {
+		t.Fatalf("schema_version = %q, want 6 after re-open", v)
 	}
 }
 
@@ -315,8 +315,8 @@ func TestMigrateV5_AddsPoolColumns(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "5" {
-		t.Fatalf("schema_version=%q want 5 after migration", v)
+	if v != "6" {
+		t.Fatalf("schema_version=%q want 6 after migration", v)
 	}
 	all, err := s.AllPulls("hypergryph/endfield", "u1")
 	if err != nil || len(all) != 1 {

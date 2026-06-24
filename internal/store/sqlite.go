@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 type SQLiteStore struct {
 	db   *sql.DB
@@ -68,7 +68,7 @@ func (s *SQLiteStore) migrate() error {
 )`,
 		`CREATE TABLE IF NOT EXISTS gacha_accounts (
   account_id TEXT PRIMARY KEY, game TEXT NOT NULL, hg_id TEXT, uid TEXT,
-  label TEXT, email TEXT, token TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+  label TEXT, custom_label TEXT, email TEXT, token TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
 )`,
 		`CREATE INDEX IF NOT EXISTS idx_gacha_accounts_game ON gacha_accounts(game)`,
@@ -115,6 +115,14 @@ func (s *SQLiteStore) migrate() error {
 			return err
 		}
 		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','5')`); err != nil {
+			return err
+		}
+	}
+	if ver < 6 {
+		if err := s.migrateV6CustomLabelColumn(); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','6')`); err != nil {
 			return err
 		}
 	}
@@ -285,6 +293,21 @@ func (s *SQLiteStore) migrateV5PoolColumns() error {
 	return nil
 }
 
+// migrateV6CustomLabelColumn adds custom_label (user-set alias) to gacha_accounts.
+// Guarded by columnExists so a crash-retry never errors "duplicate column name".
+func (s *SQLiteStore) migrateV6CustomLabelColumn() error {
+	ok, err := s.columnExists("gacha_accounts", "custom_label")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if _, err := s.db.Exec(`ALTER TABLE gacha_accounts ADD COLUMN custom_label TEXT`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int, error) {
@@ -423,7 +446,7 @@ func boolInt(b bool) int {
 }
 
 func (s *SQLiteStore) ListGachaAccounts(game string) ([]GachaAccount, error) {
-	rows, err := s.db.Query(`SELECT account_id,game,hg_id,uid,label,email,token,active FROM gacha_accounts WHERE game=? ORDER BY updated_at, account_id`, game)
+	rows, err := s.db.Query(`SELECT account_id,game,hg_id,uid,label,COALESCE(custom_label,''),email,token,active FROM gacha_accounts WHERE game=? ORDER BY updated_at, account_id`, game)
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +455,7 @@ func (s *SQLiteStore) ListGachaAccounts(game string) ([]GachaAccount, error) {
 	for rows.Next() {
 		var a GachaAccount
 		var active int
-		if err := rows.Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.Email, &a.Token, &active); err != nil {
+		if err := rows.Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.CustomLabel, &a.Email, &a.Token, &active); err != nil {
 			return nil, err
 		}
 		a.Active = active == 1
@@ -444,23 +467,23 @@ func (s *SQLiteStore) ListGachaAccounts(game string) ([]GachaAccount, error) {
 func (s *SQLiteStore) GetGachaAccount(id string) (GachaAccount, error) {
 	var a GachaAccount
 	var active int
-	err := s.db.QueryRow(`SELECT account_id,game,hg_id,uid,label,email,token,active FROM gacha_accounts WHERE account_id=?`, id).
-		Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.Email, &a.Token, &active)
+	err := s.db.QueryRow(`SELECT account_id,game,hg_id,uid,label,COALESCE(custom_label,''),email,token,active FROM gacha_accounts WHERE account_id=?`, id).
+		Scan(&a.ID, &a.Game, &a.HgID, &a.UID, &a.Label, &a.CustomLabel, &a.Email, &a.Token, &active)
 	a.Active = active == 1
 	return a, err
 }
 
 func (s *SQLiteStore) UpsertGachaAccount(a GachaAccount) error {
-	_, err := s.db.Exec(`INSERT INTO gacha_accounts(account_id,game,hg_id,uid,label,email,token,active,updated_at)
-VALUES(?,?,?,?,?,?,?,?,strftime('%s','now'))
+	_, err := s.db.Exec(`INSERT INTO gacha_accounts(account_id,game,hg_id,uid,label,custom_label,email,token,active,updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,strftime('%s','now'))
 ON CONFLICT(account_id) DO UPDATE SET game=excluded.game,hg_id=excluded.hg_id,uid=excluded.uid,
-  label=excluded.label,email=excluded.email,token=excluded.token,updated_at=excluded.updated_at`,
-		a.ID, a.Game, a.HgID, a.UID, a.Label, a.Email, a.Token, boolInt(a.Active))
+  label=excluded.label,custom_label=excluded.custom_label,email=excluded.email,token=excluded.token,updated_at=excluded.updated_at`,
+		a.ID, a.Game, a.HgID, a.UID, a.Label, a.CustomLabel, a.Email, a.Token, boolInt(a.Active))
 	return err
 }
 
 func (s *SQLiteStore) SetGachaAccountLabel(id, label string) error {
-	_, err := s.db.Exec(`UPDATE gacha_accounts SET label=?, updated_at=strftime('%s','now') WHERE account_id=?`, label, id)
+	_, err := s.db.Exec(`UPDATE gacha_accounts SET custom_label=?, updated_at=strftime('%s','now') WHERE account_id=?`, label, id)
 	return err
 }
 

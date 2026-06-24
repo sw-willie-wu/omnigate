@@ -74,6 +74,68 @@ func TestGachaAccounts_CRUDAndActive(t *testing.T) {
 	}
 }
 
+func TestGachaAccountCustomLabel(t *testing.T) {
+	s := newTestStore(t)
+	g := "hypergryph/endfield"
+	if err := s.UpsertGachaAccount(GachaAccount{ID: "a1", Game: g, Label: "暱", Email: "x@y.com", Token: "tok"}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := s.SetGachaAccountLabel("a1", "我的別名"); err != nil {
+		t.Fatalf("setlabel: %v", err)
+	}
+	got, err := s.GetGachaAccount("a1")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.CustomLabel != "我的別名" {
+		t.Errorf("CustomLabel=%q want 我的別名", got.CustomLabel)
+	}
+	if got.Label != "暱" {
+		t.Errorf("Label=%q want 暱 (label must NOT change on rename)", got.Label)
+	}
+	if err := s.UpsertGachaAccount(GachaAccount{ID: "a1", Game: g, Label: "新暱", Email: "x@y.com", Token: "tok", CustomLabel: "我的別名"}); err != nil {
+		t.Fatalf("upsert2: %v", err)
+	}
+	got, _ = s.GetGachaAccount("a1")
+	if got.Label != "新暱" || got.CustomLabel != "我的別名" {
+		t.Errorf("after upsert: Label=%q CustomLabel=%q want 新暱/我的別名", got.Label, got.CustomLabel)
+	}
+	list, _ := s.ListGachaAccounts(g)
+	if len(list) != 1 || list[0].CustomLabel != "我的別名" {
+		t.Errorf("list custom_label not carried: %+v", list)
+	}
+}
+
+func TestMigrateV6AddsCustomLabel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "g.db")
+	s, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := s.UpsertGachaAccount(GachaAccount{ID: "a1", Game: "g", Label: "L", Token: "t"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE gacha_accounts DROP COLUMN custom_label`); err != nil {
+		t.Fatalf("drop col: %v", err)
+	}
+	if err := s.SetMeta("schema_version", "5"); err != nil {
+		t.Fatalf("setmeta: %v", err)
+	}
+	s.Close()
+	s2, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s2.Close()
+	got, err := s2.GetGachaAccount("a1")
+	if err != nil || got.Label != "L" {
+		t.Fatalf("data lost after v6: %+v err=%v", got, err)
+	}
+	if err := s2.SetGachaAccountLabel("a1", "alias"); err != nil {
+		t.Fatalf("setlabel after migrate: %v", err)
+	}
+}
+
 func TestMigrateV4_GachaCredToAccount(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "m.db")

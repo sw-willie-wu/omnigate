@@ -35,14 +35,15 @@ type GachaStore interface {
 // Wails RPC serializes this struct directly; without tags the keys would be the
 // capitalized Go field names and the frontend would read undefined).
 type GachaAccount struct {
-	ID     string `json:"id"`
-	Game   string `json:"game"`
-	HgID   string `json:"hgId"`
-	UID    string `json:"uid"`
-	Label  string `json:"label"`
-	Email  string `json:"email"`
-	Token  string `json:"token"`
-	Active bool   `json:"active"`
+	ID          string `json:"id"`
+	Game        string `json:"game"`
+	HgID        string `json:"hgId"`
+	UID         string `json:"uid"`
+	Label       string `json:"label"`
+	CustomLabel string `json:"customLabel"` // user-set alias; highest display priority, preserved across logins
+	Email       string `json:"email"`
+	Token       string `json:"token"`
+	Active      bool   `json:"active"`
 }
 
 // GameOverride is a per-game settings row (install path + background image).
