@@ -58,6 +58,11 @@ type BannerConfig struct {
 	// PerPool splits this banner into independent-pity sub-banners by pull PoolID
 	// (Endfield's rotating 特許尋訪); default false = unchanged.
 	PerPool bool `json:"perPool,omitempty"`
+	// CrossPoolBar, when PerPool, makes ComputeSummary ALSO emit one aggregate pity row
+	// over ALL the banner's pulls under the bare key (the true cross-pool pity, a
+	// display-only top bar). Its hits are discarded — they never enter the global pity
+	// stats. The empty-poolId fallback sub is folded into this aggregate. Endfield 特許尋訪.
+	CrossPoolBar bool `json:"crossPoolBar"`
 }
 
 // DualCitizen is a standard-pool unit that also had a single featured debut; a pull

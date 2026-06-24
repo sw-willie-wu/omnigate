@@ -83,9 +83,28 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 
 	var allHits []PityHit
 	for _, b := range cfg.Banners {
+		// CrossPoolBar: a display-only aggregate pity over ALL this banner's pulls (the
+		// true cross-pool pity), emitted under the bare key BEFORE the per-期 subs. Its
+		// hits are DISCARDED (never appended to allHits) so it can't double-count the
+		// global pity stats; the per-期 subs below still feed allHits as before. The
+		// empty-poolId fallback sub is folded in here (skipped in the sub loop).
+		if b.PerPool && b.CrossPoolBar {
+			all := append([]GachaPull(nil), byBanner[b.Key]...)
+			sortChronological(all)
+			_, trailing := b.Pity.Walk(all, cfg.HeadlineRank)
+			near := b.Pity.HardPity() > 0 && trailing*100 >= b.Pity.HardPity()*80
+			s.Pity = append(s.Pity, BannerPity{
+				Key: b.Key, Label: b.Label, Current: trailing, Cap: b.Pity.HardPity(), NearPity: near,
+			})
+		}
 		// byBanner is keyed by the RAW bannerKey; the per-期 split (independent pity
 		// for a PerPool banner) happens inside bannerSubGroups. Each sub sorts itself.
 		for _, sub := range bannerSubGroups(b, byBanner[b.Key]) {
+			// Under CrossPoolBar, the empty-poolId fallback sub (key == b.Key) is already
+			// represented by the aggregate above — skip its duplicate bare pity row.
+			if b.PerPool && b.CrossPoolBar && sub.key == b.Key {
+				continue
+			}
 			hits, trailing := b.Pity.Walk(sub.pulls, cfg.HeadlineRank)
 			allHits = append(allHits, hits...)
 			near := b.Pity.HardPity() > 0 && trailing*100 >= b.Pity.HardPity()*80

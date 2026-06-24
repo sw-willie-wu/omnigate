@@ -1,6 +1,7 @@
 package core
 
 import (
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -487,5 +488,139 @@ func TestComputeSummaryLimitedFlag(t *testing.T) {
 		if v, ok := gotRecent[name]; ok && v != w {
 			t.Errorf("RecentHeadline Limited[%s] = %v; want %v", name, v, w)
 		}
+	}
+}
+
+// crossPoolConfig: perPoolConfig + special.CrossPoolBar=true + a non-CrossPoolBar
+// PerPool "weapon" banner (cap 40, mirrors 武庫申領).
+func crossPoolConfig() GachaConfig {
+	cfg := perPoolConfig()
+	cfg.Banners[0].CrossPoolBar = true // special
+	cfg.Banners = append(cfg.Banners, BannerConfig{
+		Key: "weapon", Label: LocalizedString{"zh-TW": "武庫申領"},
+		Pity: stdPity{cap: 40}, Limited: true, PerPool: true, CrossPoolBar: false,
+	})
+	return cfg
+}
+
+// Aggregate top bar: bare "special" reflects cross-pool trailing, distinct from per-期 subs.
+func TestComputeSummaryCrossPoolAggregateBar(t *testing.T) {
+	cfg := crossPoolConfig()
+	// 期A(older): a1,A6(6★),a3 → A trailing=1. 期B(newer): b1..b4 no 6★ → B trailing=4.
+	// Cross-pool chronological: a1,A6,a3,b1,b2,b3,b4 → trailing after A6 = 5.
+	pulls := []GachaPull{
+		{ID: "1", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a1", Time: "2026-01-01 10:00:00"},
+		{ID: "2", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 6, Name: "A6", Time: "2026-01-01 10:00:01"},
+		{ID: "3", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a3", Time: "2026-01-01 10:00:02"},
+		{ID: "4", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b1", Time: "2026-03-01 10:00:00"},
+		{ID: "5", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b2", Time: "2026-03-01 10:00:01"},
+		{ID: "6", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b3", Time: "2026-03-01 10:00:02"},
+		{ID: "7", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b4", Time: "2026-03-01 10:00:03"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	bare := findPity(s, "special")
+	if bare == nil {
+		t.Fatalf("want aggregate bare 'special' pity, got %+v", s.Pity)
+	}
+	if bare.Current != 5 || bare.Cap != 80 {
+		t.Errorf("aggregate special Current/Cap = %d/%d want 5/80", bare.Current, bare.Cap)
+	}
+	if pa := findPity(s, "special:A"); pa == nil || pa.Current != 1 {
+		t.Errorf("special:A = %+v want Current 1", pa)
+	}
+	if pb := findPity(s, "special:B"); pb == nil || pb.Current != 4 {
+		t.Errorf("special:B = %+v want Current 4", pb)
+	}
+	idxBare, idxA, idxB := -1, -1, -1
+	for i, p := range s.Pity {
+		switch p.Key {
+		case "special":
+			idxBare = i
+		case "special:A":
+			idxA = i
+		case "special:B":
+			idxB = i
+		}
+	}
+	if !(idxBare >= 0 && idxBare < idxA && idxBare < idxB) {
+		t.Errorf("bare aggregate (idx %d) must precede subs A(%d)/B(%d)", idxBare, idxA, idxB)
+	}
+}
+
+// Aggregate is display-only: turning CrossPoolBar on must NOT change any allHits-derived
+// stat, nor the highlight/recent lists.
+func TestComputeSummaryCrossPoolBarDoesNotChangeStats(t *testing.T) {
+	pulls := []GachaPull{
+		{ID: "1", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a1", Time: "2026-01-01 10:00:00"},
+		{ID: "2", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 6, Name: "A6", Time: "2026-01-01 10:00:01"},
+		{ID: "3", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b1", Time: "2026-03-01 10:00:00"},
+		{ID: "4", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 6, Name: "B6", Time: "2026-03-01 10:00:01"},
+	}
+	base := perPoolConfig()
+	cross := perPoolConfig()
+	cross.Banners[0].CrossPoolBar = true
+	s1 := ComputeSummary("u", pulls, base)
+	s2 := ComputeSummary("u", pulls, cross)
+	if s1.AvgPity != s2.AvgPity || s1.WorstPull != s2.WorstPull || s1.HeadlineCnt != s2.HeadlineCnt {
+		t.Errorf("stats changed: avg %v/%v worst %d/%d cnt %d/%d", s1.AvgPity, s2.AvgPity, s1.WorstPull, s2.WorstPull, s1.HeadlineCnt, s2.HeadlineCnt)
+	}
+	if !reflect.DeepEqual(s1.Distribution, s2.Distribution) {
+		t.Errorf("distribution changed: %v vs %v", s1.Distribution, s2.Distribution)
+	}
+	if len(s1.Highlights) != len(s2.Highlights) || len(s1.RecentHeadline) != len(s2.RecentHeadline) {
+		t.Errorf("highlight counts changed: hl %d/%d recent %d/%d", len(s1.Highlights), len(s2.Highlights), len(s1.RecentHeadline), len(s2.RecentHeadline))
+	}
+}
+
+// weapon is PerPool but NOT CrossPoolBar: per-期 subs at cap 40, no bare aggregate.
+func TestComputeSummaryWeaponPerPoolCap40NoBare(t *testing.T) {
+	cfg := crossPoolConfig()
+	pulls := []GachaPull{
+		{ID: "w1", BannerKey: "weapon", PoolID: "X", PoolName: "期X申領", ItemType: "weapon", Rank: 5, Name: "wx1", Time: "2026-01-01 10:00:00"},
+		{ID: "w2", BannerKey: "weapon", PoolID: "X", PoolName: "期X申領", ItemType: "weapon", Rank: 6, Name: "WX6", Time: "2026-01-01 10:00:01"},
+		{ID: "w3", BannerKey: "weapon", PoolID: "Y", PoolName: "期Y申領", ItemType: "weapon", Rank: 5, Name: "wy1", Time: "2026-03-01 10:00:00"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	wx := findPity(s, "weapon:X")
+	wy := findPity(s, "weapon:Y")
+	if wx == nil || wx.Cap != 40 || wx.Current != 0 {
+		t.Errorf("weapon:X = %+v want Cap 40 Current 0", wx)
+	}
+	if wy == nil || wy.Cap != 40 || wy.Current != 1 {
+		t.Errorf("weapon:Y = %+v want Cap 40 Current 1", wy)
+	}
+	if findPity(s, "weapon") != nil {
+		t.Errorf("weapon must have NO bare aggregate (CrossPoolBar=false): %+v", s.Pity)
+	}
+}
+
+// Under CrossPoolBar, an empty-poolId fallback is folded into the aggregate: exactly ONE
+// bare "special" pity row, and empty-poolId records still appear in Highlights.
+func TestComputeSummaryCrossPoolFallbackFolded(t *testing.T) {
+	cfg := crossPoolConfig()
+	pulls := []GachaPull{
+		{ID: "20", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 5, Name: "b1", Time: "2026-03-01 10:00:00"},
+		{ID: "21", BannerKey: "special", PoolID: "B", PoolName: "期B", Rank: 6, Name: "B6", Time: "2026-03-01 10:00:01"},
+		{ID: "30", BannerKey: "special", PoolID: "", Rank: 5, Name: "e1", Time: "2026-05-01 10:00:00"},
+		{ID: "31", BannerKey: "special", PoolID: "", Rank: 6, Name: "E6", Time: "2026-05-01 10:00:01"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	bareCount := 0
+	for _, p := range s.Pity {
+		if p.Key == "special" {
+			bareCount++
+		}
+	}
+	if bareCount != 1 {
+		t.Errorf("want exactly ONE bare 'special' pity (aggregate, fallback folded), got %d: %+v", bareCount, s.Pity)
+	}
+	found := false
+	for _, h := range s.Highlights {
+		if h.Name == "E6" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("E6 (empty-poolId) record missing from Highlights")
 	}
 }
