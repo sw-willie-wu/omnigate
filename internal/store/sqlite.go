@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 type SQLiteStore struct {
 	db   *sql.DB
@@ -45,6 +45,7 @@ func (s *SQLiteStore) migrate() error {
 		`CREATE TABLE IF NOT EXISTS pulls (
   game TEXT NOT NULL, uid TEXT NOT NULL, id TEXT NOT NULL,
   banner_key TEXT, item_type TEXT, rank INTEGER, name TEXT, time TEXT, is_free INTEGER,
+  pool_id TEXT, pool_name TEXT,
   PRIMARY KEY (game, uid, id)
 )`,
 		`CREATE INDEX IF NOT EXISTS idx_pulls_game_uid ON pulls(game, uid)`,
@@ -106,6 +107,14 @@ func (s *SQLiteStore) migrate() error {
 			return err
 		}
 		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','4')`); err != nil {
+			return err
+		}
+	}
+	if ver < 5 {
+		if err := s.migrateV5PoolColumns(); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','5')`); err != nil {
 			return err
 		}
 	}
@@ -235,6 +244,47 @@ VALUES(?,?,?,?,?,?,?,1,strftime('%s','now'))`, id, c.game, "", uid, "", "", c.to
 	return nil
 }
 
+// columnExists reports whether column col exists in table tbl,
+// using PRAGMA table_info (cid, name, type, notnull, dflt_value, pk).
+func (s *SQLiteStore) columnExists(tbl, col string) (bool, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + tbl + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var dfltVal sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltVal, &pk); err != nil {
+			return false, err
+		}
+		if name == col {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// migrateV5PoolColumns adds pool_id and pool_name to the pulls table.
+// Each ALTER is guarded by a column-exists check so the migration is
+// crash-idempotent: re-running after a partial failure never errors with
+// "duplicate column name".
+func (s *SQLiteStore) migrateV5PoolColumns() error {
+	for _, col := range []string{"pool_id", "pool_name"} {
+		ok, err := s.columnExists("pulls", col)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if _, err := s.db.Exec(`ALTER TABLE pulls ADD COLUMN ` + col + ` TEXT`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int, error) {
@@ -244,20 +294,33 @@ func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int
 	}
 	defer tx.Rollback()
 	stmt, err := tx.Prepare(`INSERT OR IGNORE INTO pulls
-		(game,uid,id,banner_key,item_type,rank,name,time,is_free)
-		VALUES (?,?,?,?,?,?,?,?,?)`)
+		(game,uid,id,banner_key,item_type,rank,name,time,is_free,pool_id,pool_name)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
+	// updStmt backfills pool columns on rows that pre-date v5 (where the INSERT
+	// OR IGNORE above is a no-op and their pool columns remain NULL/'').
+	updStmt, err := tx.Prepare(`UPDATE pulls SET pool_id=?, pool_name=?
+		WHERE game=? AND uid=? AND id=? AND (pool_id IS NULL OR pool_id='')`)
+	if err != nil {
+		return 0, err
+	}
+	defer updStmt.Close()
 	added := 0
 	for _, p := range pulls {
-		res, err := stmt.Exec(game, uid, p.ID, p.BannerKey, p.ItemType, p.Rank, p.Name, p.Time, boolInt(p.IsFree))
+		res, err := stmt.Exec(game, uid, p.ID, p.BannerKey, p.ItemType, p.Rank, p.Name, p.Time, boolInt(p.IsFree), p.PoolID, p.PoolName)
 		if err != nil {
 			return 0, err
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
 			added++
+		}
+		// Backfill pool_id/pool_name onto rows inserted before v5 (INSERT OR IGNORE
+		// above is a no-op for an existing row, so its pool columns would stay empty).
+		if _, err := updStmt.Exec(p.PoolID, p.PoolName, game, uid, p.ID); err != nil {
+			return 0, err
 		}
 	}
 	if added > 0 {
@@ -269,7 +332,8 @@ func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int
 }
 
 func (s *SQLiteStore) AllPulls(game, uid string) ([]core.GachaPull, error) {
-	rows, err := s.db.Query(`SELECT id,banner_key,item_type,rank,name,time,is_free
+	rows, err := s.db.Query(`SELECT id,banner_key,item_type,rank,name,time,is_free,
+		COALESCE(pool_id,''),COALESCE(pool_name,'')
 		FROM pulls WHERE game=? AND uid=?`, game, uid)
 	if err != nil {
 		return nil, err
@@ -279,7 +343,7 @@ func (s *SQLiteStore) AllPulls(game, uid string) ([]core.GachaPull, error) {
 	for rows.Next() {
 		var p core.GachaPull
 		var isFree int
-		if err := rows.Scan(&p.ID, &p.BannerKey, &p.ItemType, &p.Rank, &p.Name, &p.Time, &isFree); err != nil {
+		if err := rows.Scan(&p.ID, &p.BannerKey, &p.ItemType, &p.Rank, &p.Name, &p.Time, &isFree, &p.PoolID, &p.PoolName); err != nil {
 			return nil, err
 		}
 		p.IsFree = isFree != 0
