@@ -89,7 +89,14 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 		// global pity stats; the per-期 subs below still feed allHits as before. The
 		// empty-poolId fallback sub is folded in here (skipped in the sub loop).
 		if b.PerPool && b.CrossPoolBar {
-			all := append([]GachaPull(nil), byBanner[b.Key]...)
+			// The cross-pool aggregate counts PAID pulls only: the 滿30贈 free 10-pull (incl.
+			// a free 6★) is transparent to the top bar — it neither increments nor resets it.
+			all := make([]GachaPull, 0, len(byBanner[b.Key]))
+			for _, p := range byBanner[b.Key] {
+				if !p.IsFree {
+					all = append(all, p)
+				}
+			}
 			sortChronological(all)
 			_, trailing := b.Pity.Walk(all, cfg.HeadlineRank)
 			near := b.Pity.HardPity() > 0 && trailing*100 >= b.Pity.HardPity()*80
@@ -163,8 +170,12 @@ func ComputeSummary(uid string, pulls []GachaPull, cfg GachaConfig) GachaSummary
 		for _, sub := range bannerSubGroups(b, byBanner[b.Key]) {
 			since1, since2 := 0, 0
 			for _, p := range sub.pulls {
-				since1++
-				since2++
+				// Free pulls (滿30贈 免費10連) don't advance the per-record count; a 6★/5★
+				// (free or paid) still records its accumulated count and resets.
+				if !p.IsFree {
+					since1++
+					since2++
+				}
 				switch {
 				case p.Rank >= r1:
 					hlHits = append(hlHits, PityHit{Pull: p, Count: since1})

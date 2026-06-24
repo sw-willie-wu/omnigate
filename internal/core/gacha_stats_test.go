@@ -624,3 +624,43 @@ func TestComputeSummaryCrossPoolFallbackFolded(t *testing.T) {
 		t.Errorf("E6 (empty-poolId) record missing from Highlights")
 	}
 }
+
+// Cross-pool aggregate ignores free pulls entirely: a free 6★ does NOT reset the top bar.
+func TestComputeSummaryCrossPoolAggregateExcludesFree(t *testing.T) {
+	cfg := crossPoolConfig()
+	pulls := []GachaPull{
+		{ID: "1", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a1", Time: "2026-01-01 10:00:00"},
+		{ID: "2", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a2", Time: "2026-01-01 10:00:01"},
+		{ID: "3", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a3", Time: "2026-01-01 10:00:02"},
+		{ID: "4", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 6, Name: "伊馮", IsFree: true, Time: "2026-01-01 10:00:03"},
+		{ID: "5", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a5", Time: "2026-01-01 10:00:04"},
+		{ID: "6", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a6", Time: "2026-01-01 10:00:05"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	bare := findPity(s, "special")
+	if bare == nil || bare.Current != 5 {
+		t.Fatalf("aggregate special = %+v want Current 5 (free 6★ filtered → doesn't reset cross-pool)", bare)
+	}
+}
+
+// Per-record "count" excludes free pulls: a free 6★ records the paid-only pity before it.
+func TestComputeSummaryFreePullRecordCountExcludesFree(t *testing.T) {
+	cfg := crossPoolConfig()
+	pulls := []GachaPull{
+		{ID: "1", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a1", Time: "2026-01-01 10:00:00"},
+		{ID: "2", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a2", Time: "2026-01-01 10:00:01"},
+		{ID: "3", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "a3", Time: "2026-01-01 10:00:02"},
+		{ID: "4", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 5, Name: "f1", IsFree: true, Time: "2026-01-01 10:00:03"},
+		{ID: "5", BannerKey: "special", PoolID: "A", PoolName: "期A", Rank: 6, Name: "伊馮", IsFree: true, Time: "2026-01-01 10:00:04"},
+	}
+	s := ComputeSummary("u", pulls, cfg)
+	var yvon *HeadlineEntry
+	for i := range s.Highlights {
+		if s.Highlights[i].Name == "伊馮" {
+			yvon = &s.Highlights[i]
+		}
+	}
+	if yvon == nil || yvon.Count != 3 {
+		t.Fatalf("伊馮 highlight = %+v want Count 3 (3 paid; 1 free non-6★ skipped)", yvon)
+	}
+}
