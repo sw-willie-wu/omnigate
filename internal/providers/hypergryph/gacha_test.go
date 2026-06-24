@@ -265,6 +265,26 @@ func TestEndfieldFetchRecords_IncludesWeapon(t *testing.T) {
 	}
 }
 
+func TestEndfieldWeaponPityWalk(t *testing.T) {
+	m := endfieldWeaponPity{}
+	if m.HardPity() != 40 {
+		t.Fatalf("HardPity=%d want 40", m.HardPity())
+	}
+	if m.Has5050() {
+		t.Fatalf("Has5050=true want false")
+	}
+	pulls := []core.GachaPull{
+		{ID: "1", Rank: 5}, {ID: "2", Rank: 5}, {ID: "3", Rank: 6, Name: "WX"}, {ID: "4", Rank: 5},
+	}
+	hits, trailing := m.Walk(pulls, 6)
+	if len(hits) != 1 || hits[0].Count != 3 {
+		t.Fatalf("hits=%+v want 1 hit cost 3", hits)
+	}
+	if trailing != 1 {
+		t.Fatalf("trailing=%d want 1", trailing)
+	}
+}
+
 func TestEndfieldGachaConfig_PriceCurrencyWeaponBanner(t *testing.T) {
 	p := New(Settings{}, nil)
 	cfg := p.GachaConfig("hypergryph/endfield")

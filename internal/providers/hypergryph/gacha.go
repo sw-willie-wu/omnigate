@@ -39,6 +39,26 @@ func (endfieldStandardPity) Walk(sorted []core.GachaPull, headline int) ([]core.
 	return hits, pity
 }
 
+const endfieldWeaponHardPity = 40 // 武器 6★ 保底（per-期，每抽都算）
+
+// endfieldWeaponPity: like endfieldStandardPity but capped at 40. Weapon records have
+// no isFree (always false), so every pull counts; reset to 0 on a 6★ headline.
+type endfieldWeaponPity struct{}
+
+func (endfieldWeaponPity) HardPity() int { return endfieldWeaponHardPity }
+func (endfieldWeaponPity) Has5050() bool { return false }
+func (endfieldWeaponPity) Walk(sorted []core.GachaPull, headline int) ([]core.PityHit, int) {
+	hits, pity := []core.PityHit{}, 0
+	for _, p := range sorted {
+		pity++
+		if p.Rank == headline {
+			hits = append(hits, core.PityHit{Pull: p, Count: pity})
+			pity = 0
+		}
+	}
+	return hits, pity
+}
+
 // endfieldLimitedPity: only non-free pulls count; free pulls add to carryover
 // only after milestone≥60; on a headline, pity resets to the carried-over count.
 type endfieldLimitedPity struct{}
