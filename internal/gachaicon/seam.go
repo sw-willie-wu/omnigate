@@ -10,3 +10,6 @@ func (m *Manager) SwapForTest(gid core.GameID, idx *Index)             { m.swap(
 func (m *Manager) SetURLFnForTest(fn func(core.GameID, string, string) string) {
 	m.urlFn = fn
 }
+
+// SetSkportBaseForTest overrides the skport API host (tests inject an httptest server).
+func SetSkportBaseForTest(u string) { skportBaseURL = u }
