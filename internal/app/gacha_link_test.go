@@ -24,8 +24,10 @@ func TestExtractAccountToken(t *testing.T) {
 }
 
 // SetGachaCredential is the manual-paste fallback: it extracts the token from the
-// pasted JSON (or raw), creates a per-account row, sets it active, and refreshes
-// to write back the roleId uid. Assert the row exists with the extracted token.
+// pasted JSON (or raw), creates a per-account row, and sets it active — then returns
+// IMMEDIATELY (uid still ""), exactly like AddGachaAccountByLogin. It must NOT block on
+// the slow record fetch; the gacha board drives the refresh-with-progress for the
+// uid-empty account (GachaBoard.loadForSelection). Assert the row exists, token set, uid "".
 func TestSetGachaCredential_CreatesAccount(t *testing.T) {
 	a := newTestAppWithEndfield(t)
 	acc, err := a.SetGachaCredential("hypergryph/endfield", `  {"data":{"content":"pasted-tok"}}  `)
@@ -39,12 +41,13 @@ func TestSetGachaCredential_CreatesAccount(t *testing.T) {
 	if len(accts) != 1 || accts[0].Token != "pasted-tok" {
 		t.Fatalf("accts = %+v, want one row token=pasted-tok", accts)
 	}
-	// write-back populated the roleId uid from the fake fetch (ROLE42).
-	if acc.UID != "ROLE42" {
-		t.Fatalf("returned acc.UID = %q, want ROLE42 (write-back)", acc.UID)
+	// Returns before the slow fetch: uid is empty (the board writes it back on refresh),
+	// so the login modal closes immediately instead of hanging ~80s.
+	if acc.UID != "" {
+		t.Fatalf("returned acc.UID = %q, want \"\" (no synchronous refresh — board drives it)", acc.UID)
 	}
-	if accts[0].UID != "ROLE42" {
-		t.Fatalf("stored uid = %q, want ROLE42 (write-back)", accts[0].UID)
+	if accts[0].UID != "" {
+		t.Fatalf("stored uid = %q, want \"\" (no synchronous refresh)", accts[0].UID)
 	}
 }
 

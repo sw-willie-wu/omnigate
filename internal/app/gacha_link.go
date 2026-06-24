@@ -10,9 +10,11 @@ import (
 )
 
 // SetGachaCredential (RPC): manual-paste fallback — create a per-account row from a
-// pasted account_token, then refresh to populate its roleId uid. Shares the
-// write-back path with AddGachaAccountByLogin (Task 6).
-// Returns the fully-populated account (with UID written back after the refresh).
+// pasted account_token (after a best-effort user/info fetch), set it active, and return
+// IMMEDIATELY with uid="". Mirrors AddGachaAccountByLogin: it does NOT block on the slow
+// record fetch — the login modal closes right away and the gacha board drives the
+// refresh-with-progress for the uid-empty account (GachaBoard.loadForSelection), which
+// writes back the roleId uid.
 func (a *App) SetGachaCredential(gameID, credential string) (store.GachaAccount, error) {
 	gid := core.GameID(gameID)
 	p, err := a.provider(gid)
@@ -32,14 +34,9 @@ func (a *App) SetGachaCredential(gameID, credential string) (store.GachaAccount,
 	ctx, cancel := a.gachaCtx()
 	defer cancel()
 	hgID, email, label := a.resolveCredentialIdentity(ctx, gid, token, "", "")
-	acc, err := a.upsertDedupedCredentialAccount(gameID, hgID, email, label, token)
-	if err != nil {
-		return store.GachaAccount{}, err
-	}
-	if err := a.refreshAndWriteBackUID(ctx, gid, &acc); err != nil {
-		return acc, err
-	}
-	return acc, nil
+	// Return right after login+save (uid=""); the board drives the slow refresh with
+	// progress. Do NOT call refreshAndWriteBackUID here — that would block the modal ~80s.
+	return a.upsertDedupedCredentialAccount(gameID, hgID, email, label, token)
 }
 
 // extractAccountToken normalises a captured/pasted credential: it accepts either
