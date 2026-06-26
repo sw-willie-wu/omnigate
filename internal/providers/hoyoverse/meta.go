@@ -6,7 +6,7 @@ const (
 	BackendID  core.BackendID = "hoyoverse"
 	LauncherID                = "VYTpXlbWo8"
 	APIBase                   = "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api"
-	UserAgent                 = "omnigate/0.3 (+https://github.com/willie/omnigate)"
+	UserAgent                 = "omnigate/0.4 (+https://github.com/willie/omnigate)"
 
 	// sophonChunkAPIBase is the getBuild / getPatchBuild host for the Sophon
 	// chunk protocol (§2.1 / §A.4). Distinct from APIBase (getGameBranches).
