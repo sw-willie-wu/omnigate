@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,7 +20,8 @@ type Settings struct {
 type Provider struct {
 	settings       Settings
 	logger         *slog.Logger
-	httpClient     *http.Client // for manifest + downloads; injected from app layer
+	httpClient     *http.Client // manifest/version/gacha/news JSON fetches (overall timeout OK)
+	downloadClient *http.Client // game-file downloads; NO overall timeout — stall watchdog governs
 	clock          RetryClock   // for download retry backoff (test-only injection)
 	resolvedPaths  map[core.GameID]string
 	recordAPIBase  string
@@ -37,10 +39,29 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 		logger = slog.Default()
 	}
 	p := &Provider{
-		settings:   settings,
-		logger:     logger,
-		httpClient: &http.Client{Timeout: 5 * time.Minute},
-		clock:      realRetryClock{},
+		settings: settings,
+		logger:   logger,
+		// httpClient serves only small JSON (index/indexFile/gacha/news) where
+		// an overall timeout is the right semantic. Game-file downloads must
+		// NOT go through it: Client.Timeout caps the whole body read, which
+		// made any >Timeout transfer fail deterministically (24 GiB pak vs
+		// the old 5-minute cap).
+		httpClient: &http.Client{Timeout: 60 * time.Second},
+		downloadClient: &http.Client{
+			// No overall timeout — the downloader's stall watchdog aborts
+			// dead streams; connection setup is bounded by the Transport.
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   15 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
+		},
+		clock: realRetryClock{},
 	}
 	p.recordAPIBase = "https://gmserver-api.aki-game2.net"
 	p.convLogPathsFn = defaultConvLogPaths
@@ -66,6 +87,15 @@ func (p *Provider) tempRoot(gid core.GameID) string {
 
 // SetTempRootFn wires the app-provided temp resolver. Called by App.constructProviders.
 func (p *Provider) SetTempRootFn(fn func(core.GameID) string) { p.tempRootFn = fn }
+
+// dlClient returns the download client, falling back to httpClient so tests
+// that only override httpClient (pre-existing pattern) still work.
+func (p *Provider) dlClient() *http.Client {
+	if p.downloadClient != nil {
+		return p.downloadClient
+	}
+	return p.httpClient
+}
 
 func (p *Provider) ID() core.BackendID { return BackendID }
 
@@ -415,13 +445,14 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 
 	// Download phase
 	d := &downloader{
-		client:   p.httpClient,
-		logger:   p.logger,
-		tempRoot: tempDir,
-		progress: progress,
-		plan:     &plan,
-		onEvent:  onEvent,
-		clock:    p.clock,
+		client:       p.dlClient(),
+		logger:       p.logger,
+		tempRoot:     tempDir,
+		progress:     progress,
+		plan:         &plan,
+		onEvent:      onEvent,
+		clock:        p.clock,
+		stallTimeout: defaultStallTimeout,
 	}
 	if err := d.runDownload(ctx); err != nil {
 		return err

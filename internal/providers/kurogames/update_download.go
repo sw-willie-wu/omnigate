@@ -22,9 +22,22 @@ const (
 
 	netRetries  = 3
 	hashRetries = 2
+
+	// defaultStallTimeout is how long the body stream may deliver ZERO bytes
+	// before the stall watchdog aborts the request. Deliberately NOT an
+	// overall request timeout: a 24 GiB pak at any speed keeps resetting the
+	// watchdog, whereas http.Client.Timeout capped the whole transfer at
+	// 5 minutes and made >5-min files deterministically fail (2026-07-10
+	// WuWa 3.4.1→3.5.0 pakchunk70 incident).
+	defaultStallTimeout = 60 * time.Second
 )
 
 var netBackoff = []time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second}
+
+// errStalled is the cancellation cause the stall watchdog injects into the
+// per-request context; classify() keys off it to distinguish "our watchdog
+// killed a stalled stream" (retryable) from a user cancel (terminal).
+var errStalled = errors.New("download stalled")
 
 // downloader wraps the dependencies needed for a download phase.
 //
@@ -41,6 +54,40 @@ type downloader struct {
 	onEvent   func(core.UpdateEvent) // throttled by App layer
 	bytesDone atomic.Int64           // sum across workers
 	clock     RetryClock             // injected for retry backoff in tests
+
+	// stallTimeout overrides defaultStallTimeout (tests inject short values).
+	// Zero/negative means default — read via stall(), never directly, so
+	// zero-valued downloader literals keep working.
+	stallTimeout time.Duration
+}
+
+func (d *downloader) stall() time.Duration {
+	if d.stallTimeout <= 0 {
+		return defaultStallTimeout
+	}
+	return d.stallTimeout
+}
+
+// classify maps a failed request's error to retry semantics. Three-way by
+// design (spec 2026-07-10 §3.1 BLK-1): collapsing to two branches either
+// mislabels user cancels as retryable or returns nil for ordinary transport
+// errors (which would send a truncated .part into hash verification and
+// surface as bogus `corrupt`).
+func (d *downloader) classify(ctx, reqCtx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if context.Cause(reqCtx) == errStalled { // 1. our watchdog fired → retryable
+		return &core.UpdateError{
+			Code:      "network",
+			Retryable: true,
+			Params:    map[string]string{"reason": "stalled"},
+		}
+	}
+	if ctx.Err() != nil { // 2. parent cancelled (user/deadline) → terminal
+		return ctx.Err()
+	}
+	return err // 3. plain transport error → raw; netRetries loop wraps it
 }
 
 // RetryClock abstracts time.Sleep + time.Now + time.NewTicker for the
@@ -155,13 +202,23 @@ func (d *downloader) processFile(ctx context.Context, f core.FileTask) error {
 			d.clock.Sleep(netBackoff[attempt-1])
 		}
 		if err := d.downloadAndVerify(ctx, f, partPath); err != nil {
-			// Categorize error
+			// User cancel is terminal regardless of attempt budget — never
+			// wrap it as network (classify branch 2 surfaces it raw).
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Structured errors terminate UNLESS they are retryable network
+			// (a stalled stream from the watchdog behaves like any transport
+			// failure and must consume the netRetries budget).
 			var ue *core.UpdateError
-			if errors.As(err, &ue) {
-				return ue // already structured (e.g., hash mismatch retries exhausted)
+			if errors.As(err, &ue) && !(ue.Code == "network" && ue.Retryable) {
+				return ue // e.g. hash mismatch retries exhausted → corrupt
 			}
 			d.logger.Debug("download attempt failed", "path", f.Path, "attempt", attempt+1, "err", err)
 			if attempt == netRetries {
+				if ue != nil {
+					return ue // already a proper network UpdateError (stalled)
+				}
 				return &core.UpdateError{
 					Code:      "network",
 					Retryable: true,
@@ -227,13 +284,22 @@ func (d *downloader) downloadAndVerify(ctx context.Context, f core.FileTask, par
 // singleDownload streams URL into partPath while computing MD5 (the
 // kurogames manifest hash algorithm per research markdown 2026-05-05).
 func (d *downloader) singleDownload(ctx context.Context, urlStr, partPath string, expectedSize int64) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	// Stall watchdog: the request runs on a derived cancel-cause context; the
+	// watchdog cancels it with errStalled after stall() with NO bytes. First
+	// cancel wins in WithCancelCause, so the deferred cancel(nil) cannot
+	// clobber the errStalled cause.
+	reqCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	watchdog := time.AfterFunc(d.stall(), func() { cancel(errStalled) })
+	defer watchdog.Stop()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return "", err
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", d.classify(ctx, reqCtx, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -250,11 +316,12 @@ func (d *downloader) singleDownload(ctx context.Context, urlStr, partPath string
 	written := int64(0)
 	buf := make([]byte, 64*1024)
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil { // parent ctx: user cancel
 			return "", err
 		}
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
+			watchdog.Reset(d.stall())
 			if _, werr := f.Write(buf[:n]); werr != nil {
 				return "", werr
 			}
@@ -267,7 +334,7 @@ func (d *downloader) singleDownload(ctx context.Context, urlStr, partPath string
 			break
 		}
 		if rerr != nil {
-			return "", rerr
+			return "", d.classify(ctx, reqCtx, rerr)
 		}
 	}
 	if expectedSize > 0 && written != expectedSize {

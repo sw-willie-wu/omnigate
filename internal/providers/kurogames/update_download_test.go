@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -218,6 +219,219 @@ func TestCancel_BeforeStart(t *testing.T) {
 	}
 	if got := attempts.Load(); got != 0 {
 		t.Errorf("server hit %d times after pre-cancel; want 0", got)
+	}
+}
+
+// --- Task A: stall watchdog + classify (spec 2026-07-10 §3.1) ---
+
+// TestStall_NoOverallTimeout (T1): a download whose TOTAL duration far
+// exceeds stallTimeout must succeed as long as bytes keep flowing — the
+// watchdog fires on "no bytes for stallTimeout", never on elapsed time.
+// This is the D1 fix: the old 5-minute http.Client.Timeout made any
+// >5-min transfer (e.g. the 24 GiB pakchunk70) deterministically fail.
+func TestStall_NoOverallTimeout(t *testing.T) {
+	body := strings.Repeat("a", 50)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		fl := w.(http.Flusher)
+		for i := 0; i < len(body); i++ {
+			w.Write([]byte{body[i]})
+			fl.Flush()
+			time.Sleep(10 * time.Millisecond) // 50 bytes × 10ms ≈ 500ms total ≫ 100ms stall
+		}
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		TotalBytes: int64(len(body)),
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex(body), Size: int64(len(body)), URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+		stallTimeout: 100 * time.Millisecond,
+	}
+	if err := d.runDownload(context.Background()); err != nil {
+		t.Fatalf("slow-but-flowing download failed: %v", err)
+	}
+}
+
+// TestStall_DetectedAndRetryable (T2): server sends partial body then hangs.
+// Targets the singleDownload seam directly (through runDownload the total
+// time would be ~4×stallTimeout across netRetries).
+func TestStall_DetectedAndRetryable(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), clock: fakeRetryClock{},
+		stallTimeout: 50 * time.Millisecond,
+	}
+	start := time.Now()
+	_, err := d.singleDownload(context.Background(), srv.URL, filepath.Join(t.TempDir(), "x.part"), 100)
+	elapsed := time.Since(start)
+
+	var ue *core.UpdateError
+	if !errors.As(err, &ue) {
+		t.Fatalf("err = %v (%T), want *core.UpdateError", err, err)
+	}
+	if ue.Code != "network" || !ue.Retryable || ue.Params["reason"] != "stalled" {
+		t.Errorf("got Code=%q Retryable=%v reason=%q; want network/true/stalled", ue.Code, ue.Retryable, ue.Params["reason"])
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("stall detection took %v; want ~50ms, definitely not minutes", elapsed)
+	}
+}
+
+// TestStall_RetriedByNetRetries: a persistent stall must burn the netRetries
+// budget (like any transport failure) rather than surfacing after the first
+// stall. Pins the processFile retry semantics for retryable network
+// UpdateErrors (spec §3.1 branch 1 "可重試").
+func TestStall_RetriedByNetRetries(t *testing.T) {
+	var attempts atomic.Int64
+	release := make(chan struct{})
+	defer close(release)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Content-Length", "100")
+		w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex("irrelevant"), Size: 100, URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+		stallTimeout: 30 * time.Millisecond,
+	}
+	err := d.runDownload(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "network") {
+		t.Errorf("err = %v, want network", err)
+	}
+	if attempts.Load() != int64(netRetries+1) {
+		t.Errorf("attempts = %d, want %d (stall must consume netRetries)", attempts.Load(), netRetries+1)
+	}
+}
+
+// TestStall_UserCancelNotRetried (T2b): parent-ctx cancel mid-stream must
+// NOT be retried — exactly one request, error is context.Canceled.
+// Single-file plan keeps the request count deterministic (4 workers).
+func TestStall_UserCancelNotRetried(t *testing.T) {
+	var attempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Content-Length", "100")
+		w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex("x"), Size: 100, URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+		// stallTimeout deliberately unset → 60s default; watchdog must not fire here
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	err := d.runDownload(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if attempts.Load() != 1 {
+		t.Errorf("attempts = %d, want 1 (user cancel must not retry)", attempts.Load())
+	}
+}
+
+// TestMidStreamError_ClassifiedNetwork (T2c): an ordinary mid-stream
+// transport failure (server drops conn at half body; watchdog did NOT fire,
+// parent ctx alive) must be classified as retryable network — burning
+// netRetries, never touching hashRetries, and never reported as corrupt.
+// Guards spec BLK-1 (the 2-way classify returned nil for this case).
+func TestMidStreamError_ClassifiedNetwork(t *testing.T) {
+	var attempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Content-Length", "100")
+		w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler) // drop the connection mid-body
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex("whatever"), Size: 100, URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+	err := d.runDownload(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "corrupt") {
+		t.Fatalf("mid-stream transport error misclassified as corrupt: %v", err)
+	}
+	if !strings.Contains(err.Error(), "network") {
+		t.Errorf("err = %v, want network", err)
+	}
+	if attempts.Load() != int64(netRetries+1) {
+		t.Errorf("attempts = %d, want %d (netRetries, not hashRetries)", attempts.Load(), netRetries+1)
 	}
 }
 
