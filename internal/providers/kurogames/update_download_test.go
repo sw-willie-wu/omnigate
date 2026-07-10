@@ -285,7 +285,7 @@ func TestStall_DetectedAndRetryable(t *testing.T) {
 		stallTimeout: 50 * time.Millisecond,
 	}
 	start := time.Now()
-	_, err := d.singleDownload(context.Background(), srv.URL, filepath.Join(t.TempDir(), "x.part"), 100)
+	_, _, err := d.singleDownload(context.Background(), srv.URL, filepath.Join(t.TempDir(), "x.part"), 100)
 	elapsed := time.Since(start)
 
 	var ue *core.UpdateError
@@ -432,6 +432,240 @@ func TestMidStreamError_ClassifiedNetwork(t *testing.T) {
 	}
 	if attempts.Load() != int64(netRetries+1) {
 		t.Errorf("attempts = %d, want %d (netRetries, not hashRetries)", attempts.Load(), netRetries+1)
+	}
+}
+
+// --- Task B: per-discard progress rollback + isComplete (spec §3.2) ---
+
+// TestRetryRollback_NetErrorThenSuccess (T3): two half-body drops then a
+// clean download. bytesDone must equal TotalBytes exactly — failed attempts'
+// partial bytes are refunded, the successful attempt counts once.
+func TestRetryRollback_NetErrorThenSuccess(t *testing.T) {
+	body := "the-real-content"
+	var attempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := attempts.Add(1)
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		if n <= 2 {
+			w.Write([]byte(body[:len(body)/2]))
+			w.(http.Flusher).Flush()
+			panic(http.ErrAbortHandler) // drop mid-body
+		}
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		TotalBytes: int64(len(body)),
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex(body), Size: int64(len(body)), URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+	if err := d.runDownload(context.Background()); err != nil {
+		t.Fatalf("runDownload: %v", err)
+	}
+	if got := d.bytesDone.Load(); got != plan.TotalBytes {
+		t.Errorf("bytesDone = %d, want %d (failed attempts must be refunded)", got, plan.TotalBytes)
+	}
+}
+
+// TestRetryRollback_AllFail (T4): every attempt drops mid-body. All partial
+// bytes must be refunded — bytesDone ends at exactly 0.
+func TestRetryRollback_AllFail(t *testing.T) {
+	body := "the-real-content"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.Write([]byte(body[:len(body)/2]))
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		TotalBytes: int64(len(body)),
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex(body), Size: int64(len(body)), URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+	err := d.runDownload(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "network") {
+		t.Errorf("err = %v, want network", err)
+	}
+	if got := d.bytesDone.Load(); got != 0 {
+		t.Errorf("bytesDone = %d, want 0 (all partial bytes refunded)", got)
+	}
+}
+
+// TestHashMismatchRollback_AllFail (T5): hash never matches. Every full-file
+// download is discarded and refunded — corrupt error, bytesDone exactly 0.
+func TestHashMismatchRollback_AllFail(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("wrong-content"))
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		TotalBytes: int64(len("wrong-content")),
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex("expected"), Size: int64(len("wrong-content")), URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+	err := d.runDownload(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "corrupt") {
+		t.Fatalf("err = %v, want corrupt", err)
+	}
+	if got := d.bytesDone.Load(); got != 0 {
+		t.Errorf("bytesDone = %d, want 0", got)
+	}
+}
+
+// TestHashMismatchRollback_ThenSuccess (T5b): first download has wrong
+// content (same length → hash-mismatch path, not size-mismatch), second is
+// correct. bytesDone must be exactly Size, not 2×Size. This is the exact
+// over-count spec BLOCKING-2 identified: rollback tied to function error
+// return misses the mid-loop discard on the eventually-successful path.
+func TestHashMismatchRollback_ThenSuccess(t *testing.T) {
+	right := "right-stuff"
+	wrong := "wrong-stuff" // same length: triggers hash mismatch, not size mismatch
+	var attempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.Write([]byte(wrong))
+			return
+		}
+		w.Write([]byte(right))
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		TotalBytes: int64(len(right)),
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex(right), Size: int64(len(right)), URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+	if err := d.runDownload(context.Background()); err != nil {
+		t.Fatalf("runDownload: %v", err)
+	}
+	if got := d.bytesDone.Load(); got != plan.TotalBytes {
+		t.Errorf("bytesDone = %d, want %d (discarded mismatch must be refunded)", got, plan.TotalBytes)
+	}
+}
+
+// TestSizeMismatchRollback: server closes cleanly after a SHORT body (no
+// Content-Length → client sees clean EOF, not a read error). singleDownload
+// returns the size-mismatch error with written>0; those bytes must be
+// refunded like any other discarded attempt.
+func TestSizeMismatchRollback(t *testing.T) {
+	body := "the-real-content"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body[:len(body)/2])) // clean short body, no CL header
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		TotalBytes: int64(len(body)),
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex(body), Size: int64(len(body)), URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+	err := d.runDownload(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "network") {
+		t.Fatalf("err = %v, want network (size mismatch is transport-ish)", err)
+	}
+	if got := d.bytesDone.Load(); got != 0 {
+		t.Errorf("bytesDone = %d, want 0 (short-body bytes refunded)", got)
+	}
+}
+
+// TestPrecountSkipConsistency (T6): progress.json has an entry but the file
+// is GONE from disk. Pre-count and the per-file skip check must agree (both
+// via isComplete): the file is re-downloaded and counted exactly once —
+// never "pre-counted AND re-downloaded" (spec D3 double-count).
+func TestPrecountSkipConsistency(t *testing.T) {
+	body := "hello"
+	var attempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Entry claims completion, but the file does not exist on disk.
+	if err := ps.MarkComplete("a.dll", time.Now(), int64(len(body))); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		TotalBytes: int64(len(body)),
+		Files: []core.FileTask{
+			{Path: "a.dll", Hash: md5hex(body), Size: int64(len(body)), URL: srv.URL},
+		},
+	}
+	d := &downloader{
+		client: srv.Client(), logger: slogTest(t), progress: ps,
+		plan: plan, clock: fakeRetryClock{},
+	}
+	if err := d.runDownload(context.Background()); err != nil {
+		t.Fatalf("runDownload: %v", err)
+	}
+	if attempts.Load() != 1 {
+		t.Errorf("attempts = %d, want 1 (missing file must be re-downloaded)", attempts.Load())
+	}
+	if got := d.bytesDone.Load(); got != plan.TotalBytes {
+		t.Errorf("bytesDone = %d, want %d (no pre-count + re-download double-count)", got, plan.TotalBytes)
 	}
 }
 
