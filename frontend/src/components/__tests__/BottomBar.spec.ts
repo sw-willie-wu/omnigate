@@ -26,6 +26,7 @@ vi.mock('../../composables/useDialog', () => ({ confirm: vi.fn(), registerDialog
 import BottomBar from '../BottomBar.vue';
 import { useGamesStore } from '../../stores/games';
 import { useAccountStore } from '../../stores/account';
+import { useUpdatesStore } from '../../stores/updates';
 
 const GID = 'kurogames/wutheringwaves';
 function setup(opts: { selectedId: string; running?: boolean }) {
@@ -83,5 +84,21 @@ describe('BottomBar Play states', () => {
       }
       expect(((loc.account?.currentlyLoggedIn ?? '') as string).length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('BottomBar progress clamp', () => {
+  beforeEach(() => { isRunning.mockReset(); launch.mockReset(); });
+
+  it('clamps progress width to 100% when current > total (backend over-count defense)', async () => {
+    const w = setup({ selectedId: 'A' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'update', phase: 'download', current: 150, total: 100 },
+    } as never;
+    await flushPromises();
+    const fill = w.find('.progress-btn .fill');
+    expect(fill.exists()).toBe(true);
+    expect(fill.attributes('style')).toContain('width: 100%');
   });
 });

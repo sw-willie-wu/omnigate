@@ -38,7 +38,10 @@ func (p *progressStore) dir() string {
 // files (this is what makes ResumeInterrupted's documented "resume from
 // progress.json" and a re-clicked predownload actually resume rather than
 // re-download). A missing/corrupt file, or a changed ETag (the manifest changed
-// → staged bytes are stale), falls back to a fresh empty progress.json.
+// → staged bytes are stale), falls back to a fresh empty progress.json AND
+// deletes every staged .part under the version dir — chunked-resume .part
+// files now persist across sessions, and stale ones must not be resumed
+// against a new manifest's chunk table.
 func (p *progressStore) Init(etag string) error {
 	if err := os.MkdirAll(p.dir(), 0o755); err != nil {
 		return fmt.Errorf("mkdir progress: %w", err)
@@ -46,6 +49,7 @@ func (p *progressStore) Init(etag string) error {
 	if existing, err := core.LoadProgressFromPath(filepath.Join(p.dir(), "progress.json")); err == nil && existing != nil && existing.ETag == etag {
 		return nil // keep prior Entries → resume
 	}
+	p.removeStaleParts()
 	pf := core.ProgressFile{
 		GameID:  p.gameID,
 		Version: p.version,
@@ -53,6 +57,23 @@ func (p *progressStore) Init(etag string) error {
 		Entries: map[string]core.ProgressEntry{},
 	}
 	return p.writeAtomic("progress.json", &pf)
+}
+
+// removeStaleParts deletes every *.part under the version dir. Must walk
+// recursively: .part files live at the file's final relative path (e.g.
+// Client/Content/Paks/x.pak.part) — a top-level glob would miss exactly the
+// big paks chunked resume exists for. Best-effort: a locked/undeletable
+// .part only costs disk until the next manifest change.
+func (p *progressStore) removeStaleParts() {
+	_ = filepath.WalkDir(p.dir(), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr — best-effort sweep
+		}
+		if strings.HasSuffix(d.Name(), ".part") {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
 }
 
 // MarkComplete records that <relPath> finished download + verify.

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"omnigate/internal/core"
 )
 
 func TestSanitizeURL(t *testing.T) {
@@ -226,5 +228,54 @@ func TestFilterChangedFiles_SkipsIdentical(t *testing.T) {
 		if f.URL == "" || !strings.Contains(f.URL, "https://cdn.example/base/") {
 			t.Errorf("URL not constructed: %+v", f)
 		}
+	}
+}
+
+// TestFilterChangedFiles_CarriesChunks (T12): manifest chunkInfos must be
+// carried into FileTask.Chunks, and the chunk layout must satisfy the
+// contract the range-resume path depends on: end is INCLUSIVE, chunks tile
+// the file exactly — Σ(end−start+1) == size.
+func TestFilterChangedFiles_CarriesChunks(t *testing.T) {
+	tmp := t.TempDir()
+	files := []manifestFileRaw{
+		{
+			Dest: "big.pak", MD5: "abc", Size: 250,
+			ChunkInfos: []chunkInfo{
+				{Start: 0, End: 99, MD5: "c0"},
+				{Start: 100, End: 199, MD5: "c1"},
+				{Start: 200, End: 249, MD5: "c2"},
+			},
+		},
+		{Dest: "small.dll", MD5: "def", Size: 10}, // no chunks
+	}
+	out := filterChangedFiles(context.Background(), tmp, "https://cdn.example/", "base/", files, nil, nil)
+	if len(out) != 2 {
+		t.Fatalf("got %d files, want 2", len(out))
+	}
+	byPath := map[string]core.FileTask{}
+	for _, f := range out {
+		byPath[f.Path] = f
+	}
+
+	big := byPath["big.pak"]
+	if len(big.Chunks) != 3 {
+		t.Fatalf("big.pak Chunks = %d, want 3", len(big.Chunks))
+	}
+	var sum int64
+	for i, c := range big.Chunks {
+		if c.End < c.Start {
+			t.Errorf("chunk %d: end %d < start %d", i, c.End, c.Start)
+		}
+		sum += c.End - c.Start + 1
+	}
+	if sum != big.Size {
+		t.Errorf("Σ(end−start+1) = %d, want %d (end must be inclusive and chunks must tile the file)", sum, big.Size)
+	}
+	if big.Chunks[0].Hash != "c0" || big.Chunks[2].Hash != "c2" {
+		t.Errorf("chunk hashes not carried: %+v", big.Chunks)
+	}
+
+	if len(byPath["small.dll"].Chunks) != 0 {
+		t.Errorf("small.dll should have no chunks: %+v", byPath["small.dll"].Chunks)
 	}
 }

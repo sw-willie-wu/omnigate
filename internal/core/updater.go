@@ -101,6 +101,22 @@ type FileTask struct {
 	Hash string `json:"hash"` // hex-encoded provider-specific hash (MD5 for kurogames)
 	Size int64  `json:"size"` // expected byte size
 	URL  string `json:"url"`  // full CDN URL; sanitized before logging via sanitizeURL
+
+	// Chunks, when non-empty, describes verifiable sub-ranges of the file
+	// (kurogames ships per-100-MiB MD5s in manifest chunkInfos). Enables
+	// byte-range resume: a partial .part can be validated chunk-by-chunk
+	// and continued instead of re-downloaded from zero. Empty for
+	// providers/files without chunk metadata → whole-file download.
+	Chunks []Chunk `json:"chunks,omitempty"`
+}
+
+// Chunk is one verifiable byte range of a FileTask. End is INCLUSIVE
+// (matching both the kurogames manifest format and HTTP Range semantics):
+// a chunk covers [Start, End], length End-Start+1.
+type Chunk struct {
+	Start int64  `json:"start"`
+	End   int64  `json:"end"`
+	Hash  string `json:"hash"` // hex MD5 of the range
 }
 
 // UpdateEvent is emitted by RunUpdate via the onEvent callback during

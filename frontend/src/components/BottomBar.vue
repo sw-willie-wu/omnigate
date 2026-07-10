@@ -159,11 +159,13 @@ function setBg(i: number) {
   if (games.selected) games.selected.bgIndex = i;
 }
 
-// Progress percentage (Download phase by bytes; Apply phase by file count)
+// Progress percentage (Download phase by bytes; Apply phase by file count).
+// Clamped ≤100: defense-in-depth against backend counter drift (the
+// 2026-07-10 WuWa update rendered 150% from retry over-counting).
 const progressPct = computed(() => {
   const ifl = inFlight.value;
   if (!ifl || ifl.total === 0) return 0;
-  return Math.round((ifl.current / ifl.total) * 100);
+  return Math.min(100, Math.round((ifl.current / ifl.total) * 100));
 });
 
 const showCancelX = computed(() => inFlight.value?.phase === 'download');
