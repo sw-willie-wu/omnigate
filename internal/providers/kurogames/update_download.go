@@ -186,6 +186,11 @@ func (d *downloader) runDownload(ctx context.Context) error {
 // processFile downloads one file with retries + verification + progress
 // update. Skips if isComplete says so — the SAME predicate the pre-count
 // used, so skip and pre-count can never disagree.
+//
+// Files with chunk metadata go through chunkedDownload (called exactly once
+// — it owns its per-chunk retries; spec BLK-2), falling back to the classic
+// full-GET loop only when the CDN ignores Range requests. Chunk-less files
+// take the full-GET loop directly.
 func (d *downloader) processFile(ctx context.Context, f core.FileTask, pf *core.ProgressFile) error {
 	finalPath := filepath.Join(d.progress.dir(), f.Path)
 
@@ -195,14 +200,54 @@ func (d *downloader) processFile(ctx context.Context, f core.FileTask, pf *core.
 		return nil
 	}
 
-	// Cleanup any leftover .part before re-download (spec §5.2)
 	partPath := finalPath + ".part"
-	_ = os.Remove(partPath)
 	if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(finalPath), err)
 	}
 
-	// Try net retries with backoff
+	downloadedByChunks := false
+	if len(f.Chunks) > 0 {
+		err := d.chunkedDownload(ctx, f, partPath)
+		switch {
+		case err == nil:
+			downloadedByChunks = true
+		case errors.Is(err, errRangeUnsupported):
+			d.logger.Info("CDN ignores Range; falling back to full download", "path", f.Path)
+			// chunkedDownload already refunded its bytes and removed .part.
+		default:
+			return err
+		}
+	}
+	if !downloadedByChunks {
+		// Cleanup any leftover .part before re-download (spec §5.2) — the
+		// full-GET path cannot validate partial content.
+		_ = os.Remove(partPath)
+		if err := d.fullGetDownload(ctx, f, partPath); err != nil {
+			return err
+		}
+	}
+
+	// Finalize (shared by both paths): rename .part → final, record progress
+	// with exact mtime captured post-rename. Stat error here would corrupt
+	// progress.json with zero values — surface it rather than silently
+	// degrade resume semantics (Task 8 review fix).
+	if err := os.Rename(partPath, finalPath); err != nil {
+		return fmt.Errorf("rename %s: %w", finalPath, err)
+	}
+	fi, err := os.Stat(finalPath)
+	if err != nil {
+		return fmt.Errorf("stat post-rename %s: %w", finalPath, err)
+	}
+	if err := d.progress.MarkComplete(f.Path, fi.ModTime(), fi.Size()); err != nil {
+		return fmt.Errorf("progress.MarkComplete: %w", err)
+	}
+	d.emitProgress(f.Path)
+	return nil
+}
+
+// fullGetDownload runs the whole-file download with netRetries backoff —
+// the classic path for chunk-less files and the Range fallback.
+func (d *downloader) fullGetDownload(ctx context.Context, f core.FileTask, partPath string) error {
 	for attempt := 0; attempt <= netRetries; attempt++ {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -239,21 +284,6 @@ func (d *downloader) processFile(ctx context.Context, f core.FileTask, pf *core.
 			}
 			continue
 		}
-		// Success: rename .part → final
-		if err := os.Rename(partPath, finalPath); err != nil {
-			return fmt.Errorf("rename %s: %w", finalPath, err)
-		}
-		// Record progress with exact mtime captured post-rename. Stat error
-		// here would corrupt progress.json with zero values — surface it
-		// rather than silently degrade resume semantics (Task 8 review fix).
-		fi, err := os.Stat(finalPath)
-		if err != nil {
-			return fmt.Errorf("stat post-rename %s: %w", finalPath, err)
-		}
-		if err := d.progress.MarkComplete(f.Path, fi.ModTime(), fi.Size()); err != nil {
-			return fmt.Errorf("progress.MarkComplete: %w", err)
-		}
-		d.emitProgress(f.Path)
 		return nil
 	}
 	return &core.UpdateError{Code: "internal", Retryable: true} // unreachable
