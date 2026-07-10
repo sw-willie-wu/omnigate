@@ -246,6 +246,33 @@ func fileURL(cdn string, parentBaseURL string, entry manifestFileRaw) string {
 	return cdn + folder + dest
 }
 
+// toChunks converts manifest chunkInfos into core.Chunks (end stays
+// inclusive in both representations). Nil in → nil out, so chunk-less
+// entries keep the whole-file download path.
+func toChunks(infos []chunkInfo) []core.Chunk {
+	if len(infos) == 0 {
+		return nil
+	}
+	out := make([]core.Chunk, len(infos))
+	for i, c := range infos {
+		out[i] = core.Chunk{Start: c.Start, End: c.End, Hash: c.MD5}
+	}
+	return out
+}
+
+// newFileTask builds the FileTask for a manifest entry that needs
+// downloading — single construction point so every branch of
+// filterChangedFiles carries the same fields (incl. Chunks).
+func newFileTask(cdn, parentBaseURL string, f manifestFileRaw) *core.FileTask {
+	return &core.FileTask{
+		Path:   f.Dest,
+		Hash:   f.MD5,
+		Size:   f.Size,
+		URL:    fileURL(cdn, parentBaseURL, f),
+		Chunks: toChunks(f.ChunkInfos),
+	}
+}
+
 // --- File filter + MD5 helper ---
 
 // verifyWorkers controls parallelism in filterChangedFiles. SSD random
@@ -313,12 +340,12 @@ func filterChangedFiles(ctx context.Context, installDir, cdn, parentBaseURL stri
 				full := filepath.Join(installDir, f.Dest)
 				fi, err := os.Stat(full)
 				if err != nil || fi.IsDir() {
-					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+					results[i] = newFileTask(cdn, parentBaseURL, f)
 					emit()
 					continue
 				}
 				if fi.Size() != f.Size {
-					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+					results[i] = newFileTask(cdn, parentBaseURL, f)
 					emit()
 					continue
 				}
@@ -327,12 +354,12 @@ func filterChangedFiles(ctx context.Context, installDir, cdn, parentBaseURL stri
 					if logger != nil {
 						logger.Debug("md5 check failed; will re-download", "path", f.Dest, "err", err)
 					}
-					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+					results[i] = newFileTask(cdn, parentBaseURL, f)
 					emit()
 					continue
 				}
 				if h != f.MD5 {
-					results[i] = &core.FileTask{Path: f.Dest, Hash: f.MD5, Size: f.Size, URL: fileURL(cdn, parentBaseURL, f)}
+					results[i] = newFileTask(cdn, parentBaseURL, f)
 				}
 				emit()
 			}
