@@ -42,10 +42,11 @@ const status = () => {
 const snap = computed(() => updates.byGame[props.row.id] ?? null);
 const inFlight = computed(() => snap.value?.in_flight ?? null);
 const staleConfigWarn = computed(() => snap.value?.last_apply_target?.config_writeback_ok === false);
+// Clamped ≤100 like BottomBar's (unrounded here — sub-percent fill widths).
 const progressPct = computed(() => {
   const ifl = inFlight.value;
   if (!ifl || ifl.total === 0) return 0;
-  return (ifl.current / ifl.total) * 100;
+  return Math.min(100, (ifl.current / ifl.total) * 100);
 });
 const isPredl = computed(() => inFlight.value?.kind === 'predownload');
 const inflightLabel = computed(() => {
