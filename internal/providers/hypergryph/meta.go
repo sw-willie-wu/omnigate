@@ -8,7 +8,7 @@ import (
 
 const (
 	BackendID core.BackendID = "hypergryph"
-	UserAgent                = "omnigate/0.2 (+https://github.com/willie/omnigate)"
+	UserAgent                = "omnigate/0.4 (+https://github.com/willie/omnigate)"
 )
 
 type gameMeta struct {
