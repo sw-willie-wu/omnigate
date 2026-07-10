@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"omnigate/internal/core"
 )
@@ -55,10 +56,11 @@ func planOf(ft core.FileTask) *core.UpdatePlan {
 type rangeRecorder struct {
 	body []byte
 
-	mu       sync.Mutex
-	ranges   []string       // every received Range header, in order
-	failLeft map[string]int // Range header -> remaining times to drop the conn
-	ignore   bool           // ignore Range: always respond 200 + full body
+	mu        sync.Mutex
+	ranges    []string       // every received Range header, in order
+	failLeft  map[string]int // Range header -> remaining times to drop the conn
+	wrongLeft map[string]int // Range header -> remaining times to serve corrupted bytes
+	ignore    bool           // ignore Range: always respond 200 + full body
 }
 
 func (rr *rangeRecorder) handler() http.HandlerFunc {
@@ -69,6 +71,10 @@ func (rr *rangeRecorder) handler() http.HandlerFunc {
 		fail := rr.failLeft[rh] > 0
 		if fail {
 			rr.failLeft[rh]--
+		}
+		wrong := rr.wrongLeft[rh] > 0
+		if wrong {
+			rr.wrongLeft[rh]--
 		}
 		ignore := rr.ignore
 		rr.mu.Unlock()
@@ -104,6 +110,15 @@ func (rr *rangeRecorder) handler() http.HandlerFunc {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(rr.body)))
 		w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
 		w.WriteHeader(http.StatusPartialContent)
+		if wrong {
+			// Valid 206, right length, corrupted content → hash mismatch.
+			bad := make([]byte, end-start+1)
+			for i := range bad {
+				bad[i] = 'X'
+			}
+			w.Write(bad)
+			return
+		}
 		w.Write(rr.body[start : end+1])
 	}
 }
@@ -378,5 +393,129 @@ func TestChunked_PartShorterThanChunk(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(ps.dir(), "big.pak"))
 	if string(got) != string(body) {
 		t.Error("staged file differs from body")
+	}
+}
+
+// --- Task C3: Range fallback + .part lifecycle ---
+
+// TestChunked_RangeUnsupportedFallsBack (T8): CDN ignores Range and always
+// answers 200 + full body. chunkedDownload must bail with a clean slate
+// (bytes refunded, .part removed) and processFile must complete the file
+// via the classic full-GET path — bytesDone exactly size, never
+// size + committed prefix (spec B3).
+func TestChunked_RangeUnsupportedFallsBack(t *testing.T) {
+	body, bounds := chunkedBody()
+	rr := &rangeRecorder{body: body, ignore: true}
+	srv := httptest.NewServer(rr.handler())
+	defer srv.Close()
+
+	ft := chunkedFileTask(body, bounds, srv.URL)
+	plan := planOf(ft)
+	d := newChunkedDownloader(t, srv.Client(), plan)
+
+	if err := d.runDownload(context.Background()); err != nil {
+		t.Fatalf("runDownload: %v", err)
+	}
+	if n := d.bytesDone.Load(); n != int64(len(body)) {
+		t.Errorf("bytesDone = %d, want %d (fallback must not double-count)", n, len(body))
+	}
+	got, err := os.ReadFile(filepath.Join(d.progress.dir(), "big.pak"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(body) {
+		t.Error("staged file differs from body")
+	}
+}
+
+// TestChunked_HashMismatchThenSuccess: one chunk serves corrupted bytes once
+// (valid 206, right length, wrong content) then correct bytes. Exercises the
+// chunk-level hash-mismatch refund — the single trickiest accounting line —
+// which T7b (net failure) does not reach. bytesDone must be exactly size.
+func TestChunked_HashMismatchThenSuccess(t *testing.T) {
+	body, bounds := chunkedBody()
+	rr := &rangeRecorder{
+		body:      body,
+		wrongLeft: map[string]int{"bytes=100-199": 1},
+	}
+	srv := httptest.NewServer(rr.handler())
+	defer srv.Close()
+
+	ft := chunkedFileTask(body, bounds, srv.URL)
+	plan := planOf(ft)
+	d := newChunkedDownloader(t, srv.Client(), plan)
+
+	if err := d.runDownload(context.Background()); err != nil {
+		t.Fatalf("runDownload: %v", err)
+	}
+	if n := d.bytesDone.Load(); n != int64(len(body)) {
+		t.Errorf("bytesDone = %d, want %d (mismatched chunk must be refunded once)", n, len(body))
+	}
+	var c1 int
+	for _, r := range rr.recorded() {
+		if r == "bytes=100-199" {
+			c1++
+		}
+	}
+	if c1 != 2 {
+		t.Errorf("chunk 1 requested %d times, want 2 (corrupt + retry)", c1)
+	}
+	got, _ := os.ReadFile(filepath.Join(d.progress.dir(), "big.pak"))
+	if string(got) != string(body) {
+		t.Error("staged file differs from body")
+	}
+}
+
+// TestProgressInit_ETagChangeCleansParts (T10): a manifest change (different
+// ETag) invalidates staged bytes — Init must delete every .part under the
+// version dir, INCLUDING nested ones (the big paks live at
+// Client/Content/Paks/...; a top-level glob would miss them — spec M-b),
+// and reset entries. Same ETag keeps both.
+func TestProgressInit_ETagChangeCleansParts(t *testing.T) {
+	tmp := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.5.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.MarkComplete("done.dll", time.Now(), 5); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(ps.dir(), "Client", "Content", "Paks", "big.pak.part")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nested, []byte("staged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	top := filepath.Join(ps.dir(), "top.dll.part")
+	if err := os.WriteFile(top, []byte("staged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same ETag → resume: .part files and entries survive.
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(nested); err != nil {
+		t.Errorf("same-ETag Init must keep nested .part: %v", err)
+	}
+	pf, err := core.LoadProgress(ps.dir())
+	if err != nil || len(pf.Entries) != 1 {
+		t.Errorf("same-ETag Init must keep entries: %v, %+v", err, pf)
+	}
+
+	// Changed ETag → stale: .part files deleted (nested too), entries reset.
+	if err := ps.Init("etag-2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(nested); !os.IsNotExist(err) {
+		t.Errorf("ETag change must delete nested .part; stat err = %v", err)
+	}
+	if _, err := os.Stat(top); !os.IsNotExist(err) {
+		t.Errorf("ETag change must delete top-level .part; stat err = %v", err)
+	}
+	pf, err = core.LoadProgress(ps.dir())
+	if err != nil || len(pf.Entries) != 0 {
+		t.Errorf("ETag change must reset entries: %v, %+v", err, pf)
 	}
 }
