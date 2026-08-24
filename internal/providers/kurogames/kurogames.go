@@ -307,8 +307,9 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 		// §2, which is ordered BEFORE the len(GroupInfos)==0 legacy check)
 		// can fire — an unrecognized apply strategy with a sparse manifest
 		// is exactly the "don't understand this format" case it exists for.
-		fetchFull := p.mkFetchFull(idx.Default.Config, pickCDN(idx.Default.CDNList))
-		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, idxFile, fetchFull, onProgress)
+		fullCDN := pickCDN(idx.Default.CDNList)
+		fetchFull := p.mkFetchFull(idx.Default.Config, fullCDN)
+		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, fullCDN, idx.Default.Config.BaseURL, idxFile, fetchFull, onProgress)
 		if err != nil {
 			return core.UpdatePlan{}, err
 		}
@@ -402,8 +403,9 @@ func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onP
 		peakTemp    int64
 	)
 	if len(idxFile.GroupInfos) > 0 || len(idxFile.ApplyTypes) > 0 {
-		fetchFull := p.mkFetchFull(idx.Predownload.Config, pickCDN(idx.Predownload.CDNList))
-		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, idxFile, fetchFull, onProgress)
+		fullCDN := pickCDN(idx.Predownload.CDNList)
+		fetchFull := p.mkFetchFull(idx.Predownload.Config, fullCDN)
+		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, fullCDN, idx.Predownload.Config.BaseURL, idxFile, fetchFull, onProgress)
 		if err != nil {
 			return core.UpdatePlan{}, err
 		}

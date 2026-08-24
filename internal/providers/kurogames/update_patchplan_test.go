@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,17 @@ import (
 	"testing"
 
 	"omnigate/internal/core"
+)
+
+// Standard patch-CDN vs full-CDN test fixtures — distinct so a fix-round-1
+// finding C1 regression (fallback tasks accidentally URL'd via the patch
+// base instead of the full base) shows up as a wrong-prefix assertion
+// failure rather than silently matching either.
+const (
+	testPatchCDN     = "http://patch-cdn/"
+	testPatchBaseURL = "/patch-base/"
+	testFullCDN      = "http://full-cdn/"
+	testFullBaseURL  = "/full-base/"
 )
 
 func md5Hex(b []byte) string {
@@ -82,7 +94,7 @@ func TestBuildPlan_ClassifiesGroups(t *testing.T) {
 	writeLocalFile(t, dir, "fileC.dat", localC)
 
 	p := testProvider()
-	files, groups, dels, peak, err := p.buildFileAndPatchPlan(context.Background(), dir, "http://cdn/", "/base/", idxFile, nil, nil)
+	files, groups, dels, peak, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, nil, nil)
 	if err != nil {
 		t.Fatalf("buildFileAndPatchPlan: %v", err)
 	}
@@ -136,6 +148,16 @@ func TestBuildPlan_ClassifiesGroups(t *testing.T) {
 	if fileCTask.Hash != md5Hex(dstC) || fileCTask.Size != int64(len(dstC)) {
 		t.Errorf("fileC.dat task = %+v, want hash=%s size=%d", fileCTask, md5Hex(dstC), len(dstC))
 	}
+	// C1: a 1:1-degraded dst fallback must be URL'd via the FULL config's
+	// CDN+baseUrl, never the patch config's (dstFiles carry no fromFolder;
+	// the patch base directory 404s on full-file content).
+	wantURL := fileURL(testFullCDN, testFullBaseURL, manifestFileRaw{Dest: "fileC.dat"})
+	if fileCTask.URL != wantURL {
+		t.Errorf("fileC.dat task URL = %q, want %q (full config base)", fileCTask.URL, wantURL)
+	}
+	if strings.HasPrefix(fileCTask.URL, testPatchCDN) {
+		t.Errorf("fileC.dat task URL = %q, must not use the patch CDN", fileCTask.URL)
+	}
 }
 
 // TestBuildPlan_MultiGroupFallsBackToFullFiles covers a multi-file group
@@ -167,7 +189,7 @@ func TestBuildPlan_MultiGroupFallsBackToFullFiles(t *testing.T) {
 
 	dir := t.TempDir() // nothing local — both entries need download
 	p := testProvider()
-	files, groups, _, _, err := p.buildFileAndPatchPlan(context.Background(), dir, "http://cdn/", "/base/", idxFile, nil, nil)
+	files, groups, _, _, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, nil, nil)
 	if err != nil {
 		t.Fatalf("buildFileAndPatchPlan: %v", err)
 	}
@@ -182,6 +204,15 @@ func TestBuildPlan_MultiGroupFallsBackToFullFiles(t *testing.T) {
 		if files[i].Ephemeral {
 			t.Errorf("file %+v: Ephemeral = true, want false", files[i])
 		}
+		// C1: multi-group dst fallback tasks must use the FULL config base,
+		// never the patch base.
+		if strings.HasPrefix(files[i].URL, testPatchCDN) {
+			t.Errorf("file %+v: URL uses the patch CDN, want full CDN", files[i])
+		}
+		wantPrefix := testFullCDN + testFullBaseURL
+		if !strings.HasPrefix(files[i].URL, wantPrefix) {
+			t.Errorf("file %+v: URL = %q, want full CDN+base prefix %q", files[i], files[i].URL, wantPrefix)
+		}
 		if files[i].Path == "Wuthering Waves.exe" {
 			exeTask = &files[i]
 		}
@@ -191,6 +222,56 @@ func TestBuildPlan_MultiGroupFallsBackToFullFiles(t *testing.T) {
 	}
 	if !strings.Contains(exeTask.URL, "Wuthering%20Waves.exe") {
 		t.Errorf("URL = %q, want %%20-encoded space", exeTask.URL)
+	}
+}
+
+// TestBuildPlan_FallbackEntryAlreadyMatchesDstSkipped (M8): a group-level
+// fallback dst entry whose local content already equals dst content must
+// produce NO task at all — the merged hash batch still md5-filters
+// fallback/general entries exactly like filterChangedFiles always has.
+func TestBuildPlan_FallbackEntryAlreadyMatchesDstSkipped(t *testing.T) {
+	alreadyDone := []byte("ALREADY_AT_TARGET_CONTENT")
+	stillNeeded := []byte("NEW_CONTENT_NOT_LOCAL")
+
+	idxFile := &indexFileRaw{
+		ApplyTypes: []string{"group"},
+		GroupInfos: []groupInfoRaw{
+			{
+				Dest: "multi.krpdiff",
+				SrcFiles: []manifestFileRaw{
+					{Dest: "done.dat", MD5: "old-done-hash", Size: 5},
+					{Dest: "pending.dat", MD5: "old-pending-hash", Size: 5},
+				},
+				DstFiles: []manifestFileRaw{
+					{Dest: "done.dat", MD5: md5Hex(alreadyDone), Size: int64(len(alreadyDone))},
+					{Dest: "pending.dat", MD5: md5Hex(stillNeeded), Size: int64(len(stillNeeded))},
+				},
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	writeLocalFile(t, dir, "done.dat", alreadyDone) // already at dst content
+	// pending.dat intentionally absent locally.
+
+	p := testProvider()
+	files, _, _, _, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, nil, nil)
+	if err != nil {
+		t.Fatalf("buildFileAndPatchPlan: %v", err)
+	}
+	for _, f := range files {
+		if f.Path == "done.dat" {
+			t.Errorf("done.dat produced a task (%+v) even though local already matches dst — md5 filter not applied", f)
+		}
+	}
+	found := false
+	for _, f := range files {
+		if f.Path == "pending.dat" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("pending.dat missing a task — should still need download")
 	}
 }
 
@@ -229,7 +310,7 @@ func TestBuildPlan_SrcOnlyGapEscalates(t *testing.T) {
 
 	dir := t.TempDir()
 	p := testProvider()
-	files, groups, dels, _, err := p.buildFileAndPatchPlan(context.Background(), dir, "http://cdn/", "/base/", idxFile, fetchFull, nil)
+	files, groups, dels, _, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, fetchFull, nil)
 	if err != nil {
 		t.Fatalf("buildFileAndPatchPlan: %v", err)
 	}
@@ -268,7 +349,7 @@ func TestBuildPlan_UnknownApplyTypes(t *testing.T) {
 
 	dir := t.TempDir()
 	p := testProvider()
-	files, groups, dels, peak, err := p.buildFileAndPatchPlan(context.Background(), dir, "http://cdn/", "/base/", idxFile, fetchFull, nil)
+	files, groups, dels, peak, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, fetchFull, nil)
 	if err != nil {
 		t.Fatalf("buildFileAndPatchPlan: %v", err)
 	}
@@ -308,10 +389,17 @@ func TestBuildPlan_SortsGroupsAndComputesPeak(t *testing.T) {
 	g2, r2, c2 := mk("g2", "f2.dat", 200, 300)
 	g3, r3, c3 := mk("g3", "f3.dat", 1000, 50)
 
+	// Declared in DESCENDING Dst.Size order (g3=1000, g1=500, g2=200) —
+	// deliberately NOT the ascending order the builder must produce (fix
+	// round 1 finding I4). If the sort were dropped/broken, the peak
+	// computation would run over this declaration order instead and yield a
+	// DIFFERENT (larger) number — see the arithmetic below — so this also
+	// pins that groups are genuinely re-sorted, not accidentally already
+	// ascending.
 	idxFile := &indexFileRaw{
 		ApplyTypes: []string{"group"},
-		Resource:   []manifestFileRaw{r1, r2, r3},
-		GroupInfos: []groupInfoRaw{g1, g2, g3},
+		Resource:   []manifestFileRaw{r3, r1, r2},
+		GroupInfos: []groupInfoRaw{g3, g1, g2},
 	}
 
 	dir := t.TempDir()
@@ -320,7 +408,7 @@ func TestBuildPlan_SortsGroupsAndComputesPeak(t *testing.T) {
 	writeLocalFile(t, dir, "f3.dat", c3)
 
 	p := testProvider()
-	_, groups, _, peak, err := p.buildFileAndPatchPlan(context.Background(), dir, "http://cdn/", "/base/", idxFile, nil, nil)
+	_, groups, _, peak, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, nil, nil)
 	if err != nil {
 		t.Fatalf("buildFileAndPatchPlan: %v", err)
 	}
@@ -336,11 +424,22 @@ func TestBuildPlan_SortsGroupsAndComputesPeak(t *testing.T) {
 			t.Errorf("groups[%d].DiffPath = %q, want %q", i, groups[i].DiffPath, w)
 		}
 	}
-	// hand-computed per spec §5:
+	// hand-computed per spec §5, CORRECT (ascending Dst.Size) order g2,g1,g3:
 	// remaining = 100+300+50 = 450
-	// g2(dst200,diff300): peak=max(0,450+200)=650; remaining=150
-	// g1(dst500,diff100): peak=max(650,150+500)=650; remaining=50
-	// g3(dst1000,diff50): peak=max(650,50+1000)=1050; remaining=0
+	// g2(dst200,diff300): peak=max(0,450+200)=650; remaining=450-300=150
+	// g1(dst500,diff100): peak=max(650,150+500)=650; remaining=150-100=50
+	// g3(dst1000,diff50): peak=max(650,50+1000)=1050; remaining=50-50=0
+	// => wantPeak = 1050.
+	//
+	// Contrast with the DECLARED (descending) order g3,g1,g2 — what a
+	// broken/dropped sort would compute instead (fix round 1 finding I4):
+	// remaining = 450 (same sum, order-independent)
+	// g3(dst1000,diff50): peak=max(0,450+1000)=1450; remaining=450-50=400
+	// g1(dst500,diff100): peak=max(1450,400+500)=1450; remaining=400-100=300
+	// g2(dst200,diff300): peak=max(1450,300+200)=1450; remaining=300-300=0
+	// => unsorted peak would be 1450 — different from wantPeak, so this test
+	// fails if the ascending sort is ever dropped/broken, not just if the
+	// arithmetic itself is wrong.
 	const wantPeak = int64(1050)
 	if peak != wantPeak {
 		t.Errorf("peak = %d, want %d", peak, wantPeak)
@@ -391,7 +490,7 @@ func TestBuildPlan_MergedProgressMonotonic(t *testing.T) {
 	}
 
 	p := testProvider()
-	_, _, _, _, err := p.buildFileAndPatchPlan(context.Background(), dir, "http://cdn/", "/base/", idxFile, nil, onProgress)
+	_, _, _, _, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, nil, onProgress)
 	if err != nil {
 		t.Fatalf("buildFileAndPatchPlan: %v", err)
 	}
@@ -485,5 +584,246 @@ func TestCheckForPredownload_FullFallbackUsesPredlConfig(t *testing.T) {
 	}
 	if len(plan.Files) != 1 || plan.Files[0].Path != "predl-full.pak" {
 		t.Errorf("plan.Files = %+v, want [predl-full.pak] from the predl FULL manifest", plan.Files)
+	}
+}
+
+// TestBuildPlan_OrphanKrpdiffNeverBecomesPlainTask (C2 — 2026-08-20 incident
+// replay guard): a resource entry named *.krpdiff that is NOT consumed as
+// any group's own diff (manifest drift / orphan) must never surface as a
+// plain (non-Ephemeral) FileTask — that's exactly the incident: a krpdiff
+// renamed straight into the game dir as if it were a real game file. The
+// fix excludes such entries from the plan entirely (with a Warn log)
+// instead of guessing.
+func TestBuildPlan_OrphanKrpdiffNeverBecomesPlainTask(t *testing.T) {
+	srcReal := []byte("SRC_REAL_CONTENT")
+	dstReal := []byte("DST_REAL_CONTENT_LONGER")
+	diffReal := []byte("DIFF_BYTES_REAL")
+
+	idxFile := &indexFileRaw{
+		ApplyTypes: []string{"group"},
+		Resource: []manifestFileRaw{
+			{Dest: "real.krpdiff", MD5: md5Hex(diffReal), Size: int64(len(diffReal))},
+			// orphan.krpdiff: present in resource[], but NOT referenced by
+			// any GroupInfos entry below — manifest drift.
+			{Dest: "orphan.krpdiff", MD5: "orphan-hash", Size: 12345},
+		},
+		GroupInfos: []groupInfoRaw{
+			{
+				Dest:     "real.krpdiff",
+				SrcFiles: []manifestFileRaw{{Dest: "real.dat", MD5: md5Hex(srcReal), Size: int64(len(srcReal))}},
+				DstFiles: []manifestFileRaw{{Dest: "real.dat", MD5: md5Hex(dstReal), Size: int64(len(dstReal))}},
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	writeLocalFile(t, dir, "real.dat", srcReal)
+	// orphan.krpdiff intentionally not planted locally — its absence must
+	// not matter: it's excluded before ever reaching the hash batch.
+
+	p := testProvider()
+	files, groups, _, _, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, nil, nil)
+	if err != nil {
+		t.Fatalf("buildFileAndPatchPlan: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("groups = %+v, want 1 (real.krpdiff)", groups)
+	}
+
+	var sawOrphan, sawRealEphemeral bool
+	for _, f := range files {
+		if f.Path == "orphan.krpdiff" {
+			sawOrphan = true
+		}
+		if strings.HasSuffix(f.Path, ".krpdiff") && !f.Ephemeral {
+			t.Errorf("task %+v: a .krpdiff path must always be Ephemeral=true", f)
+		}
+		if f.Path == "real.krpdiff" && f.Ephemeral {
+			sawRealEphemeral = true
+		}
+	}
+	if sawOrphan {
+		t.Error("orphan.krpdiff produced a task at all — must be excluded entirely (manifest drift)")
+	}
+	if !sawRealEphemeral {
+		t.Error("real.krpdiff never produced an Ephemeral task")
+	}
+}
+
+// TestBuildPlan_MissingResourceForGroupDegradesToFullDownload (I6): a 1:1
+// group whose local content matches src (would normally form a PatchGroup)
+// but whose Dest has no matching resource[] entry (manifest drift — no
+// krpdiff to download) must degrade to an ordinary full dst download
+// instead of silently vanishing or panicking. The resulting task must use
+// the FULL config base (C1 applies here too — it's still a dst fallback).
+func TestBuildPlan_MissingResourceForGroupDegradesToFullDownload(t *testing.T) {
+	src := []byte("SRC_CONTENT_FOR_MISSING_RESOURCE")
+	dst := []byte("DST_CONTENT_LONGER_VERSION")
+
+	idxFile := &indexFileRaw{
+		ApplyTypes: []string{"group"},
+		// Resource intentionally omits "missing.krpdiff" entirely.
+		GroupInfos: []groupInfoRaw{
+			{
+				Dest:     "missing.krpdiff",
+				SrcFiles: []manifestFileRaw{{Dest: "file.dat", MD5: md5Hex(src), Size: int64(len(src))}},
+				DstFiles: []manifestFileRaw{{Dest: "file.dat", MD5: md5Hex(dst), Size: int64(len(dst))}},
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	writeLocalFile(t, dir, "file.dat", src)
+
+	p := testProvider()
+	files, groups, _, _, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, idxFile, nil, nil)
+	if err != nil {
+		t.Fatalf("buildFileAndPatchPlan: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("groups = %+v, want none (no resource entry → no PatchGroup)", groups)
+	}
+	if len(files) != 1 {
+		t.Fatalf("files = %+v, want exactly 1 dst full-download task", files)
+	}
+	f := files[0]
+	if f.Path != "file.dat" {
+		t.Errorf("Path = %q, want file.dat", f.Path)
+	}
+	if f.Ephemeral {
+		t.Error("Ephemeral = true, want false (full download, not a diff)")
+	}
+	if f.Hash != md5Hex(dst) || f.Size != int64(len(dst)) {
+		t.Errorf("task = %+v, want hash=%s size=%d", f, md5Hex(dst), len(dst))
+	}
+	wantURL := fileURL(testFullCDN, testFullBaseURL, manifestFileRaw{Dest: "file.dat"})
+	if f.URL != wantURL {
+		t.Errorf("URL = %q, want %q (full config base — C1 applies to this degrade path too)", f.URL, wantURL)
+	}
+}
+
+// TestBuildPlan_RealFixtureStructuralClassification (M7, overlaps I3): runs
+// the builder over the REAL 3.5.3→3.6.0 trimmed fixture
+// (testdata/indexfile_353_to_360_trimmed.json) end-to-end. The fixture's 3
+// real 1:1 groups (pakchunk0/1/103) carry multi-GB recorded sizes/hashes
+// for actual game data we don't have and can't practically hash in a unit
+// test — their src/dst size+md5 are overridden to small synthetic
+// local-testable content. Everything else — group arity, Dest
+// cross-references into resource[], the real multi-group's shape (4 src /
+// 4 dst, non-bijective), and deleteFiles coverage of the multi-group's
+// src-only entries — is exactly the real fixture data, so this exercises
+// the real routing/classification structure, including I3 (src-only
+// entries ARE covered by deleteFiles → no escalation).
+func TestBuildPlan_RealFixtureStructuralClassification(t *testing.T) {
+	data, err := os.ReadFile("testdata/indexfile_353_to_360_trimmed.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var idxFile indexFileRaw
+	if err := json.Unmarshal(data, &idxFile); err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+
+	dir := t.TempDir()
+
+	oneToOne := map[string][]byte{
+		"Client/Content/Paks/pakchunk0-WindowsNoEditor.pak":   []byte("SYN_SRC_pakchunk0"),
+		"Client/Content/Paks/pakchunk1-WindowsNoEditor.pak":   []byte("SYN_SRC_pakchunk1"),
+		"Client/Content/Paks/pakchunk103-WindowsNoEditor.pak": []byte("SYN_SRC_pakchunk103"),
+	}
+	patched := 0
+	for gi := range idxFile.GroupInfos {
+		g := &idxFile.GroupInfos[gi]
+		if len(g.SrcFiles) != 1 || len(g.DstFiles) != 1 || g.SrcFiles[0].Dest != g.DstFiles[0].Dest {
+			continue // the real multi-group (group_41) — left completely alone
+		}
+		content, ok := oneToOne[g.SrcFiles[0].Dest]
+		if !ok {
+			t.Fatalf("fixture shape changed: unexpected 1:1 group for %q", g.SrcFiles[0].Dest)
+		}
+		g.SrcFiles[0].Size = int64(len(content))
+		g.SrcFiles[0].MD5 = md5Hex(content)
+		g.DstFiles[0].MD5 = "dst-md5-" + g.Dest // never matched locally; dst content not planted
+		writeLocalFile(t, dir, g.SrcFiles[0].Dest, content)
+		patched++
+	}
+	if patched != 3 {
+		t.Fatalf("patched %d one-to-one groups, want 3 — fixture shape changed?", patched)
+	}
+
+	p := testProvider()
+	files, groups, dels, _, err := p.buildFileAndPatchPlan(context.Background(), dir, testPatchCDN, testPatchBaseURL, testFullCDN, testFullBaseURL, &idxFile, nil, nil)
+	if err != nil {
+		// A nil fetchFull here means: if hasUncoveredSrcOnly ever ignored
+		// deleteFiles (I3), the multi-group's src-only entries (real
+		// fixture: pakchunk18/73 .sig, covered by the real deleteFiles)
+		// would incorrectly escalate to whole-plan fallback, which needs
+		// fetchFull (nil) and returns an error — so "no error" is itself
+		// part of the I3 assertion.
+		t.Fatalf("buildFileAndPatchPlan: %v (src-only entries covered by deleteFiles must NOT escalate)", err)
+	}
+
+	if len(dels) != len(idxFile.DeleteFiles) {
+		t.Errorf("deleteFiles = %v, want the fixture's %v (no escalation happened)", dels, idxFile.DeleteFiles)
+	}
+
+	if len(groups) != 3 {
+		t.Fatalf("groups = %+v, want 3 (the fixture's 3 real 1:1 groups)", groups)
+	}
+	wantDiffPaths := map[string]bool{
+		"3.5.3_3.6.0_group_0_1786181737304.krpdiff": true,
+		"3.5.3_3.6.0_group_1_1786182955371.krpdiff": true,
+		"3.5.3_3.6.0_group_3_1786183044329.krpdiff": true,
+	}
+	for _, g := range groups {
+		if !wantDiffPaths[g.DiffPath] {
+			t.Errorf("unexpected PatchGroup DiffPath %q", g.DiffPath)
+		}
+	}
+
+	// The real multi-group (group_41) expands to its 4 dstFiles as fallback
+	// tasks — none planted locally, so all 4 need download, URL'd via the
+	// FULL config base (C1).
+	multiDstPaths := map[string]bool{
+		"Client/Content/Paks/pakchunk112-WindowsNoEditor.sig": true,
+		"Client/Content/Paks/pakchunk43-WindowsNoEditor.sig":  true,
+		"ClearThirdParty.exe":                                 true,
+		"Client/Binaries/Win64/AntiCheatExpert/ACE-BASE.sys":  true,
+	}
+	foundMultiDst := 0
+	wantPrefix := testFullCDN + testFullBaseURL
+	for _, f := range files {
+		if !multiDstPaths[f.Path] {
+			continue
+		}
+		foundMultiDst++
+		if f.Ephemeral {
+			t.Errorf("multi-group dst task %q: Ephemeral = true, want false", f.Path)
+		}
+		if !strings.HasPrefix(f.URL, wantPrefix) {
+			t.Errorf("multi-group dst task %q URL = %q, want full-config prefix %q", f.Path, f.URL, wantPrefix)
+		}
+	}
+	if foundMultiDst != 4 {
+		t.Errorf("multi-group dst tasks found = %d, want 4", foundMultiDst)
+	}
+
+	// C2: the real fixture's orphan krpdiff resource entry ("...group_2...",
+	// not referenced by any GroupInfos entry) must never surface as a task.
+	for _, f := range files {
+		if f.Path == "3.5.3_3.6.0_group_2_1786183027972.krpdiff" {
+			t.Errorf("orphan krpdiff resource entry produced a task: %+v", f)
+		}
+		if strings.HasSuffix(f.Path, ".krpdiff") && !f.Ephemeral {
+			t.Errorf("task %+v: a .krpdiff path must always be Ephemeral=true", f)
+		}
+	}
+
+	// General resource file (the exe; carries fromFolder) still uses the
+	// PATCH cdn — C1 only applies to group-fallback dst files.
+	for _, f := range files {
+		if f.Path == "Client/Binaries/Win64/Client-Win64-Shipping.exe" && !strings.HasPrefix(f.URL, testPatchCDN) {
+			t.Errorf("general resource file URL = %q, want patch CDN prefix %q", f.URL, testPatchCDN)
+		}
 	}
 }

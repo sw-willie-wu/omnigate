@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"omnigate/internal/core"
 )
@@ -13,16 +14,31 @@ import (
 // buildFileAndPatchPlan classifies a fetched patch indexFile into download
 // tasks + patch groups per spec §2 (.claude/specs/2026-08-24-wuwa-krpdiff-patch-update-design.md).
 //
-// fetchFull lazily fetches the FULL (fresh-install) indexFile for whole-plan
-// fallback; it is only invoked when a fallback path actually needs it (step
-// 0 unknown applyTypes, or a multi-file group with an uncovered src-only
-// gap). Callers bind fetchFull to the entry point's own config+CDN
+// cdn/baseURL address the PATCH indexFile's own CDN — used for general
+// resource files (which carry FromFolder, or fall back to baseURL) and for
+// krpdiff diff downloads (Ephemeral tasks; krpdiff files live under the
+// patch config's own directory tree).
+//
+// fullCDN/fullBaseURL address the FULL (fresh-install) config's CDN —
+// required for every group-level-fallback dst FileTask (multi-file groups,
+// and 1:1 groups that degrade to a full download): dstFiles metadata never
+// carries FromFolder, and the patch config's baseUrl directory does not
+// serve full-file content (2026-08-24 real-CDN HEAD: patchBase+dest→404,
+// fullBase(zip/)+dest→200 — fix round 1 finding C1). Callers bind both
+// cdn/baseURL and fullCDN/fullBaseURL from the SAME config mkFetchFull uses
 // (CheckForUpdateWithProgress → idx.Default; CheckForPredownload →
-// idx.Predownload) via mkFetchFull — never hardcode idx.Default here, or the
-// predownload path's fallback would mix in live-version files (plan gate B1).
+// idx.Predownload) — never hardcode idx.Default here, or the predownload
+// path's fallback would mix in live-version files (plan gate B1).
+//
+// fetchFull lazily fetches the FULL indexFile for WHOLE-PLAN fallback (step
+// 0 unknown applyTypes, or a multi-file group with an uncovered src-only
+// gap) — a different, heavier escalation than the per-group dst fallback
+// above; it re-derives its own (fullCDN, fullBaseURL) from the full
+// manifest fetch, which by construction matches the fullCDN/fullBaseURL
+// params (same source config).
 func (p *Provider) buildFileAndPatchPlan(
 	ctx context.Context,
-	installDir, cdn, baseURL string,
+	installDir, cdn, baseURL, fullCDN, fullBaseURL string,
 	idxFile *indexFileRaw,
 	fetchFull func(ctx context.Context) (idx *indexFileRaw, fullCDN, fullBaseURL string, err error),
 	onProgress func(done, total int),
@@ -60,29 +76,47 @@ func (p *Provider) buildFileAndPatchPlan(
 	// dst-first hash verification; everything else (multi-file /異路徑) is a
 	// group-level fallback — its dstFiles become ordinary full-download
 	// FileTasks built straight from groupInfos metadata (no dependency on the
-	// full indexFile). A src-only gap not covered by dstFiles or deleteFiles
-	// means that fallback would silently leave the old file in place →
-	// escalate to whole-plan fallback instead.
+	// full indexFile for METADATA — only the URL prefix comes from the full
+	// config, per C1 above). A src-only gap not covered by dstFiles or
+	// deleteFiles means that fallback would silently leave the old file in
+	// place → escalate to whole-plan fallback instead.
 	var candidates []groupInfoRaw
-	var fallbackEntries []manifestFileRaw // general resource files + group-level-fallback dst files
+	var groupDstFallback []manifestFileRaw // dst files needing a full download, URL via fullCDN/fullBaseURL
 	for _, g := range idxFile.GroupInfos {
 		if len(g.SrcFiles) != 1 || len(g.DstFiles) != 1 || g.SrcFiles[0].Dest != g.DstFiles[0].Dest {
 			if hasUncoveredSrcOnly(g, idxFile.DeleteFiles) {
 				return p.fullFallback(ctx, installDir, idxFile.DeleteFiles, fetchFull, true, onProgress)
 			}
-			fallbackEntries = append(fallbackEntries, g.DstFiles...)
+			groupDstFallback = append(groupDstFallback, g.DstFiles...)
 			continue
 		}
 		candidates = append(candidates, g)
 	}
 
-	// General resource files: entries not referenced as any group's Dest
-	// (i.e. not a krpdiff belonging to a group) go through the existing
-	// filterChangedFiles semantics, folded into the same merged hash batch.
+	// General resource files: entries not referenced as any group's Dest go
+	// through the existing filterChangedFiles semantics (URL via the PATCH
+	// cdn/baseURL — these carry FromFolder in practice), folded into the
+	// same merged hash batch.
+	//
+	// Defense-in-depth (fix round 1 finding C2, 2026-08-20 incident replay
+	// guard): a resource entry named *.krpdiff that isn't consumed as any
+	// group's own diff is manifest drift (orphan diff) — it must NEVER
+	// become a plain (non-Ephemeral) download task, since apply would then
+	// try to rename raw diff bytes into the game dir. Excluded entirely
+	// (not staged at all) rather than guessed at, with a Warn log. This
+	// check is independent of the groupDestSet membership check above, so
+	// even if that check regresses, a *.krpdiff dest can still never reach
+	// generalEntries.
+	var generalEntries []manifestFileRaw
 	for _, r := range idxFile.Resource {
-		if !groupDestSet[r.Dest] {
-			fallbackEntries = append(fallbackEntries, r)
+		if groupDestSet[r.Dest] {
+			continue // consumed as a group's own diff; handled via resourceByDest lookup below
 		}
+		if strings.HasSuffix(r.Dest, ".krpdiff") {
+			p.logger.Warn("kurogames: orphan krpdiff resource entry not referenced by any group; excluding from plan (manifest drift)", "dest", r.Dest)
+			continue
+		}
+		generalEntries = append(generalEntries, r)
 	}
 
 	// step 3(i): cheap local-size pre-check on 1:1 candidates. A local size
@@ -93,26 +127,30 @@ func (p *Provider) buildFileAndPatchPlan(
 		full := filepath.Join(installDir, c.SrcFiles[0].Dest)
 		fi, statErr := os.Stat(full)
 		if statErr != nil || fi.IsDir() {
-			fallbackEntries = append(fallbackEntries, c.DstFiles[0])
+			groupDstFallback = append(groupDstFallback, c.DstFiles[0])
 			continue
 		}
 		sz := fi.Size()
 		if sz != c.SrcFiles[0].Size && sz != c.DstFiles[0].Size {
-			fallbackEntries = append(fallbackEntries, c.DstFiles[0])
+			groupDstFallback = append(groupDstFallback, c.DstFiles[0])
 			continue
 		}
 		stillCandidates = append(stillCandidates, c)
 	}
 
-	// step 3(ii)/(iii): single merged hash batch — fallback/general entries
-	// (size-gated: mismatch skips hashing, same as filterChangedFiles) then
-	// surviving candidates (always hashed; we need the value to know
-	// dst/src/neither). One shared progressTotal so the progress callback
-	// never resets mid-scan.
-	n := len(fallbackEntries) + len(stillCandidates)
+	// step 3(ii)/(iii): single merged hash batch — general + group-fallback
+	// entries (size-gated: mismatch skips hashing, same as
+	// filterChangedFiles) then surviving candidates (always hashed; we need
+	// the value to know dst/src/neither). One shared progressTotal so the
+	// progress callback never resets mid-scan.
+	n := len(generalEntries) + len(groupDstFallback) + len(stillCandidates)
 	rels := make([]string, 0, n)
 	sizes := make([]int64, 0, n)
-	for _, e := range fallbackEntries {
+	for _, e := range generalEntries {
+		rels = append(rels, e.Dest)
+		sizes = append(sizes, e.Size)
+	}
+	for _, e := range groupDstFallback {
 		rels = append(rels, e.Dest)
 		sizes = append(sizes, e.Size)
 	}
@@ -127,11 +165,18 @@ func (p *Provider) buildFileAndPatchPlan(
 
 	var outFiles []core.FileTask
 	idx := 0
-	for _, e := range fallbackEntries {
+	for _, e := range generalEntries {
 		h := md5s[idx]
 		idx++
 		if h != e.MD5 {
 			outFiles = append(outFiles, *newFileTask(cdn, baseURL, e))
+		}
+	}
+	for _, e := range groupDstFallback {
+		h := md5s[idx]
+		idx++
+		if h != e.MD5 {
+			outFiles = append(outFiles, *newFileTask(fullCDN, fullBaseURL, e))
 		}
 	}
 
@@ -145,16 +190,21 @@ func (p *Provider) buildFileAndPatchPlan(
 		idx++
 		src := c.SrcFiles[0]
 		dst := c.DstFiles[0]
-		switch h {
-		case dst.MD5:
+		switch {
+		case h == "":
+			// Missing/unreadable local file. Guarded as its own case (fix
+			// round 1 finding M10) so an empty manifest MD5 (shouldn't
+			// happen, but never assume) can't spuriously "match" here.
+			outFiles = append(outFiles, *newFileTask(fullCDN, fullBaseURL, dst))
+		case h == dst.MD5:
 			// Already at target content — group complete, nothing to do.
-		case src.MD5:
+		case h == src.MD5:
 			// step 4: krpdiff Ephemeral task. Manifest inconsistency (no
 			// matching resource entry) degrades to dst full download rather
 			// than aborting.
 			entry, ok := resourceByDest[c.Dest]
 			if !ok {
-				outFiles = append(outFiles, *newFileTask(cdn, baseURL, dst))
+				outFiles = append(outFiles, *newFileTask(fullCDN, fullBaseURL, dst))
 				continue
 			}
 			diffTask := newFileTask(cdn, baseURL, entry)
@@ -169,7 +219,7 @@ func (p *Provider) buildFileAndPatchPlan(
 				diffSize: entry.Size,
 			})
 		default:
-			outFiles = append(outFiles, *newFileTask(cdn, baseURL, dst))
+			outFiles = append(outFiles, *newFileTask(fullCDN, fullBaseURL, dst))
 		}
 	}
 
@@ -255,7 +305,10 @@ func (p *Provider) fullFallback(
 // pickCDN(idx.Default.CDNList)); CheckForPredownload passes
 // (idx.Predownload.Config, pickCDN(idx.Predownload.CDNList)) — each entry
 // point must bind its OWN config+CDN so a predownload's whole-plan fallback
-// never fetches the live (Default) manifest (plan gate B1).
+// never fetches the live (Default) manifest (plan gate B1). Callers also
+// pass this SAME (fullCfg.BaseURL, fullCDN) pair directly to
+// buildFileAndPatchPlan's fullCDN/fullBaseURL params (per-group dst
+// fallback URLs; fix round 1 finding C1).
 func (p *Provider) mkFetchFull(fullCfg indexConfigRaw, fullCDN string) func(ctx context.Context) (*indexFileRaw, string, string, error) {
 	return func(ctx context.Context) (*indexFileRaw, string, string, error) {
 		f, _, err := fetchIndexFile(ctx, p.httpClient, fullCDN+fullCfg.IndexFile)

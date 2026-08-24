@@ -335,14 +335,22 @@ func localFileMD5s(ctx context.Context, installDir string, rels []string, sizes 
 		progressMu sync.Mutex
 		done       = progressBase
 	)
+	// onProgress fires INSIDE the lock (fix round 1 finding I5): calling it
+	// after Unlock left a window where two workers could interleave their
+	// increment vs their callback, delivering onProgress(5,...) before
+	// onProgress(4,...) even though `done` itself was monotonic — reproduced
+	// via -count=500 on TestBuildPlan_MergedProgressMonotonic. Keeping the
+	// whole increment+callback atomic guarantees callback delivery order
+	// matches increment order. Callbacks are documented cheap/non-blocking,
+	// so serializing them here is the same cost as before, just ordered.
 	emit := func() {
 		progressMu.Lock()
 		done++
 		d := done
-		progressMu.Unlock()
 		if onProgress != nil {
 			onProgress(d, progressTotal)
 		}
+		progressMu.Unlock()
 	}
 
 	var wg sync.WaitGroup
