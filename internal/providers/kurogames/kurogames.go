@@ -534,7 +534,18 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 // isProcessRunning checks if the given exe name appears in the process list.
 // Uses Windows toolhelp snapshot (kurogames is Windows-only). Stub for
 // non-Windows builds always returns false.
-func isProcessRunning(exeName string) bool {
+//
+// Package-level VAR (not a plain func) so tests can stub process detection
+// end-to-end through the real RunUpdate path — this is what makes the
+// exeName/procRunning injection into RunUpdate's applier literal (spec §4-2)
+// independently regression-tested: a test that only constructs *applier
+// directly can pin the guard's behavior, but cannot catch a dropped
+// injection at the RunUpdate call site (2026-08 review IMPORTANT-1 —
+// see TestRunUpdate_ProcessGuardBlocksDuringPatchPhase). Reassigning this
+// var affects both the RunUpdate entry guard (spec §2.7) and the
+// applier's patch-phase re-guard (spec §4-2), since both read it at call
+// time via a func value, not a fixed reference.
+var isProcessRunning = func(exeName string) bool {
 	return platformIsProcessRunning(exeName)
 }
 

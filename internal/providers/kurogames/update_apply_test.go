@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -419,6 +421,14 @@ func TestApply_DeleteAfterGroups(t *testing.T) {
 // TestApply_PatchGroupHappyPath: real hpatchz roundtrip via the "a"
 // fixture — old_a.bin, patched with a.krpdiff, must equal new_a.bin
 // byte-for-byte once renamed into gameDir.
+//
+// Also combines a plain FileTask (a.dll) with an Ephemeral one whose Path
+// matches the group's DiffPath — the realistic production shape, where the
+// diff itself was staged via the download phase as an Ephemeral FileTask.
+// This lets the test assert onEvent's Total == renameTotal + len(groups)
+// (1 + 1 = 2 here): if a future change accidentally counted the Ephemeral
+// entry into renameTotal, Total would be 3 instead and this would catch it
+// (spec invariant: Ephemeral is excluded from every apply-phase count).
 func TestApply_PatchGroupHappyPath(t *testing.T) {
 	oldBytes := readKrpdiffFixture(t, "old_a.bin")
 	newBytes := readKrpdiffFixture(t, "new_a.bin")
@@ -440,9 +450,16 @@ func TestApply_PatchGroupHappyPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), diffBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.dll"), []byte("aaa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	plan := &core.UpdatePlan{
 		GameID: "kurogames/wutheringwaves", Version: "3.4.0", ManifestETag: `"etag-1"`,
+		Files: []core.FileTask{
+			{Path: "a.dll", Size: 3},
+			{Path: "a.krpdiff", Size: int64(len(diffBytes)), Ephemeral: true},
+		},
 		PatchGroups: []core.PatchGroup{
 			{
 				DiffPath: "a.krpdiff",
@@ -468,10 +485,21 @@ func TestApply_PatchGroupHappyPath(t *testing.T) {
 	if !bytes.Equal(got, newBytes) {
 		t.Errorf("patched content mismatch: got %d bytes, want %d bytes matching new_a.bin", len(got), len(newBytes))
 	}
+	if _, err := os.Stat(filepath.Join(gameDir, "a.krpdiff")); err == nil {
+		t.Errorf("the ephemeral diff FileTask must never be renamed into gameDir")
+	}
+
 	var sawPatching bool
+	const wantTotal = int64(2) // renameTotal=1 (a.dll only; a.krpdiff is Ephemeral) + len(PatchGroups)=1
+	if len(events) == 0 {
+		t.Fatal("expected at least one progress event")
+	}
 	for _, e := range events {
 		if e.Stage == "patching" {
 			sawPatching = true
+		}
+		if e.Total != wantTotal {
+			t.Errorf("event Total = %d, want %d (renameTotal + len(groups), excluding Ephemeral): %+v", e.Total, wantTotal, e)
 		}
 	}
 	if !sawPatching {
@@ -648,5 +676,192 @@ func TestApply_ProcessGuardBlocksPatch(t *testing.T) {
 	got, rerr := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
 	if rerr != nil || !bytes.Equal(got, oldBytes) {
 		t.Errorf("gameDir should be untouched by a blocked patch; read err=%v", rerr)
+	}
+}
+
+// TestApply_PatchGroupsNotSizeSorted pins the apply-side defence (spec §5):
+// runPatchGroups re-asserts Dst.Size ascending order even though the plan
+// builder is supposed to have already sorted it — a hand-edited or corrupt
+// plan with a descending pair must be rejected with an internal error
+// before any group is touched.
+func TestApply_PatchGroupsNotSizeSorted(t *testing.T) {
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.4.0",
+		PatchGroups: []core.PatchGroup{
+			{DiffPath: "big.krpdiff", Src: core.PatchFile{Path: "a", Size: 100}, Dst: core.PatchFile{Path: "a", Size: 999}},
+			{DiffPath: "small.krpdiff", Src: core.PatchFile{Path: "b", Size: 10}, Dst: core.PatchFile{Path: "b", Size: 1}},
+		},
+	}
+	a := &applier{plan: plan}
+	err := a.runPatchGroups(context.Background(), 0)
+	if err == nil {
+		t.Fatal("expected internal error for descending PatchGroups")
+	}
+	ue, ok := err.(*core.UpdateError)
+	if !ok || ue.Code != "internal" {
+		t.Fatalf("err = %#v, want *core.UpdateError{Code: internal}", err)
+	}
+}
+
+// TestApply_OutCacheStaleProductForcesRepatch is the mirror image of
+// TestApply_OutCacheSkipsRepatch: a pre-existing _out product whose MD5
+// does NOT match Dst.Hash (e.g. a leftover from an older interrupted run,
+// or the wrong file entirely) must NOT be treated as cached-valid — the
+// gate must force a real hpatchz re-patch using the (valid, in this case)
+// staged diff, producing the correct result. Without this test, a mutation
+// that ignores the md5 comparison in the cache-check (always treating
+// existing _out bytes as valid) would still pass every other test, since
+// the happy-path test's _out starts empty and the dst-mismatch test never
+// reaches the cache check with a pre-seeded _out at all.
+func TestApply_OutCacheStaleProductForcesRepatch(t *testing.T) {
+	oldBytes := readKrpdiffFixture(t, "old_a.bin")
+	newBytes := readKrpdiffFixture(t, "new_a.bin")
+	diffBytes := readKrpdiffFixture(t, "a.krpdiff")
+
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gameDir, filepath.Dir(filepath.FromSlash(chunkAPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Valid diff staged — proves a real re-patch happens (a bogus diff
+	// here would make this test pass for the wrong reason: hpatchz would
+	// fail either way, cache-skip or not).
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), diffBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Stale _out product: old_a.bin content, which does NOT match Dst.Hash
+	// (hash of new_a.bin).
+	outDir := filepath.Join(ps.dir(), "_out", filepath.Dir(filepath.FromSlash(chunkAPath)))
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "_out", filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.4.0", ManifestETag: `"etag-1"`,
+		PatchGroups: []core.PatchGroup{
+			{
+				DiffPath: "a.krpdiff",
+				Src:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(oldBytes), Size: int64(len(oldBytes))},
+				Dst:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(newBytes), Size: int64(len(newBytes))},
+			},
+		},
+	}
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, lock: newApplyLock(),
+	}
+	if err := a.runApply(context.Background()); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
+	if err != nil || !bytes.Equal(got, newBytes) {
+		t.Errorf("gameDir should have the freshly re-patched new_a.bin content (stale _out must not have been trusted); err=%v", err)
+	}
+}
+
+// TestRunUpdate_ProcessGuardBlocksDuringPatchPhase drives the REAL
+// Provider.RunUpdate applier construction (not a hand-built *applier) to
+// prove the exeName/procRunning injection at kurogames.go's applier
+// literal actually wires up (2026-08 review IMPORTANT-1). A test that only
+// stubs *applier directly (TestApply_ProcessGuardBlocksPatch) pins the
+// guard's own behavior but cannot catch a dropped injection at the
+// RunUpdate call site — this test can.
+//
+// isProcessRunning is stubbed via a call-counter: the 1st call is
+// RunUpdate's own pre-download guard (spec §2.7) and must return false so
+// the run proceeds past download into the patch phase; the 2nd+ call is
+// the applier's patch-phase re-guard (spec §4-2), reached only if
+// RunUpdate's applier literal actually injected procRunning — it returns
+// true, and the run must fail with process_blocked during that phase
+// (asserted both by the error and by counting exactly 2 calls: if the
+// injection were dropped, a.procRunning would be nil, the guard would
+// never fire, and the call count would stay at 1).
+func TestRunUpdate_ProcessGuardBlocksDuringPatchPhase(t *testing.T) {
+	oldBytes := readKrpdiffFixture(t, "old_a.bin")
+	newBytes := readKrpdiffFixture(t, "new_a.bin")
+	diffBytes := readKrpdiffFixture(t, "a.krpdiff")
+
+	gameDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gameDir, filepath.Dir(filepath.FromSlash(chunkAPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// index.json stub for RunUpdate's ETag re-verify. A 404 makes
+	// fetchIndex return a non-nil error, which short-circuits the
+	// manifest_changed check entirely (RunUpdate only compares ETags when
+	// err == nil) — simplest way to make this test indifferent to the
+	// exact ETag value.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	origURL := indexJSONURL
+	indexJSONURL = func() string { return srv.URL + "/index.json" }
+	defer func() { indexJSONURL = origURL }()
+
+	var callCount int
+	origIsProcessRunning := isProcessRunning
+	isProcessRunning = func(string) bool {
+		callCount++
+		return callCount > 1
+	}
+	t.Cleanup(func() { isProcessRunning = origIsProcessRunning })
+
+	tmp := t.TempDir()
+	p := New(Settings{}, testLogger())
+	p.SetResolvedPaths(map[core.GameID]string{"kurogames/wutheringwaves": gameDir})
+	p.SetTempRootFn(func(core.GameID) string { return tmp })
+
+	// Stage the diff at the path the applier will look for it: the same
+	// version-dir the production progressStore computes.
+	ps := newProgressStore(tmp, "kurogames/wutheringwaves", "3.4.0")
+	if err := os.MkdirAll(ps.dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), diffBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Kind: core.PlanUpdate,
+		ManifestETag: `"etag-1"`, Version: "3.4.0",
+		Files: []core.FileTask{}, // nothing to download; guard fires before any file access
+		PatchGroups: []core.PatchGroup{
+			{
+				DiffPath: "a.krpdiff",
+				Src:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(oldBytes), Size: int64(len(oldBytes))},
+				Dst:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(newBytes), Size: int64(len(newBytes))},
+			},
+		},
+	}
+
+	err := p.RunUpdate(context.Background(), plan, nil)
+	if err == nil {
+		t.Fatal("expected process_blocked from the patch-phase guard")
+	}
+	ue, ok := err.(*core.UpdateError)
+	if !ok || ue.Code != "process_blocked" {
+		t.Fatalf("err = %#v, want *core.UpdateError{Code: process_blocked}", err)
+	}
+	if callCount != 2 {
+		t.Errorf("isProcessRunning call count = %d, want 2 (1 RunUpdate entry guard + 1 patch-phase re-guard) — a count of 1 means the applier's exeName/procRunning injection is missing", callCount)
+	}
+	got, rerr := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
+	if rerr != nil || !bytes.Equal(got, oldBytes) {
+		t.Errorf("gameDir should be untouched by a blocked patch; err=%v", rerr)
 	}
 }

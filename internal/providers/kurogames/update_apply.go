@@ -115,7 +115,12 @@ func (a *applier) applyErr(path string, err error) error {
 
 // runApply executes the apply phase: writes WAL, atomic-renames each file,
 // appends to WAL Done list, deletes WAL on success. ctx.Done() inside the
-// loop is treated as no-op per spec §2.6 (apply is atomic-batch).
+// file-rename loop is treated as no-op per spec §2.6 (apply is
+// atomic-batch; renames are cheap and there's no meaningful place to
+// interrupt mid-loop). The patch phase (runPatchGroups) below is the
+// intentional exception: it DOES check ctx.Err() at each group boundary
+// before invoking hpatchz, since a single krpdiff apply can run long
+// enough that a genuine cancel should still take effect between groups.
 func (a *applier) runApply(ctx context.Context) error {
 	a.logger.Debug("runApply: enter", "game", a.plan.GameID, "files", len(a.plan.Files), "version", a.plan.Version, "game_dir", a.gameDir, "temp_root", a.tempRoot)
 
@@ -188,10 +193,12 @@ func (a *applier) runApply(ctx context.Context) error {
 	// Now safe to drop progress.json (spec §5.3 transition)
 	_ = os.Remove(filepath.Join(a.progress.dir(), "progress.json"))
 
-	// Apply each file; cancel.Done() is no-op (spec §2.6). Ephemeral tasks
-	// (krpdiff diffs) are never a gameDir rename target — they're consumed
-	// by runPatchGroups below. Total counts rename targets + patch groups
-	// so the progress bar spans both sub-phases.
+	// Apply each file; cancel.Done() is no-op for this rename loop (spec
+	// §2.6) — the patch phase below is where ctx cancellation actually
+	// takes effect (at group boundaries). Ephemeral tasks (krpdiff diffs)
+	// are never a gameDir rename target — they're consumed by
+	// runPatchGroups below. Total counts rename targets + patch groups so
+	// the progress bar spans both sub-phases.
 	var done atomic.Int64
 	renameEventTotal := int64(renameTotal + len(a.plan.PatchGroups))
 	for _, f := range a.plan.Files {
@@ -462,6 +469,20 @@ func (a *applier) runPatchGroups(ctx context.Context, renameDone int) error {
 			return &core.UpdateError{Code: "process_blocked", Retryable: true, Params: map[string]string{"kind": "process_running"}}
 		}
 
+		// Path validation before joining (free defence-in-depth now that
+		// safeGameRelPath exists — spec §4-3's traversal guard applies just
+		// as much to a corrupt/hostile PatchGroup as to DeleteFiles): reject
+		// absolute paths, "..", and any escape after Clean. Dst.Path is
+		// validated against gameDir (it's the eventual rename target);
+		// DiffPath is validated against the version temp dir (where it's
+		// staged and read from).
+		if _, err := safeGameRelPath(a.gameDir, g.Dst.Path); err != nil {
+			return a.applyErr(g.Dst.Path, err)
+		}
+		if _, err := safeGameRelPath(a.progress.dir(), g.DiffPath); err != nil {
+			return a.applyErr(g.DiffPath, err)
+		}
+
 		out := filepath.Join(outRoot, filepath.FromSlash(g.Dst.Path))
 		diff := filepath.Join(a.progress.dir(), g.DiffPath)
 
@@ -493,7 +514,15 @@ func (a *applier) runPatchGroups(ctx context.Context, renameDone int) error {
 			}
 		}
 
-		if err := atomicRename(out, filepath.Join(a.gameDir, g.Dst.Path)); err != nil {
+		// MkdirAll before rename (symmetry with the plain rename loop
+		// above): a group whose Dst.Path introduces a new subdirectory
+		// (not just an in-place replace) would otherwise hit a latent
+		// ENOENT here.
+		dst := filepath.Join(a.gameDir, g.Dst.Path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return a.applyErr(g.Dst.Path, err)
+		}
+		if err := atomicRename(out, dst); err != nil {
 			return a.applyErr(g.Dst.Path, err)
 		}
 		_ = os.Remove(diff) // spec §5 precondition (ii): release the diff's disk space immediately
