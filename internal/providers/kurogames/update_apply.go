@@ -66,6 +66,26 @@ func assertNotEphemeral(plan *core.UpdatePlan, relPath string) error {
 	return nil
 }
 
+// hasKrpdiffSuffix reports whether relPath ends in ".krpdiff"
+// (case-insensitive) — used by runApply's rename loop to reject any task
+// bearing this suffix, independent of its Ephemeral flag.
+//
+// This is the categorical choke point: buildFileAndPatchPlan's own suffix
+// check (update_patchplan.go, "orphan krpdiff resource entry") only covers
+// the groupInfos-classification path it owns. Two other plan-producing
+// routes call filterChangedFiles directly — step 1's legacy no-groupInfos
+// flow and fullFallback's whole-plan-fallback flow (update_patchplan.go)
+// — and neither passes through that check, so a hypothetical *.krpdiff
+// resource entry reaching either of them would be staged as an ordinary
+// non-Ephemeral FileTask and sail straight past assertNotEphemeral (which
+// only inspects the Ephemeral flag, not the suffix). Catching the suffix
+// here, at the single point immediately before every gameDir rename,
+// closes that gap regardless of which upstream path produced the plan —
+// the 2026-08-20 incident class this whole defence exists for.
+func hasKrpdiffSuffix(relPath string) bool {
+	return strings.EqualFold(filepath.Ext(relPath), ".krpdiff")
+}
+
 // safeGameRelPath validates rel as a gameDir-relative path with no
 // traversal (spec §4-3 deleteFiles guard — the mirror image of the
 // 2026-08-20 incident: a corrupt/hostile DeleteFiles entry must never
@@ -223,6 +243,9 @@ func (a *applier) runApply(ctx context.Context) error {
 		}
 		if err := assertNotEphemeral(a.plan, f.Path); err != nil {
 			return a.applyErr(f.Path, err)
+		}
+		if hasKrpdiffSuffix(f.Path) {
+			return pathGuardErr(f.Path)
 		}
 		src := filepath.Join(a.progress.dir(), f.Path)
 		dst := filepath.Join(a.gameDir, f.Path)

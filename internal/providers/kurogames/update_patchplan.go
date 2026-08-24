@@ -185,6 +185,7 @@ func (p *Provider) buildFileAndPatchPlan(
 		diffSize int64
 	}
 	var gwd []groupWithDiff
+	var alreadyAtDst, ephemeralDiffs int
 	for _, c := range stillCandidates {
 		h := md5s[idx]
 		idx++
@@ -198,6 +199,7 @@ func (p *Provider) buildFileAndPatchPlan(
 			outFiles = append(outFiles, *newFileTask(fullCDN, fullBaseURL, dst))
 		case h == dst.MD5:
 			// Already at target content — group complete, nothing to do.
+			alreadyAtDst++
 		case h == src.MD5:
 			// step 4: krpdiff Ephemeral task. Manifest inconsistency (no
 			// matching resource entry) degrades to dst full download rather
@@ -210,6 +212,7 @@ func (p *Provider) buildFileAndPatchPlan(
 			diffTask := newFileTask(cdn, baseURL, entry)
 			diffTask.Ephemeral = true
 			outFiles = append(outFiles, *diffTask)
+			ephemeralDiffs++
 			gwd = append(gwd, groupWithDiff{
 				group: core.PatchGroup{
 					DiffPath: entry.Dest,
@@ -244,6 +247,21 @@ func (p *Provider) buildFileAndPatchPlan(
 	}
 
 	sort.Slice(outFiles, func(i, j int) bool { return outFiles[i].Path < outFiles[j].Path })
+
+	// Classification observability (final-fix #3): a real-CDN e2e run can't
+	// tell "healthy krpdiff patch run" apart from "silently degraded to a
+	// full ~86 GiB fallback" without reading this. patch_groups/
+	// ephemeral_diffs should both be >0 and roughly equal on a healthy run;
+	// group_fallback_files/general_files being unexpectedly large relative
+	// to patch_groups is the signal that classification quietly fell back.
+	p.logger.Info("kurogames: patch plan classified",
+		"patch_groups", len(groups),
+		"group_fallback_files", len(groupDstFallback),
+		"already_at_dst", alreadyAtDst,
+		"general_files", len(generalEntries),
+		"ephemeral_diffs", ephemeralDiffs,
+		"peak_temp_bytes", peak,
+	)
 	return outFiles, groups, idxFile.DeleteFiles, peak, nil
 }
 

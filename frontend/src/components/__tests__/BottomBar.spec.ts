@@ -102,3 +102,22 @@ describe('BottomBar progress clamp', () => {
     expect(fill.attributes('style')).toContain('width: 100%');
   });
 });
+
+describe('BottomBar patching stage label', () => {
+  beforeEach(() => { isRunning.mockReset(); launch.mockReset(); });
+
+  it('interpolates {x}/{y} from in_flight current/total during the patching stage (InFlightOp has no .params)', async () => {
+    const w = setup({ selectedId: 'A' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'update', phase: 'apply', stage: 'patching', current: 7, total: 42 },
+    } as never;
+    await flushPromises();
+    const label = w.find('.progress-btn .label');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toContain('7');
+    expect(label.text()).toContain('42');
+    // Guard against the pre-fix regression: no blank/undefined interpolation.
+    expect(label.text()).not.toContain('undefined');
+  });
+});

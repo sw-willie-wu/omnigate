@@ -370,6 +370,57 @@ func TestApply_DeleteFiles(t *testing.T) {
 	}
 }
 
+// TestApply_KrpdiffSuffixChokePoint covers the final-fix #2 categorical
+// guard: a plan whose Files list carries a NON-Ephemeral task ending in
+// ".krpdiff" (the hypothetical product of a legacy filterChangedFiles route
+// that bypasses buildFileAndPatchPlan's own orphan-krpdiff suffix check —
+// e.g. step 1's no-groupInfos flow or fullFallback in update_patchplan.go)
+// must be refused by runApply's rename loop itself, regardless of the
+// Ephemeral flag, and must leave gameDir untouched.
+func TestApply_KrpdiffSuffixChokePoint(t *testing.T) {
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.5.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.5.0", ManifestETag: `"etag-1"`,
+		Files: []core.FileTask{
+			// Ephemeral: false — as a legacy-route product would look, since
+			// only buildFileAndPatchPlan's groupInfos path ever sets Ephemeral.
+			{Path: "Client/Content/Paks/x.KrPDiff", Hash: "deadbeef", Size: 123, Ephemeral: false},
+		},
+	}
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, lock: newApplyLock(),
+	}
+
+	err := a.runApply(context.Background())
+	if err == nil {
+		t.Fatal("expected structured error for .krpdiff suffix reaching the rename loop")
+	}
+	ue, ok := err.(*core.UpdateError)
+	if !ok {
+		t.Fatalf("err type = %T, want *core.UpdateError", err)
+	}
+	if ue.Retryable {
+		t.Errorf("err = %+v, want Retryable=false (corrupt/hostile plan, not transient)", ue)
+	}
+	if ue.Code != "invalid_path" {
+		t.Errorf("err.Code = %q, want invalid_path", ue.Code)
+	}
+	if _, statErr := os.Stat(filepath.Join(gameDir, "Client/Content/Paks/x.KrPDiff")); statErr == nil {
+		t.Errorf("gameDir should be untouched — .krpdiff file must never be renamed in")
+	}
+	entries, _ := os.ReadDir(gameDir)
+	if len(entries) != 0 {
+		t.Errorf("gameDir should remain empty, got entries: %v", entries)
+	}
+}
+
 // readKrpdiffFixture loads a testdata/krpdiff/<name> fixture (Task 1.5).
 func readKrpdiffFixture(t *testing.T, name string) []byte {
 	t.Helper()
