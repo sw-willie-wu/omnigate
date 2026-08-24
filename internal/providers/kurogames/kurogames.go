@@ -488,6 +488,35 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	tempDir := p.tempRoot(plan.GameID)
 
 	progress := newProgressStore(tempDir, string(plan.GameID), plan.Version)
+
+	// Staged-bytes adoption (spec §2.5, R3-B1) — MUST run BEFORE progress.Init.
+	// ConsumePredlStaged restores predl_ready.json into progress.json stamped
+	// with plan.ManifestETag (the NEW etag). Init's resume check below is
+	// `existing.ETag == etag`: since Consume already wrote that exact etag,
+	// Init sees a match and PRESERVES the restored entries. Called in the
+	// other order, Init would run first (no progress.json yet → builds a
+	// fresh EMPTY ledger and writes it), and Consume's later restore would
+	// then clobber whatever Init had just established — for a live resume
+	// (same-ETag progress.json, no predl involved) that ordering is harmless,
+	// but for a predl adoption it silently drops the just-created empty
+	// ledger, which is the bug shape Task 7's review flagged. Consume-before-
+	// Init is therefore load-bearing, not stylistic — do not reorder.
+	wantHash := map[string]string{}
+	ephemeral := map[string]bool{}
+	for _, f := range plan.Files {
+		wantHash[f.Path] = f.Hash
+		ephemeral[f.Path] = f.Ephemeral
+	}
+	adopted, stagedEphemeralBytes, _ := progress.ConsumePredlStaged(plan.ManifestETag, wantHash, ephemeral)
+	if adopted {
+		// stagedEphemeralBytes is informational only. It must NOT be used for
+		// disk-space math here: the App-layer preflight (preflightChecks /
+		// measureStagedBytes) already measured staged bytes on disk and ran
+		// its own disk-need calculation BEFORE RunUpdate was ever called.
+		// Subtracting it again here would double-deduct the same bytes.
+		p.logger.Info("predl staged bytes adopted", "game", plan.GameID, "staged_ephemeral_bytes", stagedEphemeralBytes)
+	}
+
 	if err := progress.Init(plan.ManifestETag); err != nil {
 		return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": err.Error()}}
 	}

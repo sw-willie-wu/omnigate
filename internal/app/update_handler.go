@@ -106,19 +106,6 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 		a.updateRegistry.EmitTerminal(gid)
 	}
 
-	// Build a verify-progress callback that writes (done, total) into the
-	// InFlightOp so BottomBar can render "驗證本地檔案 X / Y". Throttled by
-	// the registry's emitter to avoid 195+ events/sec saturating the bridge.
-	onVerifyProgress := func(done, total int) {
-		state.mu.Lock()
-		if state.InFlight != nil && state.InFlight.Stage == "verifying" {
-			state.InFlight.Current = int64(done)
-			state.InFlight.Total = int64(total)
-		}
-		state.mu.Unlock()
-		a.updateRegistry.EmitChanged(gid)
-	}
-
 	var plan core.UpdatePlan
 	var err error
 	if kind == core.PlanPredownload {
@@ -134,11 +121,21 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 			a.updateRegistry.EmitTerminal(gid)
 			return
 		}
+		// Verify-progress callback kept local here — CheckForPredownload isn't
+		// part of checkForUpdateVerifying's CheckForUpdate-only scope — so
+		// BottomBar still renders "驗證本地檔案 X / Y" during the predl probe.
+		onVerifyProgress := func(done, total int) {
+			state.mu.Lock()
+			if state.InFlight != nil && state.InFlight.Stage == "verifying" {
+				state.InFlight.Current = int64(done)
+				state.InFlight.Total = int64(total)
+			}
+			state.mu.Unlock()
+			a.updateRegistry.EmitChanged(gid)
+		}
 		plan, err = pc.CheckForPredownload(ctx, gid, onVerifyProgress)
-	} else if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
-		plan, err = updProg.CheckForUpdateWithProgress(ctx, gid, onVerifyProgress)
 	} else {
-		plan, err = upd.CheckForUpdate(ctx, gid)
+		plan, err = a.checkForUpdateVerifying(ctx, gid, upd)
 	}
 	if err != nil {
 		if errors.Is(err, core.ErrPredownloadUnsupported) {
@@ -180,6 +177,32 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 	a.updateRegistry.EmitChanged(gid)
 
 	a.runUpdateWorker(ctx, gid, upd, plan)
+}
+
+// checkForUpdateVerifying calls upd.CheckForUpdate — preferring the
+// CheckForUpdateWithProgress variant when the provider implements it — and
+// wires its per-file verify progress into gid's InFlightOp so BottomBar can
+// render "驗證本地檔案 X / Y" while the potentially-minutes-long per-file MD5
+// pass runs. Shared by runStartUpdateAsync's non-predl path, runResumeAsync,
+// and runApplyPredlAsync — the three entry points that all re-plan against
+// the SAME live-manifest builder at their respective start (spec §2.5's
+// three-entry-point symmetry). Extracted so that symmetry can never drift
+// via copy-paste divergence between the three call sites.
+func (a *App) checkForUpdateVerifying(ctx context.Context, gid core.GameID, upd core.Updater) (core.UpdatePlan, error) {
+	state := a.updateRegistry.Get(gid)
+	onVerifyProgress := func(done, total int) {
+		state.mu.Lock()
+		if state.InFlight != nil && state.InFlight.Stage == "verifying" {
+			state.InFlight.Current = int64(done)
+			state.InFlight.Total = int64(total)
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitChanged(gid)
+	}
+	if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
+		return updProg.CheckForUpdateWithProgress(ctx, gid, onVerifyProgress)
+	}
+	return upd.CheckForUpdate(ctx, gid)
 }
 
 func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Updater, plan core.UpdatePlan) {
@@ -254,6 +277,13 @@ func (a *App) CancelInFlight(gameID string) error {
 
 // ApplyPredownload triggers the apply phase using a previously-completed
 // predownload (spec §2.5). Same game-running guard as StartUpdate.
+//
+// The stored PredlReady plan is NOT applied directly — its content (Files,
+// PatchGroups, ETag, ...) is display-only and may be stale (built before
+// go-live, or rebuilt with missing fields after a restart — spec §2.5 notes
+// this reconstruction is harmless BECAUSE apply always re-plans). Actual
+// apply-time planning happens off-thread in runApplyPredlAsync, which
+// re-runs the SAME live-manifest builder StartUpdate uses.
 func (a *App) ApplyPredownload(gameID string) error {
 	gid := core.GameID(gameID)
 	state := a.updateRegistry.Get(gid)
@@ -263,11 +293,6 @@ func (a *App) ApplyPredownload(gameID string) error {
 	if predl == nil {
 		return fmt.Errorf("no PredlReady for %s", gid)
 	}
-	// PredlReady plan with Kind=Update + ETag preserved → drives apply-only path.
-	// runUpdateWorker's logic on PlanUpdate handles apply normally; download
-	// phase will skip all entries (already present in temp).
-	predlCopy := *predl
-	predlCopy.Kind = core.PlanUpdate
 
 	p, err := a.provider(gid)
 	if err != nil {
@@ -296,7 +321,6 @@ func (a *App) ApplyPredownload(gameID string) error {
 		return nil
 	}
 
-	// Set InFlight for ApplyPredownload (Phase: Apply at start since download done)
 	ctx, cancel := context.WithCancel(context.Background())
 	state.mu.Lock()
 	if state.InFlight != nil {
@@ -304,18 +328,97 @@ func (a *App) ApplyPredownload(gameID string) error {
 		cancel()
 		return fmt.Errorf("operation in flight for %s", gid)
 	}
+	// InFlight starts in "verifying" stage, same shape as startUpdateFlow: the
+	// apply-time re-plan below is a minutes-level per-file MD5 pass and must
+	// NOT run synchronously on this RPC handler goroutine (spec §2.5).
 	state.InFlight = &InFlightOp{
-		Plan:   predlCopy,
-		Phase:  core.PhaseApply,
-		Total:  int64(len(predlCopy.Files)),
+		Plan:   *predl,
+		Phase:  core.PhaseDownload,
+		Stage:  "verifying",
 		cancel: cancel,
 	}
 	state.LastError = nil
 	state.mu.Unlock()
 	a.updateRegistry.EmitTerminal(gid)
 
-	go a.runUpdateWorker(ctx, gid, upd, predlCopy)
+	go a.runApplyPredlAsync(ctx, gid, upd, p, predl.Version)
 	return nil
+}
+
+// runApplyPredlAsync is the off-thread continuation of ApplyPredownload. It
+// re-plans against the live manifest via checkForUpdateVerifying — the SAME
+// builder StartUpdate uses (CheckForUpdate side), deliberately NOT
+// CheckForPredownload: once a version has gone live, idx.Predownload has
+// disappeared from the manifest and that path would return
+// core.ErrPredownloadUnsupported (spec §2.5).
+func (a *App) runApplyPredlAsync(ctx context.Context, gid core.GameID, upd core.Updater, p core.Provider, predlVersion string) {
+	state := a.updateRegistry.Get(gid)
+
+	abort := func(err error) {
+		a.logger.Warn("runApplyPredlAsync abort", "game", gid, "err", err)
+		state.mu.Lock()
+		state.InFlight = nil
+		if !errors.Is(err, context.Canceled) {
+			state.LastError = asUpdateError(err)
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitTerminal(gid)
+	}
+
+	plan, err := a.checkForUpdateVerifying(ctx, gid, upd)
+	if err != nil {
+		abort(err)
+		return
+	}
+
+	// predl_not_live: compared by VERSION EQUALITY ONLY — never size or
+	// lexical ordering (spec §2.5 cites the 3.9→3.10 lexical-sort trap, same
+	// class of bug as the HoYo webCaches precedent). This check MUST run
+	// BEFORE any staged-bytes restoration/deletion — that happens inside the
+	// provider's RunUpdate — so a not-live abort leaves PredlReady and
+	// predl_ready.json untouched: the user can retry once the version
+	// actually goes live.
+	if plan.Version != predlVersion {
+		abort(&core.UpdateError{
+			Code:      "predl_not_live",
+			Retryable: true,
+			Params:    map[string]string{"predl_version": predlVersion, "live_version": plan.Version},
+		})
+		return
+	}
+	plan.Kind = core.PlanUpdate
+
+	// Live: from this point on the predl plan is permanently superseded by
+	// this re-plan, even if preflight or the apply itself fails below — the
+	// PredlReady flag disappears (spec §2.5 "旗標已消失"); recovery from any
+	// failure past this point is via ResumeInterrupted, not "predl ready"
+	// again. This is documented, expected behavior, not a bug.
+	state.mu.Lock()
+	state.PredlReady = nil
+	state.mu.Unlock()
+
+	tempDir := a.tempDirFor(p.ID(), gid)
+	gameDir := a.gameInstallDir(gid, p)
+	if err := a.preflightChecks(tempDir, gameDir, plan); err != nil {
+		abort(err)
+		return
+	}
+
+	// Verify phase done — rewrite InFlight with the real re-planned plan and
+	// switch out of "verifying" (same swap as runStartUpdateAsync).
+	state.mu.Lock()
+	if state.InFlight == nil {
+		state.mu.Unlock()
+		return
+	}
+	state.InFlight.Plan = plan
+	state.InFlight.Stage = ""
+	state.InFlight.Current = 0
+	state.InFlight.Total = plan.TotalBytes
+	state.mu.Unlock()
+	a.updateRegistry.EmitChanged(gid)
+
+	a.runUpdateWorker(ctx, gid, upd, plan)
 }
 
 // RemovePredownload deletes predl_ready.json + temp files for gameID's
@@ -441,23 +544,7 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 		a.updateRegistry.EmitTerminal(gid)
 	}
 
-	onVerifyProgress := func(done, total int) {
-		state.mu.Lock()
-		if state.InFlight != nil && state.InFlight.Stage == "verifying" {
-			state.InFlight.Current = int64(done)
-			state.InFlight.Total = int64(total)
-		}
-		state.mu.Unlock()
-		a.updateRegistry.EmitChanged(gid)
-	}
-
-	var plan core.UpdatePlan
-	var err error
-	if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
-		plan, err = updProg.CheckForUpdateWithProgress(ctx, gid, onVerifyProgress)
-	} else {
-		plan, err = upd.CheckForUpdate(ctx, gid)
-	}
+	plan, err := a.checkForUpdateVerifying(ctx, gid, upd)
 	if err != nil {
 		abort(err)
 		return
@@ -481,6 +568,17 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 
 	if rec.WasPredl {
 		plan.Kind = core.PlanPredownload
+	}
+
+	// Preflight (spec §2.5 — new wiring for the resume entry point): the
+	// re-planned plan reflects only what's still outstanding (completed
+	// groups no longer counted), so PeakTempBytes/TotalBytes here are
+	// already the shrunk values; preflightChecks additionally discounts
+	// whatever is already staged on disk in the version temp dir.
+	gameDir := a.gameInstallDir(gid, p)
+	if err := a.preflightChecks(tempRoot, gameDir, plan); err != nil {
+		abort(err)
+		return
 	}
 
 	initialPhase := core.PhaseDownload

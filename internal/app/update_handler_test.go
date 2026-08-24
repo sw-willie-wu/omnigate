@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -516,5 +518,237 @@ func TestMeasureStagedBytes(t *testing.T) {
 	}
 	if stagedEph != 50 {
 		t.Fatalf("stagedEph = %d, want 50", stagedEph)
+	}
+}
+
+// --- Task 9: three-entry-point wiring (spec §2.5) ---
+
+// fakeUpdaterRecording wraps fakeUpdater (embedded by value, mirroring
+// fakeGachaProvider's embed pattern in gacha_test.go) and records
+// CheckForUpdate call count + the exact plan RunUpdate was invoked with —
+// enough to assert ApplyPredownload re-plans at apply time rather than
+// trusting the stale predl-time plan (spec §2.5).
+type fakeUpdaterRecording struct {
+	fakeUpdater
+
+	mu         sync.Mutex
+	checkCalls int
+	gotRunPlan *core.UpdatePlan
+}
+
+func (r *fakeUpdaterRecording) CheckForUpdate(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
+	r.mu.Lock()
+	r.checkCalls++
+	r.mu.Unlock()
+	return r.fakeUpdater.CheckForUpdate(ctx, gid)
+}
+
+func (r *fakeUpdaterRecording) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent func(core.UpdateEvent)) error {
+	cp := plan
+	r.mu.Lock()
+	r.gotRunPlan = &cp
+	r.mu.Unlock()
+	return r.fakeUpdater.RunUpdate(ctx, plan, onEvent)
+}
+
+// waitInFlightClear polls state.InFlight until nil or the deadline expires
+// (same polling pattern as TestRapidStartCancelStart_NoInterleave — the
+// async continuations under test run on their own goroutine).
+func waitInFlightClear(t *testing.T, state *GameUpdateState, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		state.mu.RLock()
+		done := state.InFlight == nil
+		state.mu.RUnlock()
+		if done {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("InFlight never cleared before deadline")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// TestApplyPredownload_RePlansAndConverges: ApplyPredownload must re-plan
+// against the live manifest (CheckForUpdate) rather than trusting the
+// stored predl-time plan — the worker must receive the FRESH plan (distinct
+// ManifestETag here), and CheckForUpdate must actually have been called.
+func TestApplyPredownload_RePlansAndConverges(t *testing.T) {
+	gid := core.GameID("kurogames/wuwa")
+	predlPlan := core.UpdatePlan{
+		GameID:       gid,
+		ManifestETag: "predl-etag",
+		Version:      "3.6.0",
+		Files:        []core.FileTask{{Path: "old.dll", Hash: "h1", Size: 10}},
+	}
+	livePlan := core.UpdatePlan{
+		GameID:       gid,
+		ManifestETag: "live-etag",
+		Version:      "3.6.0", // same version → live, not predl_not_live
+		Files:        []core.FileTask{{Path: "new.dll", Hash: "h2", Size: 20}},
+		TotalBytes:   20,
+	}
+
+	upd := &fakeUpdaterRecording{fakeUpdater: fakeUpdater{
+		id:          "kurogames",
+		games:       []core.GameDescriptor{{ID: gid, Backend: "kurogames"}},
+		checkResult: livePlan,
+	}}
+
+	a := &App{
+		settings:       Settings{App: AppSettings{TempDir: t.TempDir()}},
+		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		providers:      []core.Provider{upd},
+		resolved:       map[core.GameID]resolvedEntry{gid: {Path: t.TempDir(), Source: core.SourceDefault}},
+		updateRegistry: NewUpdateStateRegistry(func(string, ...any) {}, realClock{}),
+	}
+	defer a.updateRegistry.emitter.Stop()
+
+	state := a.updateRegistry.Get(gid)
+	state.mu.Lock()
+	state.PredlReady = &predlPlan
+	state.mu.Unlock()
+
+	if err := a.ApplyPredownload(string(gid)); err != nil {
+		t.Fatalf("ApplyPredownload: %v", err)
+	}
+	waitInFlightClear(t, state, 2*time.Second)
+
+	upd.mu.Lock()
+	checkCalls, gotRunPlan := upd.checkCalls, upd.gotRunPlan
+	upd.mu.Unlock()
+
+	if checkCalls != 1 {
+		t.Fatalf("CheckForUpdate calls = %d, want 1", checkCalls)
+	}
+	if gotRunPlan == nil {
+		t.Fatal("RunUpdate never invoked")
+	}
+	if gotRunPlan.ManifestETag != "live-etag" {
+		t.Fatalf("worker RunUpdate plan ETag = %q, want %q (re-planned, not the stale predl plan)", gotRunPlan.ManifestETag, "live-etag")
+	}
+	if gotRunPlan.Kind != core.PlanUpdate {
+		t.Fatalf("worker RunUpdate plan Kind = %v, want PlanUpdate", gotRunPlan.Kind)
+	}
+
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.LastError != nil {
+		t.Fatalf("LastError = %+v, want nil", state.LastError)
+	}
+}
+
+// TestApplyPredownload_NotLiveKeepsStaged: when the live manifest hasn't
+// advanced to the predl-staged version yet, ApplyPredownload must abort with
+// predl_not_live WITHOUT ever invoking RunUpdate, and must leave PredlReady
+// (+ implicitly predl_ready.json / staged bytes) untouched so the user can
+// retry once the version actually goes live (spec §2.5).
+func TestApplyPredownload_NotLiveKeepsStaged(t *testing.T) {
+	gid := core.GameID("kurogames/wuwa")
+	predlPlan := core.UpdatePlan{
+		GameID:       gid,
+		ManifestETag: "predl-etag",
+		Version:      "3.6.0",
+		Files:        []core.FileTask{{Path: "old.dll", Hash: "h1", Size: 10}},
+	}
+	livePlan := core.UpdatePlan{
+		GameID:       gid,
+		ManifestETag: "live-etag",
+		Version:      "3.5.0", // still pre-go-live: != predl's 3.6.0
+	}
+
+	upd := &fakeUpdaterRecording{fakeUpdater: fakeUpdater{
+		id:          "kurogames",
+		games:       []core.GameDescriptor{{ID: gid, Backend: "kurogames"}},
+		checkResult: livePlan,
+	}}
+
+	a := &App{
+		settings:       Settings{App: AppSettings{TempDir: t.TempDir()}},
+		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		providers:      []core.Provider{upd},
+		resolved:       map[core.GameID]resolvedEntry{gid: {Path: t.TempDir(), Source: core.SourceDefault}},
+		updateRegistry: NewUpdateStateRegistry(func(string, ...any) {}, realClock{}),
+	}
+	defer a.updateRegistry.emitter.Stop()
+
+	state := a.updateRegistry.Get(gid)
+	state.mu.Lock()
+	state.PredlReady = &predlPlan
+	state.mu.Unlock()
+
+	if err := a.ApplyPredownload(string(gid)); err != nil {
+		t.Fatalf("ApplyPredownload: %v", err)
+	}
+	waitInFlightClear(t, state, 2*time.Second)
+
+	upd.mu.Lock()
+	gotRunPlan := upd.gotRunPlan
+	upd.mu.Unlock()
+	if gotRunPlan != nil {
+		t.Fatal("RunUpdate must NOT be invoked when predl target is not yet live")
+	}
+
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.LastError == nil || state.LastError.Code != "predl_not_live" {
+		t.Fatalf("LastError = %+v, want Code=predl_not_live", state.LastError)
+	}
+	if state.PredlReady == nil {
+		t.Fatal("PredlReady was cleared on a not-live abort; must be preserved for retry")
+	}
+}
+
+// TestResumeAsync_RunsPreflight: runResumeAsync must run preflightChecks on
+// the re-planned plan before handing off to the worker. Mechanism: a fake
+// plan with an absurd PeakTempBytes (1<<62) makes the REAL free-space check
+// fail deterministically on any real machine — platformHasFreeSpace is a
+// build-tag func and cannot be stubbed (task-9 brief gate warning #2), so
+// this is exercised for real rather than weakened into a mock assertion.
+func TestResumeAsync_RunsPreflight(t *testing.T) {
+	gid := core.GameID("kurogames/wuwa")
+	plan := core.UpdatePlan{
+		GameID:        gid,
+		ManifestETag:  "e1",
+		Version:       "9.9.9",
+		PeakTempBytes: 1 << 62,
+	}
+	upd := &fakeUpdater{
+		id:          "kurogames",
+		games:       []core.GameDescriptor{{ID: gid, Backend: "kurogames"}},
+		checkResult: plan,
+	}
+
+	a := &App{
+		settings:       Settings{App: AppSettings{TempDir: t.TempDir()}},
+		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		resolved:       map[core.GameID]resolvedEntry{gid: {Path: t.TempDir(), Source: core.SourceDefault}},
+		updateRegistry: NewUpdateStateRegistry(func(string, ...any) {}, realClock{}),
+	}
+	defer a.updateRegistry.emitter.Stop()
+
+	state := a.updateRegistry.Get(gid)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state.mu.Lock()
+	state.InFlight = &InFlightOp{
+		Plan:   core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate},
+		Phase:  core.PhaseDownload,
+		Stage:  "verifying",
+		cancel: cancel,
+	}
+	state.mu.Unlock()
+
+	a.runResumeAsync(ctx, gid, upd, upd)
+
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.LastError == nil || state.LastError.Code != "disk_full" {
+		t.Fatalf("LastError = %+v, want Code=disk_full", state.LastError)
+	}
+	if state.InFlight != nil {
+		t.Fatalf("InFlight = %+v, want nil after preflight abort", state.InFlight)
 	}
 }
