@@ -119,3 +119,13 @@ type GachaCredentialProvider interface {
 	// for a full fetch (first sync).
 	FetchGachaWithCredential(ctx context.Context, gid GameID, credential, lang string, known map[string]bool) (GachaFetchResult, error)
 }
+
+// GachaImportProvider is an optional capability: parse a third-party gacha
+// export file (offline import) into normalized pulls under the export's own
+// uid. `existing` returns the already-stored pull ids for a uid (nil-safe);
+// providers use it to keep synthesized ids consistent with their live-fetch
+// path (WuWa infers the server UTC offset from id overlap). The App upserts
+// the returned pulls; URL stays empty (an import carries no history URL).
+type GachaImportProvider interface {
+	ParseGachaImport(gid GameID, data []byte, existing func(uid string) map[string]bool) (GachaFetchResult, error)
+}
