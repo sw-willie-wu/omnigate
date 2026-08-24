@@ -184,6 +184,7 @@
       "manifest_not_found": "找不到更新信息（服务器返回 404）",
       "auth_failed": "认证失败，请联系支持",
       "predl_stale": "预下载已过期 ({version})，清除并更新到 {newVersion}？",
+      "predl_not_live": "此预下载版本（{predl_version}）尚未开服（当前 {live_version}），开服后再按应用",
       "interrupted_resume_download": "上次更新中断，是否继续？",
       "interrupted_resume_apply": "上次应用中断，重试？",
       "interrupted_resume_predl_download": "上次预下载中断，是否继续？",
@@ -195,6 +196,8 @@
       "network": "网络错误：{detail}",
       "corrupt": "下载文件损坏，请重试",
       "apply_partial": "应用过程中失败，请重试",
+      "patch_failed": "更新档应用失败（{file}）——请重试；若持续失败将改用完整下载",
+      "invalid_path": "更新数据含非法路径（{file}）——已中止以保护游戏目录",
       "unrecoverable": "更新状态已损坏，请使用 KRLauncher 修复后再试",
       "internal": "内部错误：{detail}"
     },

@@ -109,7 +109,23 @@ func (a *applier) applyErr(path string, err error) error {
 	return &core.UpdateError{
 		Code:      "apply_partial",
 		Retryable: true,
-		Params:    map[string]string{"path": path, "reason": err.Error()},
+		// "file" duplicates "path" — the apply_partial locale strings
+		// interpolate {file}, not {path} (pre-existing mismatch fixed in
+		// Task 11); "path" is kept for compat with any existing consumer.
+		Params: map[string]string{"path": path, "file": path, "reason": err.Error()},
+	}
+}
+
+// pathGuardErr classifies a safeGameRelPath rejection (spec §4-3 traversal
+// guard) as invalid_path — deliberately distinct from apply_partial. A
+// rejected path is a corrupt/hostile manifest entry, not a transient I/O
+// failure: it is never retryable, and apply_partial's "close the game and
+// retry" copy is actively wrong advice here.
+func pathGuardErr(rel string) error {
+	return &core.UpdateError{
+		Code:      "invalid_path",
+		Retryable: false,
+		Params:    map[string]string{"file": rel},
 	}
 }
 
@@ -243,7 +259,7 @@ func (a *applier) runApply(ctx context.Context) error {
 	for _, rel := range a.plan.DeleteFiles {
 		clean, err := safeGameRelPath(a.gameDir, rel)
 		if err != nil {
-			return a.applyErr(rel, err)
+			return pathGuardErr(rel)
 		}
 		if rmErr := os.Remove(clean); rmErr != nil && !os.IsNotExist(rmErr) {
 			return a.applyErr(rel, rmErr)
@@ -334,10 +350,10 @@ func resumeApply(ctx context.Context, walPath, gameDir string, lock applyLock, o
 		src := filepath.Join(tempDir, rel)
 		dst := filepath.Join(gameDir, rel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel}}
+			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel, "file": rel}}
 		}
 		if err := atomicRename(src, dst); err != nil {
-			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel, "reason": err.Error()}}
+			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel, "file": rel, "reason": err.Error()}}
 		}
 		wal.Done = append(wal.Done, rel)
 		wal.Pending = removeString(wal.Pending, rel)
@@ -477,10 +493,10 @@ func (a *applier) runPatchGroups(ctx context.Context, renameDone int) error {
 		// DiffPath is validated against the version temp dir (where it's
 		// staged and read from).
 		if _, err := safeGameRelPath(a.gameDir, g.Dst.Path); err != nil {
-			return a.applyErr(g.Dst.Path, err)
+			return pathGuardErr(g.Dst.Path)
 		}
 		if _, err := safeGameRelPath(a.progress.dir(), g.DiffPath); err != nil {
-			return a.applyErr(g.DiffPath, err)
+			return pathGuardErr(g.DiffPath)
 		}
 
 		out := filepath.Join(outRoot, filepath.FromSlash(g.Dst.Path))
@@ -527,8 +543,14 @@ func (a *applier) runPatchGroups(ctx context.Context, renameDone int) error {
 		}
 		_ = os.Remove(diff) // spec §5 precondition (ii): release the diff's disk space immediately
 		if a.onEvent != nil {
+			// Stage:"patching" here too (not just the pre-hpatchz start event
+			// above) — otherwise the label reverts to empty between groups
+			// (T8-M7 deferred fix). This completion event fires for BOTH
+			// freshly-patched AND cache-hit (crash-resume) groups since it's
+			// outside the `if !cached` block above, so a fully-cached resume
+			// still shows progress instead of going silent.
 			a.onEvent(core.UpdateEvent{
-				Phase:   core.PhaseApply,
+				Phase: core.PhaseApply, Stage: "patching",
 				Current: int64(renameDone + i + 1), Total: int64(renameDone + len(gs)), CurrentFile: g.Dst.Path,
 			})
 		}

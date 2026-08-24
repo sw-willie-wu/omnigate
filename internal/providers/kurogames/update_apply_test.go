@@ -35,6 +35,11 @@ func TestApplier_applyErr_classifiesPermission(t *testing.T) {
 	if ue2.Params["path"] != "client/foo.pak" {
 		t.Fatalf("apply_partial should carry path: %#v", ue2.Params)
 	}
+	// Task 11: apply_partial locale strings interpolate {file}, not {path}
+	// (pre-existing mismatch) — must also carry "file" for compat.
+	if ue2.Params["file"] != "client/foo.pak" {
+		t.Fatalf("apply_partial should also carry file (locale strings use {file}): %#v", ue2.Params)
+	}
 }
 
 // TestApply_HappyPath: apply phase end-to-end with no recovery state.
@@ -325,14 +330,21 @@ func TestApply_DeleteFiles(t *testing.T) {
 		t.Errorf("keep.dat should still exist: %v", err)
 	}
 
-	// Traversal escape.
+	// Traversal escape. Task 11: path-guard rejections carry their own
+	// invalid_path code (Retryable:false) — NOT apply_partial, which
+	// carries "close the game and retry" copy that is wrong advice for a
+	// corrupt/hostile manifest entry.
 	a2 := newApplier("3.4.1", []string{"../escape.txt"})
 	err2 := a2.runApply(context.Background())
 	if err2 == nil {
 		t.Fatal("expected structured error for ../escape traversal")
 	}
-	if _, ok := err2.(*core.UpdateError); !ok {
-		t.Errorf("err type = %T, want *core.UpdateError", err2)
+	ue2, ok := err2.(*core.UpdateError)
+	if !ok {
+		t.Fatalf("err type = %T, want *core.UpdateError", err2)
+	}
+	if ue2.Code != "invalid_path" || ue2.Retryable {
+		t.Errorf("err = %+v, want Code=invalid_path Retryable=false", ue2)
 	}
 	got, err := os.ReadFile(escapePath)
 	if err != nil || string(got) != "outside" {
@@ -345,8 +357,12 @@ func TestApply_DeleteFiles(t *testing.T) {
 	if err3 == nil {
 		t.Fatal("expected structured error for absolute delete path")
 	}
-	if _, ok := err3.(*core.UpdateError); !ok {
-		t.Errorf("err type = %T, want *core.UpdateError", err3)
+	ue3, ok := err3.(*core.UpdateError)
+	if !ok {
+		t.Fatalf("err type = %T, want *core.UpdateError", err3)
+	}
+	if ue3.Code != "invalid_path" || ue3.Retryable {
+		t.Errorf("err = %+v, want Code=invalid_path Retryable=false", ue3)
 	}
 	got3, err := os.ReadFile(absTarget)
 	if err != nil || string(got3) != "absolute" {
@@ -610,9 +626,11 @@ func TestApply_OutCacheSkipsRepatch(t *testing.T) {
 			},
 		},
 	}
+	var events []core.UpdateEvent
+	onEvent := func(e core.UpdateEvent) { events = append(events, e) }
 	a := &applier{
 		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
-		progress: ps, plan: plan, lock: newApplyLock(),
+		progress: ps, plan: plan, onEvent: onEvent, lock: newApplyLock(),
 	}
 	if err := a.runApply(context.Background()); err != nil {
 		t.Fatalf("runApply: %v (hpatchz must not have run against the bogus diff)", err)
@@ -620,6 +638,19 @@ func TestApply_OutCacheSkipsRepatch(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
 	if err != nil || !bytes.Equal(got, newBytes) {
 		t.Errorf("gameDir should have the cached _out product renamed in; err=%v", err)
+	}
+
+	// T8-M7 (deferred, closed by Task 11): a cache-hit group must still
+	// emit at least the completion event (Stage:"patching") — otherwise a
+	// fully-cached resume shows no progress at all.
+	var sawPatching bool
+	for _, e := range events {
+		if e.Stage == "patching" {
+			sawPatching = true
+		}
+	}
+	if !sawPatching {
+		t.Errorf("expected a Stage=%q progress event for the cache-hit group, got events=%+v", "patching", events)
 	}
 }
 

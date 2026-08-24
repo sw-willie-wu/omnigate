@@ -16,9 +16,11 @@ import (
 func TestErrcodeCoverage(t *testing.T) {
 	codes := []string{
 		"process_blocked", "manifest_changed", "manifest_not_found",
-		"auth_failed", "network", "predl_stale", "interrupted_resume",
+		"auth_failed", "network", "predl_stale", "predl_not_live",
+		"interrupted_resume",
 		"disk_full", "cross_volume_temp", "cross_volume_midrun",
-		"corrupt", "apply_partial", "unrecoverable",
+		"corrupt", "apply_partial", "patch_failed", "invalid_path",
+		"unrecoverable",
 		"unsupported_filesystem", "internal",
 	}
 	content := allGoFilesContent(t)
