@@ -2,6 +2,7 @@ package kurogames
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -277,5 +278,54 @@ func TestFilterChangedFiles_CarriesChunks(t *testing.T) {
 
 	if len(byPath["small.dll"].Chunks) != 0 {
 		t.Errorf("small.dll should have no chunks: %+v", byPath["small.dll"].Chunks)
+	}
+}
+
+// TestParseIndexFile_PatchFields (Task 3): a real krpdiff patch indexFile
+// (3.5.3->3.6.0, trimmed) must parse groupInfos/deleteFiles/applyTypes
+// alongside resource, preserving the non-bijective src/dst shape of the
+// multi-file group (deletes-only srcFiles, adds-only dstFiles alongside
+// same-path pairs).
+func TestParseIndexFile_PatchFields(t *testing.T) {
+	body, err := os.ReadFile("testdata/indexfile_353_to_360_trimmed.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var idxFile indexFileRaw
+	if err := json.Unmarshal(body, &idxFile); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(idxFile.GroupInfos) != 4 {
+		t.Errorf("GroupInfos = %d, want 4", len(idxFile.GroupInfos))
+	}
+	if len(idxFile.ApplyTypes) != 1 || idxFile.ApplyTypes[0] != "group" {
+		t.Errorf("ApplyTypes = %+v, want [group]", idxFile.ApplyTypes)
+	}
+	if len(idxFile.DeleteFiles) != 4 {
+		t.Errorf("DeleteFiles = %d, want 4", len(idxFile.DeleteFiles))
+	}
+
+	if len(idxFile.Resource) < 5 {
+		t.Fatalf("Resource = %d, want >= 5", len(idxFile.Resource))
+	}
+	var withChunks, withoutChunks *manifestFileRaw
+	for i := range idxFile.Resource {
+		r := &idxFile.Resource[i]
+		if !strings.HasSuffix(r.Dest, ".krpdiff") {
+			continue
+		}
+		if r.ChunkInfos != nil && withChunks == nil {
+			withChunks = r
+		}
+		if r.ChunkInfos == nil && withoutChunks == nil {
+			withoutChunks = r
+		}
+	}
+	if withChunks == nil {
+		t.Error("expected at least one krpdiff resource entry with ChunkInfos != nil")
+	}
+	if withoutChunks == nil {
+		t.Error("expected at least one krpdiff resource entry with ChunkInfos == nil")
 	}
 }

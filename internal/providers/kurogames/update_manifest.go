@@ -83,8 +83,29 @@ type indexConfigRaw struct {
 }
 
 // indexFileRaw is the per-version file manifest discovered via indexConfigRaw.IndexFile.
+// DeleteFiles/GroupInfos/ApplyTypes are present on krpdiff patch manifests
+// (patchType == "patch"): DeleteFiles lists paths to remove outright,
+// GroupInfos describes multi-file-in/multi-file-out patch groups (one
+// .krpdiff per group, applied against all of GroupInfos[i].SrcFiles to
+// produce all of GroupInfos[i].DstFiles), and ApplyTypes records which
+// patch-application strategies the manifest uses (observed: ["group"]).
 type indexFileRaw struct {
-	Resource []manifestFileRaw `json:"resource"`
+	Resource    []manifestFileRaw `json:"resource"`
+	DeleteFiles []string          `json:"deleteFiles,omitempty"`
+	GroupInfos  []groupInfoRaw    `json:"groupInfos,omitempty"`
+	ApplyTypes  []string          `json:"applyTypes,omitempty"`
+}
+
+// groupInfoRaw is one krpdiff patch group: applying the .krpdiff named by
+// Dest against SrcFiles yields DstFiles. SrcFiles and DstFiles are NOT
+// necessarily the same set or the same length — a group can be
+// non-bijective, with delete-only entries (present in SrcFiles, absent from
+// DstFiles) and add-only entries (present in DstFiles, absent from
+// SrcFiles) alongside same-path pairs whose content changed.
+type groupInfoRaw struct {
+	Dest     string            `json:"dest"`
+	SrcFiles []manifestFileRaw `json:"srcFiles"`
+	DstFiles []manifestFileRaw `json:"dstFiles"`
 }
 
 // manifestFileRaw is one file entry. URL = <cdn>/<baseUrl OR fromFolder><dest>.
