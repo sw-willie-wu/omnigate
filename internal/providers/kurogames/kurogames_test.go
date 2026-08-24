@@ -80,6 +80,13 @@ func TestRunUpdate_AdoptsPredlStaged(t *testing.T) {
 	indexJSONURL = func() string { return srv.URL + "/index.json" }
 	defer func() { indexJSONURL = origURL }()
 
+	// RunUpdate's entry guard calls the real isProcessRunning (spec §2.7) —
+	// must be hermetic to the actual game being open on the dev/CI machine
+	// (same pattern as TestRunUpdate_ProcessGuardBlocksDuringPatchPhase).
+	origIsProcessRunning := isProcessRunning
+	isProcessRunning = func(string) bool { return false }
+	t.Cleanup(func() { isProcessRunning = origIsProcessRunning })
+
 	tmp := t.TempDir()
 	gameDir := t.TempDir()
 	gid := core.GameID("kurogames/wutheringwaves")
@@ -164,6 +171,13 @@ func TestRunUpdate_ConsumeBeforeInit_PreservesParts(t *testing.T) {
 	origURL := indexJSONURL
 	indexJSONURL = func() string { return srv.URL + "/index.json" }
 	defer func() { indexJSONURL = origURL }()
+
+	// RunUpdate's entry guard calls the real isProcessRunning (spec §2.7) —
+	// must be hermetic to the actual game being open on the dev/CI machine
+	// (same pattern as TestRunUpdate_ProcessGuardBlocksDuringPatchPhase).
+	origIsProcessRunning := isProcessRunning
+	isProcessRunning = func(string) bool { return false }
+	t.Cleanup(func() { isProcessRunning = origIsProcessRunning })
 
 	tmp := t.TempDir()
 	gid := core.GameID("kurogames/wutheringwaves")
