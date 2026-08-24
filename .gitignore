@@ -58,3 +58,6 @@ settings.toml
 
 # gacha-icon match-rate probe input (real user data, not shipped)
 internal/gachaicon/testdata/wuwa_real_names.txt
+
+# repo-local Claude Code rules (personal, not shipped)
+CLAUDE.md
