@@ -54,13 +54,13 @@ type fakeUpdater struct {
 }
 
 func (f *fakeUpdater) ID() core.BackendID                  { return f.id }
-func (f *fakeUpdater) DisplayName() core.LocalizedString    { return core.LocalizedString{"en": "fake"} }
-func (f *fakeUpdater) Games() []core.GameDescriptor         { return f.games }
-func (f *fakeUpdater) SettingsSchema() []core.SettingField  { return nil }
+func (f *fakeUpdater) DisplayName() core.LocalizedString   { return core.LocalizedString{"en": "fake"} }
+func (f *fakeUpdater) Games() []core.GameDescriptor        { return f.games }
+func (f *fakeUpdater) SettingsSchema() []core.SettingField { return nil }
 func (f *fakeUpdater) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
 	return []core.InstalledGame{{GameID: f.games[0].ID, InstallPath: "/tmp/fake"}}, nil
 }
-func (f *fakeUpdater) GetIcon(_ context.Context, _ core.GameID) (string, error)        { return "", nil }
+func (f *fakeUpdater) GetIcon(_ context.Context, _ core.GameID) (string, error) { return "", nil }
 func (f *fakeUpdater) GetBackgrounds(_ context.Context, _ core.GameID) ([]core.Background, error) {
 	return nil, nil
 }
@@ -151,8 +151,8 @@ func TestRunUpdate_PanicRecovers(t *testing.T) {
 	gid := core.GameID("kurogames/wuwa")
 
 	panicker := &fakeUpdater{
-		id:    "kurogames",
-		games: []core.GameDescriptor{{ID: gid}},
+		id:     "kurogames",
+		games:  []core.GameDescriptor{{ID: gid}},
 		runErr: nil, // overridden below
 	}
 	// Wrap fake to panic instead of returning runErr
@@ -193,10 +193,10 @@ type panickyUpdater struct {
 	fn   func(ctx context.Context, plan core.UpdatePlan, onEvent func(core.UpdateEvent)) error
 }
 
-func (p *panickyUpdater) ID() core.BackendID                                      { return p.base.ID() }
-func (p *panickyUpdater) DisplayName() core.LocalizedString                       { return p.base.DisplayName() }
-func (p *panickyUpdater) Games() []core.GameDescriptor                            { return p.base.Games() }
-func (p *panickyUpdater) SettingsSchema() []core.SettingField                     { return p.base.SettingsSchema() }
+func (p *panickyUpdater) ID() core.BackendID                  { return p.base.ID() }
+func (p *panickyUpdater) DisplayName() core.LocalizedString   { return p.base.DisplayName() }
+func (p *panickyUpdater) Games() []core.GameDescriptor        { return p.base.Games() }
+func (p *panickyUpdater) SettingsSchema() []core.SettingField { return p.base.SettingsSchema() }
 func (p *panickyUpdater) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
 	return p.base.DetectInstall(ctx)
 }
@@ -249,7 +249,7 @@ type minimalProviderForScan struct {
 	gids []core.GameID
 }
 
-func (m *minimalProviderForScan) ID() core.BackendID            { return m.id }
+func (m *minimalProviderForScan) ID() core.BackendID                { return m.id }
 func (m *minimalProviderForScan) DisplayName() core.LocalizedString { return core.LocalizedString{} }
 func (m *minimalProviderForScan) Games() []core.GameDescriptor {
 	out := make([]core.GameDescriptor, len(m.gids))
@@ -258,12 +258,22 @@ func (m *minimalProviderForScan) Games() []core.GameDescriptor {
 	}
 	return out
 }
-func (m *minimalProviderForScan) SettingsSchema() []core.SettingField                                       { return nil }
-func (m *minimalProviderForScan) DetectInstall(ctx context.Context) ([]core.InstalledGame, error)           { return nil, nil }
-func (m *minimalProviderForScan) GetIcon(ctx context.Context, gid core.GameID) (string, error)              { return "", nil }
-func (m *minimalProviderForScan) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.Background, error) { return nil, nil }
-func (m *minimalProviderForScan) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error)     { return core.VersionInfo{}, nil }
-func (m *minimalProviderForScan) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) { return 0, nil }
+func (m *minimalProviderForScan) SettingsSchema() []core.SettingField { return nil }
+func (m *minimalProviderForScan) DetectInstall(ctx context.Context) ([]core.InstalledGame, error) {
+	return nil, nil
+}
+func (m *minimalProviderForScan) GetIcon(ctx context.Context, gid core.GameID) (string, error) {
+	return "", nil
+}
+func (m *minimalProviderForScan) GetBackgrounds(ctx context.Context, gid core.GameID) ([]core.Background, error) {
+	return nil, nil
+}
+func (m *minimalProviderForScan) CheckVersion(ctx context.Context, gid core.GameID) (core.VersionInfo, error) {
+	return core.VersionInfo{}, nil
+}
+func (m *minimalProviderForScan) Launch(ctx context.Context, gid core.GameID, opts core.LaunchOptions) (int, error) {
+	return 0, nil
+}
 
 func TestScanForRecovery_CrossBackend_FiltersBackendNames(t *testing.T) {
 	tmp := t.TempDir()
@@ -347,3 +357,164 @@ func TestScanForRecovery_KurogamesPrefixDirSurvives(t *testing.T) {
 }
 
 // More tests in Task 16 integration phase — this file establishes wiring.
+
+// --- Task 6: preflight disk-need formula (spec §5) ---
+
+// TestPlanDiskNeed pins the spec §5 formula on the pure planDiskNeed helper
+// — no free-space stubbing involved (platformHasFreeSpace is a build-tag
+// func and cannot be stubbed; see task-6 brief gate warning #2).
+func TestPlanDiskNeed(t *testing.T) {
+	gib := func(x float64) int64 { return int64(x * float64(int64(1)<<30)) }
+
+	cases := []struct {
+		name                         string
+		totalBytes, peakTempBytes    int64
+		stagedAll, stagedEph, growth int64
+		want                         int64
+	}{
+		{
+			// (a) fresh StartUpdate, no patch plan, verDir empty: need is
+			// TotalBytes + margin — remaining has NOT been discounted by
+			// any staged bytes (stagedAll=0), so it stays at full TotalBytes.
+			name:          "a_fresh_no_patch_plan",
+			totalBytes:    gib(21.6),
+			peakTempBytes: 0,
+			want:          gib(21.6) + preflightMarginBytes,
+		},
+		{
+			// (b) spec-pinned: PeakTempBytes=29.52GiB, TotalBytes=21.6GiB,
+			// staged=0 → the peak term (29.52GiB) beats remaining (21.6GiB).
+			name:          "b_spec_pinned_peak_wins_fresh",
+			totalBytes:    gib(21.6),
+			peakTempBytes: gib(29.52),
+			want:          gib(29.52) + preflightMarginBytes,
+		},
+		{
+			// (c) spec-pinned predl-fully-staged case: remaining collapses
+			// to 0 (stagedAll == TotalBytes) so only the peak term
+			// (29.52 - 20.05 = 9.47GiB) matters.
+			name:          "c_spec_pinned_predl_staged_peak_term",
+			totalBytes:    gib(21.6),
+			peakTempBytes: gib(29.52),
+			stagedAll:     gib(21.6),
+			stagedEph:     gib(20.05),
+			want:          (gib(29.52) - gib(20.05)) + preflightMarginBytes,
+		},
+		{
+			// (e) remaining goes negative (over-staged) → clamps to 0.
+			name:       "e_remaining_negative_clamps_to_zero",
+			totalBytes: 100,
+			stagedAll:  1000,
+			want:       preflightMarginBytes,
+		},
+		{
+			// (e) peak term goes negative (stagedEph exceeds PeakTempBytes)
+			// → clamps to 0.
+			name:          "e_peak_term_negative_clamps_to_zero",
+			peakTempBytes: 50,
+			stagedEph:     1000,
+			want:          preflightMarginBytes,
+		},
+		{
+			// (e) growth goes negative (net game-dir shrink) → clamps to 0,
+			// never subtracts from need.
+			name:       "e_growth_negative_clamps_to_zero",
+			totalBytes: 100,
+			stagedAll:  100,
+			growth:     -500,
+			want:       preflightMarginBytes,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := core.UpdatePlan{TotalBytes: tc.totalBytes, PeakTempBytes: tc.peakTempBytes}
+			got := planDiskNeed(plan, tc.stagedAll, tc.stagedEph, tc.growth)
+			if got != tc.want {
+				t.Fatalf("planDiskNeed() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMeasureGrowth_GeneralFiles_PerFileClamp covers case (d): a general
+// file with no existing gameDir counterpart contributes its full Size; a
+// shrinking file (old > new) contributes 0, never a negative amount that
+// could offset a growing file elsewhere.
+func TestMeasureGrowth_GeneralFiles_PerFileClamp(t *testing.T) {
+	gameDir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(gameDir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, "grow.bin"), make([]byte, 1000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, "shrink.bin"), make([]byte, 5000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// "new.bin" and "sub/nested.bin" intentionally absent — no old file.
+
+	files := []core.FileTask{
+		{Path: "grow.bin", Size: 1500},                       // old 1000 -> new 1500: +500
+		{Path: "shrink.bin", Size: 2000},                     // old 5000 -> new 2000: clamps to 0, not -3000
+		{Path: "new.bin", Size: 700},                         // no old file (old=0): +700 full size
+		{Path: "sub/nested.bin", Size: 300},                  // nested path, no old file: +300
+		{Path: "eph.krpdiff", Size: 999999, Ephemeral: true}, // excluded entirely
+	}
+
+	got := measureGrowth(gameDir, nil, files)
+	want := int64(500 + 0 + 700 + 300)
+	if got != want {
+		t.Fatalf("measureGrowth() = %d, want %d", got, want)
+	}
+}
+
+// TestMeasureGrowth_PatchGroups covers the (d-1) PatchGroups net-sum term:
+// groups sum Dst.Size-Src.Size directly (no per-group clamp — a
+// shrinking group is allowed to net-negative at this stage; only the
+// FINAL aggregate is clamped, inside planDiskNeed).
+func TestMeasureGrowth_PatchGroups(t *testing.T) {
+	groups := []core.PatchGroup{
+		{Src: core.PatchFile{Size: 1000}, Dst: core.PatchFile{Size: 1500}}, // +500
+		{Src: core.PatchFile{Size: 2000}, Dst: core.PatchFile{Size: 800}},  // -1200
+	}
+	got := measureGrowth(t.TempDir(), groups, nil)
+	want := int64(500 - 1200)
+	if got != want {
+		t.Fatalf("measureGrowth() groups = %d, want %d", got, want)
+	}
+}
+
+// TestMeasureStagedBytes exercises the verDir stat loop against a small fs
+// fixture: exact size match counts as staged (Ephemeral subset tracked
+// separately), size mismatch and missing files do not.
+func TestMeasureStagedBytes(t *testing.T) {
+	verDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(verDir, "a.bin"), make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(verDir, "b.krpdiff"), make([]byte, 50), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(verDir, "c.bin"), make([]byte, 10), 0o644); err != nil {
+		t.Fatal(err) // deliberate size mismatch vs. plan below
+	}
+	// "d.bin" intentionally missing entirely.
+
+	files := []core.FileTask{
+		{Path: "a.bin", Size: 100},
+		{Path: "b.krpdiff", Size: 50, Ephemeral: true},
+		{Path: "c.bin", Size: 999}, // mismatch -> not staged
+		{Path: "d.bin", Size: 42},  // missing -> not staged
+	}
+
+	stagedAll, stagedEph := measureStagedBytes(verDir, files)
+	if stagedAll != 150 {
+		t.Fatalf("stagedAll = %d, want 150", stagedAll)
+	}
+	if stagedEph != 50 {
+		t.Fatalf("stagedEph = %d, want 50", stagedEph)
+	}
+}
