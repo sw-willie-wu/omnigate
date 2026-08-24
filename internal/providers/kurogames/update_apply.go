@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"omnigate/internal/core"
+	"omnigate/internal/patch/hpatchz"
 )
 
 // applyWAL is the on-disk shape of apply.wal (spec §2.2). Embeds the
@@ -35,6 +36,16 @@ type applier struct {
 	wasPredl bool
 	onEvent  func(core.UpdateEvent)
 	lock     applyLock
+
+	// exeName + procRunning back the cheap re-guard immediately before each
+	// patch group (spec §4-2). Injected by RunUpdate as g.ExeName /
+	// isProcessRunning — the applier itself never queries the process
+	// registry. Zero-value (exeName == "") disables the guard, which is why
+	// RunUpdate's applier literal MUST set both; a missing injection fails
+	// silently (no compile error, no test failure short of the dedicated
+	// process-guard test), so treat this wiring as load-bearing.
+	exeName     string
+	procRunning func(string) bool
 }
 
 // errEphemeralLeak is returned by assertNotEphemeral when a relPath about to
@@ -212,6 +223,12 @@ func (a *applier) runApply(ctx context.Context) error {
 				CurrentFile: f.Path,
 			})
 		}
+	}
+
+	// Patch phase: krpdiff-based binary diffs (spec §4). Must run before
+	// deleteFiles — a group's Src may coincide with a delete target.
+	if err := a.runPatchGroups(ctx, renameTotal); err != nil {
+		return err
 	}
 
 	// deleteFiles (spec §4-3): applied strictly after all patch groups.
@@ -406,4 +423,86 @@ func removeString(s []string, target string) []string {
 		}
 	}
 	return out
+}
+
+// runPatchGroups applies each PatchGroup via hpatchz in size-ascending
+// order (spec §5 disk-peak formula depends on this order; builder already
+// sorts, this re-asserts against a hand-edited plan). renameDone is the
+// count of gameDir renames already completed by the loop above — used only
+// as the progress-event offset so the apply-phase bar spans both
+// sub-phases.
+//
+// dir-diff semantics (spec §4 runtime correction): hpatchz's old/out
+// arguments are ROOT DIRECTORIES here, not single files — the krpdiff
+// embeds relative paths (e.g. Client/Content/Paks/x.pak) and hpatchz reads
+// old content from under gameDir and writes new content under outRoot at
+// that same relative path.
+func (a *applier) runPatchGroups(ctx context.Context, renameDone int) error {
+	gs := a.plan.PatchGroups
+
+	// Assert size-ascending (builder already sorts; this guards a
+	// hand-edited/corrupt plan — the disk-peak formula in spec §5 depends
+	// on this order holding at apply time).
+	for i := 1; i < len(gs); i++ {
+		if gs[i].Dst.Size < gs[i-1].Dst.Size {
+			return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": "patch groups not size-sorted"}}
+		}
+	}
+
+	outRoot := filepath.Join(a.progress.dir(), "_out")
+
+	for i, g := range gs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Cheap re-guard (spec §4-2): exeName/procRunning are injected by
+		// RunUpdate's applier literal (g.ExeName / isProcessRunning) — the
+		// applier itself never queries the process registry.
+		if a.exeName != "" && a.procRunning != nil && a.procRunning(a.exeName) {
+			return &core.UpdateError{Code: "process_blocked", Retryable: true, Params: map[string]string{"kind": "process_running"}}
+		}
+
+		out := filepath.Join(outRoot, filepath.FromSlash(g.Dst.Path))
+		diff := filepath.Join(a.progress.dir(), g.DiffPath)
+
+		// Crash-resume shortcut: _out already holds a verified product
+		// from a prior interrupted run (bad/consumed diff notwithstanding)
+		// → skip straight to rename, don't re-invoke hpatchz.
+		cached := false
+		if h, err := md5File(out); err == nil && h == g.Dst.Hash {
+			cached = true
+		}
+
+		if !cached {
+			if a.onEvent != nil {
+				a.onEvent(core.UpdateEvent{
+					Phase: core.PhaseApply, Stage: "patching",
+					Current: int64(renameDone + i), Total: int64(renameDone + len(gs)), CurrentFile: g.Dst.Path,
+				})
+			}
+			if err := os.MkdirAll(outRoot, 0o755); err != nil {
+				return a.applyErr(g.Dst.Path, err)
+			}
+			if err := hpatchz.Run(ctx, a.gameDir, diff, outRoot); err != nil {
+				_ = os.RemoveAll(outRoot)
+				return &core.UpdateError{Code: "patch_failed", Retryable: true, Params: map[string]string{"file": g.Dst.Path, "reason": err.Error()}}
+			}
+			if h, err := md5File(out); err != nil || h != g.Dst.Hash {
+				_ = os.Remove(out)
+				return &core.UpdateError{Code: "patch_failed", Retryable: true, Params: map[string]string{"file": g.Dst.Path, "reason": "post-patch md5 mismatch"}}
+			}
+		}
+
+		if err := atomicRename(out, filepath.Join(a.gameDir, g.Dst.Path)); err != nil {
+			return a.applyErr(g.Dst.Path, err)
+		}
+		_ = os.Remove(diff) // spec §5 precondition (ii): release the diff's disk space immediately
+		if a.onEvent != nil {
+			a.onEvent(core.UpdateEvent{
+				Phase:   core.PhaseApply,
+				Current: int64(renameDone + i + 1), Total: int64(renameDone + len(gs)), CurrentFile: g.Dst.Path,
+			})
+		}
+	}
+	return nil
 }

@@ -1,6 +1,7 @@
 package kurogames
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -351,3 +352,301 @@ func TestApply_DeleteFiles(t *testing.T) {
 	}
 }
 
+// readKrpdiffFixture loads a testdata/krpdiff/<name> fixture (Task 1.5).
+func readKrpdiffFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "krpdiff", name))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	return b
+}
+
+// chunkAPath is the game-dir-relative path the "a" krpdiff fixture pair
+// embeds (see testdata/krpdiff/README.md).
+const chunkAPath = "Client/Content/Paks/chunk_a.pak"
+
+// TestApply_DeleteAfterGroups proves ordering (spec §1-5 / §4): a
+// PatchGroup's Src coincides with a DeleteFiles entry. If deleteFiles ran
+// before the patch group, hpatchz would fail to find the old file
+// (patch_failed); success here proves the src was still present when
+// hpatchz ran, i.e. deleteFiles genuinely ran after.
+func TestApply_DeleteAfterGroups(t *testing.T) {
+	oldBytes := readKrpdiffFixture(t, "old_a.bin")
+	newBytes := readKrpdiffFixture(t, "new_a.bin")
+	diffBytes := readKrpdiffFixture(t, "a.krpdiff")
+
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gameDir, filepath.Dir(filepath.FromSlash(chunkAPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), diffBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.4.0", ManifestETag: `"etag-1"`,
+		PatchGroups: []core.PatchGroup{
+			{
+				DiffPath: "a.krpdiff",
+				Src:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(oldBytes), Size: int64(len(oldBytes))},
+				Dst:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(newBytes), Size: int64(len(newBytes))},
+			},
+		},
+		DeleteFiles: []string{chunkAPath},
+	}
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, lock: newApplyLock(),
+	}
+	if err := a.runApply(context.Background()); err != nil {
+		t.Fatalf("runApply: %v (patch could not read src → deleteFiles ran before groups)", err)
+	}
+	if _, err := os.Stat(filepath.Join(gameDir, filepath.FromSlash(chunkAPath))); err == nil {
+		t.Errorf("file should have been deleted after the patch group completed")
+	}
+}
+
+// TestApply_PatchGroupHappyPath: real hpatchz roundtrip via the "a"
+// fixture — old_a.bin, patched with a.krpdiff, must equal new_a.bin
+// byte-for-byte once renamed into gameDir.
+func TestApply_PatchGroupHappyPath(t *testing.T) {
+	oldBytes := readKrpdiffFixture(t, "old_a.bin")
+	newBytes := readKrpdiffFixture(t, "new_a.bin")
+	diffBytes := readKrpdiffFixture(t, "a.krpdiff")
+
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gameDir, filepath.Dir(filepath.FromSlash(chunkAPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), diffBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.4.0", ManifestETag: `"etag-1"`,
+		PatchGroups: []core.PatchGroup{
+			{
+				DiffPath: "a.krpdiff",
+				Src:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(oldBytes), Size: int64(len(oldBytes))},
+				Dst:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(newBytes), Size: int64(len(newBytes))},
+			},
+		},
+	}
+	var events []core.UpdateEvent
+	onEvent := func(e core.UpdateEvent) { events = append(events, e) }
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, onEvent: onEvent, lock: newApplyLock(),
+	}
+	if err := a.runApply(context.Background()); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
+	if err != nil {
+		t.Fatalf("read patched file: %v", err)
+	}
+	if !bytes.Equal(got, newBytes) {
+		t.Errorf("patched content mismatch: got %d bytes, want %d bytes matching new_a.bin", len(got), len(newBytes))
+	}
+	var sawPatching bool
+	for _, e := range events {
+		if e.Stage == "patching" {
+			sawPatching = true
+		}
+	}
+	if !sawPatching {
+		t.Errorf("expected a Stage=%q progress event", "patching")
+	}
+}
+
+// TestApply_PatchDstMismatchKeepsOld: a wrong Dst.Hash must fail the
+// post-patch MD5 verification, leave the original gameDir file untouched,
+// and clean up the _out product (no leftover garbage for a future resume
+// to accidentally treat as cached-valid).
+func TestApply_PatchDstMismatchKeepsOld(t *testing.T) {
+	oldBytes := readKrpdiffFixture(t, "old_a.bin")
+	diffBytes := readKrpdiffFixture(t, "a.krpdiff")
+
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gameDir, filepath.Dir(filepath.FromSlash(chunkAPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), diffBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.4.0", ManifestETag: `"etag-1"`,
+		PatchGroups: []core.PatchGroup{
+			{
+				DiffPath: "a.krpdiff",
+				Src:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(oldBytes), Size: int64(len(oldBytes))},
+				Dst:      core.PatchFile{Path: chunkAPath, Hash: "deadbeefdeadbeefdeadbeefdeadbeef", Size: 999},
+			},
+		},
+	}
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, lock: newApplyLock(),
+	}
+	err := a.runApply(context.Background())
+	if err == nil {
+		t.Fatal("expected patch_failed for Dst.Hash mismatch")
+	}
+	ue, ok := err.(*core.UpdateError)
+	if !ok || ue.Code != "patch_failed" {
+		t.Fatalf("err = %#v, want *core.UpdateError{Code: patch_failed}", err)
+	}
+
+	got, rerr := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
+	if rerr != nil || !bytes.Equal(got, oldBytes) {
+		t.Errorf("gameDir file should remain the original old_a.bin content; read err=%v", rerr)
+	}
+	outPath := filepath.Join(ps.dir(), "_out", filepath.FromSlash(chunkAPath))
+	if _, serr := os.Stat(outPath); serr == nil {
+		t.Errorf("_out product should have been removed after md5 mismatch")
+	}
+}
+
+// TestApply_OutCacheSkipsRepatch: a pre-existing verified _out product
+// (crash-resume state) must short-circuit hpatchz entirely. Proven by
+// pairing it with a deliberately corrupt diff file — if hpatchz were
+// actually invoked, it would fail on the bogus diff and the apply would
+// error.
+func TestApply_OutCacheSkipsRepatch(t *testing.T) {
+	oldBytes := readKrpdiffFixture(t, "old_a.bin")
+	newBytes := readKrpdiffFixture(t, "new_a.bin")
+
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gameDir, filepath.Dir(filepath.FromSlash(chunkAPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately corrupt diff — proves hpatchz is never invoked.
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), []byte("NOT A REAL KRPDIFF"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed a verified _out product (simulating crash-resume state).
+	outDir := filepath.Join(ps.dir(), "_out", filepath.Dir(filepath.FromSlash(chunkAPath)))
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "_out", filepath.FromSlash(chunkAPath)), newBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.4.0", ManifestETag: `"etag-1"`,
+		PatchGroups: []core.PatchGroup{
+			{
+				DiffPath: "a.krpdiff",
+				Src:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(oldBytes), Size: int64(len(oldBytes))},
+				Dst:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(newBytes), Size: int64(len(newBytes))},
+			},
+		},
+	}
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, lock: newApplyLock(),
+	}
+	if err := a.runApply(context.Background()); err != nil {
+		t.Fatalf("runApply: %v (hpatchz must not have run against the bogus diff)", err)
+	}
+	got, err := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
+	if err != nil || !bytes.Equal(got, newBytes) {
+		t.Errorf("gameDir should have the cached _out product renamed in; err=%v", err)
+	}
+}
+
+// TestApply_ProcessGuardBlocksPatch pins gate warning #1: the process
+// guard is not decorative. A stubbed procRunning returning true must
+// block the patch phase with process_blocked and leave gameDir untouched.
+func TestApply_ProcessGuardBlocksPatch(t *testing.T) {
+	oldBytes := readKrpdiffFixture(t, "old_a.bin")
+	newBytes := readKrpdiffFixture(t, "new_a.bin")
+	diffBytes := readKrpdiffFixture(t, "a.krpdiff")
+
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gameDir, filepath.Dir(filepath.FromSlash(chunkAPath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)), oldBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.krpdiff"), diffBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		GameID: "kurogames/wutheringwaves", Version: "3.4.0", ManifestETag: `"etag-1"`,
+		PatchGroups: []core.PatchGroup{
+			{
+				DiffPath: "a.krpdiff",
+				Src:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(oldBytes), Size: int64(len(oldBytes))},
+				Dst:      core.PatchFile{Path: chunkAPath, Hash: md5hexBytes(newBytes), Size: int64(len(newBytes))},
+			},
+		},
+	}
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, lock: newApplyLock(),
+		exeName:     "x.exe",
+		procRunning: func(string) bool { return true },
+	}
+	err := a.runApply(context.Background())
+	if err == nil {
+		t.Fatal("expected process_blocked")
+	}
+	ue, ok := err.(*core.UpdateError)
+	if !ok || ue.Code != "process_blocked" {
+		t.Fatalf("err = %#v, want *core.UpdateError{Code: process_blocked}", err)
+	}
+
+	got, rerr := os.ReadFile(filepath.Join(gameDir, filepath.FromSlash(chunkAPath)))
+	if rerr != nil || !bytes.Equal(got, oldBytes) {
+		t.Errorf("gameDir should be untouched by a blocked patch; read err=%v", rerr)
+	}
+}

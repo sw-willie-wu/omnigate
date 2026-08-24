@@ -517,14 +517,16 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 
 	// Apply phase
 	a := &applier{
-		logger:   p.logger,
-		tempRoot: tempDir,
-		gameDir:  installPath,
-		progress: progress,
-		plan:     &plan,
-		wasPredl: false,
-		onEvent:  onEvent,
-		lock:     newApplyLock(),
+		logger:      p.logger,
+		tempRoot:    tempDir,
+		gameDir:     installPath,
+		progress:    progress,
+		plan:        &plan,
+		wasPredl:    false,
+		onEvent:     onEvent,
+		lock:        newApplyLock(),
+		exeName:     g.ExeName,
+		procRunning: isProcessRunning,
 	}
 	return a.runApply(ctx)
 }
