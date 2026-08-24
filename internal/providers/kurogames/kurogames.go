@@ -292,9 +292,31 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 	// Filter to changed files only — onProgress fires after each file.
 	// Workers honor ctx.Done() between files so cancel mid-verify takes
 	// effect within ~1 file's worth of MD5 (worst case ~30s for biggest .pak).
-	files := filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
-	if ctx.Err() != nil {
-		return core.UpdatePlan{}, ctx.Err()
+	// Patch manifests (groupInfos present) go through the patch-aware
+	// classifier (spec §2); legacy full-manifest indexFiles keep the
+	// original filterChangedFiles flow unchanged.
+	var (
+		files       []core.FileTask
+		patchGroups []core.PatchGroup
+		deleteFiles []string
+		peakTemp    int64
+	)
+	if len(idxFile.GroupInfos) > 0 || len(idxFile.ApplyTypes) > 0 {
+		// ApplyTypes alone (even with empty GroupInfos) must still route
+		// through the builder so step-0's unknown-applyTypes fallback (spec
+		// §2, which is ordered BEFORE the len(GroupInfos)==0 legacy check)
+		// can fire — an unrecognized apply strategy with a sparse manifest
+		// is exactly the "don't understand this format" case it exists for.
+		fetchFull := p.mkFetchFull(idx.Default.Config, pickCDN(idx.Default.CDNList))
+		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, idxFile, fetchFull, onProgress)
+		if err != nil {
+			return core.UpdatePlan{}, err
+		}
+	} else {
+		files = filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
 	}
 	var totalBytes int64
 	for _, f := range files {
@@ -308,12 +330,15 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 	// pre-update value → AvailableUpdate re-flags on next Refresh.
 	targetVersion := idx.Default.Version
 	plan := core.UpdatePlan{
-		GameID:       gid,
-		Kind:         core.PlanUpdate,
-		ManifestETag: idxETag,
-		Version:      targetVersion,
-		Files:        files,
-		TotalBytes:   totalBytes,
+		GameID:        gid,
+		Kind:          core.PlanUpdate,
+		ManifestETag:  idxETag,
+		Version:       targetVersion,
+		Files:         files,
+		TotalBytes:    totalBytes,
+		PatchGroups:   patchGroups,
+		DeleteFiles:   deleteFiles,
+		PeakTempBytes: peakTemp,
 	}
 	plan.Reason = core.ReasonVersionChanged // M3.B forward-consistency: kurogames is always version-change driven
 	p.logger.Info("CheckForUpdate complete",
@@ -365,22 +390,44 @@ func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onP
 		return core.UpdatePlan{}, err
 	}
 
-	files := filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
-	if ctx.Err() != nil {
-		return core.UpdatePlan{}, ctx.Err()
+	// See CheckForUpdateWithProgress: patch manifests go through the shared
+	// patch-aware classifier. fetchFull is bound to THIS entry point's own
+	// (predownload) full config/CDN — never idx.Default, or a predl
+	// whole-plan fallback would fetch the live-version manifest (plan gate
+	// B1).
+	var (
+		files       []core.FileTask
+		patchGroups []core.PatchGroup
+		deleteFiles []string
+		peakTemp    int64
+	)
+	if len(idxFile.GroupInfos) > 0 || len(idxFile.ApplyTypes) > 0 {
+		fetchFull := p.mkFetchFull(idx.Predownload.Config, pickCDN(idx.Predownload.CDNList))
+		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, idxFile, fetchFull, onProgress)
+		if err != nil {
+			return core.UpdatePlan{}, err
+		}
+	} else {
+		files = filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
 	}
 	var totalBytes int64
 	for _, f := range files {
 		totalBytes += f.Size
 	}
 	plan := core.UpdatePlan{
-		GameID:       gid,
-		Kind:         core.PlanPredownload,
-		ManifestETag: idxETag,
-		Version:      idx.Predownload.Version,
-		Files:        files,
-		TotalBytes:   totalBytes,
-		Reason:       core.ReasonPredownload,
+		GameID:        gid,
+		Kind:          core.PlanPredownload,
+		ManifestETag:  idxETag,
+		Version:       idx.Predownload.Version,
+		Files:         files,
+		TotalBytes:    totalBytes,
+		Reason:        core.ReasonPredownload,
+		PatchGroups:   patchGroups,
+		DeleteFiles:   deleteFiles,
+		PeakTempBytes: peakTemp,
 	}
 	p.logger.Info("CheckForPredownload complete", "game", gid, "predl_version", idx.Predownload.Version, "files", len(files), "bytes", totalBytes)
 	return plan, nil
