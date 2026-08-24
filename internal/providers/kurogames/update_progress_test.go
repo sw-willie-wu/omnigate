@@ -180,6 +180,15 @@ func TestConsumePredlStaged_AdoptsMatching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// d.orphan is staged (present in predl_ready.json) but the CURRENT
+	// manifest no longer references it (absent from wantHash below) — it
+	// must be dropped from the restored progress.json (MINOR-2).
+	if err := os.WriteFile(filepath.Join(p.dir(), "d.orphan"), []byte("dddd"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.MarkComplete("d.orphan", time.Now(), 4, "hash-d"); err != nil {
+		t.Fatal(err)
+	}
 	if err := p.RenameToPredlReady(); err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +219,68 @@ func TestConsumePredlStaged_AdoptsMatching(t *testing.T) {
 		if _, ok := loaded.Entries[rel]; !ok {
 			t.Errorf("entry %q missing after adoption", rel)
 		}
+	}
+	if _, ok := loaded.Entries["d.orphan"]; ok {
+		t.Error("d.orphan is absent from wantHash and must not survive adoption (MINOR-2)")
+	}
+}
+
+// TestConsumePredlStaged_LegacyHashlessEdgeCases pins two legacy (Hash=="")
+// re-hash edge cases that a naive "legacy entries always match" mutation
+// would let slip through:
+//
+//   - drifted: on-disk bytes no longer match wantHash → drop + remove staged file.
+//   - missing: staged file absent from disk entirely (md5File errors) →
+//     drop, no panic, no keep.
+func TestConsumePredlStaged_LegacyHashlessEdgeCases(t *testing.T) {
+	tmp := t.TempDir()
+	p := newProgressStore(tmp, "kurogames/wutheringwaves", "3.5.0")
+	if err := p.Init("old-etag"); err != nil {
+		t.Fatal(err)
+	}
+
+	// drifted: staged content no longer matches the current manifest hash.
+	if err := os.WriteFile(filepath.Join(p.dir(), "drifted.diff"), []byte("stale-on-disk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.MarkComplete("drifted.diff", time.Now(), 13, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// missing: entry recorded, but the staged file was never written (or was
+	// since deleted) — md5File must error, not panic, and the entry drops.
+	if err := p.MarkComplete("missing.diff", time.Now(), 99, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.RenameToPredlReady(); err != nil {
+		t.Fatal(err)
+	}
+
+	wantHash := map[string]string{
+		"drifted.diff": "some-other-hash-entirely",
+		"missing.diff": "does-not-matter",
+	}
+	adopted, _, err := p.ConsumePredlStaged("new-etag", wantHash, map[string]bool{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !adopted {
+		t.Fatal("adopted = false, want true")
+	}
+
+	loaded, err := core.LoadProgress(p.dir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := loaded.Entries["drifted.diff"]; ok {
+		t.Error("drifted.diff (legacy, on-disk mismatch) should be dropped")
+	}
+	if _, err := os.Stat(filepath.Join(p.dir(), "drifted.diff")); err == nil {
+		t.Error("drifted.diff staged file should be removed from disk")
+	}
+	if _, ok := loaded.Entries["missing.diff"]; ok {
+		t.Error("missing.diff (legacy, no file on disk) should be dropped")
 	}
 }
 
