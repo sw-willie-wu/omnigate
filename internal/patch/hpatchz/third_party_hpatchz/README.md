@@ -18,7 +18,7 @@ MIT License. See `LICENSE`.
 
 ## How Omnigate uses this binary
 
-`internal/providers/hoyoverse/hpatchz.go` embeds this file via `go:embed`. At first use, Omnigate writes the binary to `<TEMP>/omnigate/hpatchz-<sha8>.exe` (where `<sha8>` is the first 8 hex chars of `sha256.Sum256(embeddedBytes)`) and invokes it via `exec.CommandContext`. The cache is shared across all backends and persists across runs; OS temp cleanup eventually removes orphans.
+`internal/patch/hpatchz/hpatchz.go` embeds this file via `go:embed`. At first use, Omnigate writes the binary to `<TEMP>/omnigate/hpatchz-<sha8>.exe` (where `<sha8>` is the first 8 hex chars of `sha256.Sum256(embeddedBytes)`) and invokes it via `exec.CommandContext`. The cache is shared across all backends and persists across runs; OS temp cleanup eventually removes orphans.
 
 ## Updating
 
