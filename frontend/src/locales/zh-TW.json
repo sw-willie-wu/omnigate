@@ -29,7 +29,6 @@
     "refresh": "重新整理紀錄",
     "refresh_failed": "重新整理失敗——沿用上次載入的資料。",
     "import": "匯入紀錄",
-    "import_soon": "UIGF 匯入——即將支援",
     "import_hint": "匯入 wuwatracker 匯出的 JSON 檔",
     "import_done": "已匯入 {added} 筆新紀錄（檔案共 {total} 筆，UID {uid}）",
     "import_fail": "匯入失敗——請確認檔案是 wuwatracker 匯出的 JSON。",

@@ -29,7 +29,6 @@
     "refresh": "刷新记录",
     "refresh_failed": "刷新失败——沿用上次加载的数据。",
     "import": "导入记录",
-    "import_soon": "UIGF 导入——即将支持",
     "import_hint": "导入 wuwatracker 导出的 JSON 文件",
     "import_done": "已导入 {added} 条新记录（文件共 {total} 条，UID {uid}）",
     "import_fail": "导入失败——请确认文件是 wuwatracker 导出的 JSON。",

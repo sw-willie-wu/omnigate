@@ -279,12 +279,10 @@ describe('GachaBoard', () => {
     expect(w.find('.gacha-cards').exists()).toBe(false);
   });
 
-  it('renders a disabled import-records placeholder button', async () => {
+  it('hides the import button entirely for games without an import source', async () => {
     getSummary.mockResolvedValue(base);
     const w = mountBoard(); await flushPromises();
-    const imp = w.find('.gacha-import');
-    expect(imp.exists()).toBe(true);
-    expect(imp.attributes('disabled')).toBeDefined();
+    expect(w.find('.gacha-import').exists()).toBe(false);
   });
 
   it('enables import for WuWa: click → ImportGachaRecords → success message + reload', async () => {

@@ -315,10 +315,8 @@ watch(() => st.value.loaded, (loaded) => {
         <button class="gacha-refresh gacha-btn-icon" @click="gacha.refresh(props.gid, accountID)">
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>{{ t('gacha.refresh') }}
         </button>
+        <!-- hidden (not disabled) for games without an import source -->
         <button v-if="canImport" class="gacha-import gacha-import-on gacha-btn-icon" :disabled="importing" :title="t('gacha.import_hint')" @click="doImport">
-          <span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('gacha.import') }}
-        </button>
-        <button v-else class="gacha-import gacha-btn-icon" disabled :title="t('gacha.import_soon')">
           <span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('gacha.import') }}
         </button>
         <span v-if="refreshError" class="gacha-inline-err" :title="errDetail">
@@ -497,22 +495,27 @@ watch(() => st.value.loaded, (loaded) => {
 /* actions */
 .gacha-actions { display: flex; justify-content: flex-start; align-items: center; gap: 10px; }
 .gacha-refresh {
-  background: var(--gold-soft); color: var(--gold-hi); border: 1px solid rgba(230,197,115,.4);
+  background: rgba(255,255,255,.14); color: rgba(255,255,255,.95); border: 1px solid rgba(255,255,255,.3);
   border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0,0,0,.65); /* readable over light backgrounds */
 }
-.gacha-refresh:hover { background: rgba(230,197,115,.2); }
+.gacha-refresh:hover { background: rgba(255,255,255,.22); }
 .gacha-btn-icon { display: inline-flex; align-items: center; gap: 6px; line-height: 1; }
-.gacha-btn-icon .material-symbols-outlined { font-size: 18px; }
-/* import-records: enabled for WuWa (wuwatracker JSON); other games keep the
-   disabled UIGF placeholder look */
-.gacha-import {
-  background: rgba(255,255,255,.05); color: rgba(255,255,255,.42);
-  border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 14px;
-  font-family: inherit; font-size: 12px; font-weight: 600; cursor: not-allowed;
+/* frosted backing so both action buttons stay legible over bright backgrounds */
+.gacha-refresh, .gacha-import {
+  backdrop-filter: blur(var(--glass-2-blur)); -webkit-backdrop-filter: blur(var(--glass-2-blur));
 }
-.gacha-import-on { color: rgba(255,255,255,.85); cursor: pointer; }
-.gacha-import-on:hover:not(:disabled) { background: rgba(255,255,255,.12); }
-.gacha-import-on:disabled { color: rgba(255,255,255,.42); cursor: progress; }
+.gacha-btn-icon .material-symbols-outlined { font-size: 18px; }
+/* import-records (WuWa wuwatracker JSON; hidden on games without a source) —
+   identical look to .gacha-refresh: the two actions are peers */
+.gacha-import {
+  background: rgba(255,255,255,.14); color: rgba(255,255,255,.95);
+  border: 1px solid rgba(255,255,255,.3); border-radius: 8px; padding: 6px 14px;
+  font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  text-shadow: 0 1px 2px rgba(0,0,0,.65); /* readable over light backgrounds */
+}
+.gacha-import:hover:not(:disabled) { background: rgba(255,255,255,.22); }
+.gacha-import:disabled { color: rgba(255,255,255,.42); border-color: rgba(255,255,255,.12); cursor: progress; }
 .gacha-import-ok { color: #7fce8a; }
 .gacha-import-tzhint { color: rgba(255,255,255,.45); font-size: 11px; margin-top: 6px; }
 /* non-destructive refresh failure: dashboard stays, error shows inline (pushed right) */
