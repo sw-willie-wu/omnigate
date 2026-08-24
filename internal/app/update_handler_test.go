@@ -645,7 +645,99 @@ func TestApplyPredownload_RePlansAndConverges(t *testing.T) {
 // predl_not_live WITHOUT ever invoking RunUpdate, and must leave PredlReady
 // (+ implicitly predl_ready.json / staged bytes) untouched so the user can
 // retry once the version actually goes live (spec §2.5).
+//
+// Table-driven over two version pairs. The second case
+// (predl="3.10.0", live="3.9.0") is the load-bearing one (review fix-round-1
+// MEDIUM-F1): plan.Version != predlVersion must be VERSION-EQUALITY-ONLY. A
+// mutant that instead compares with `<` or `<=` (string/lexical order) would
+// evaluate "3.9.0" < "3.10.0" as FALSE — because byte-wise, '9' > '1' at the
+// third character, so "3.9.0" sorts AFTER "3.10.0" lexically — and so would
+// wrongly treat this pair as "live" and proceed to apply with the stale
+// 3.9.0 plan. This is the exact 3.9→3.10 lexical-sort trap spec §2.5 cites
+// (same class of bug as the HoYo webCaches precedent). The first case alone
+// cannot catch this: "3.5.0" != "3.6.0" trips not_live under both the
+// correct equality check AND under any naive ordering mutant, so it doesn't
+// discriminate.
 func TestApplyPredownload_NotLiveKeepsStaged(t *testing.T) {
+	cases := []struct {
+		name         string
+		predlVersion string
+		liveVersion  string
+	}{
+		{name: "basic_mismatch", predlVersion: "3.6.0", liveVersion: "3.5.0"},
+		{name: "lexical_trap_3_9_vs_3_10", predlVersion: "3.10.0", liveVersion: "3.9.0"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gid := core.GameID("kurogames/wuwa")
+			predlPlan := core.UpdatePlan{
+				GameID:       gid,
+				ManifestETag: "predl-etag",
+				Version:      tc.predlVersion,
+				Files:        []core.FileTask{{Path: "old.dll", Hash: "h1", Size: 10}},
+			}
+			livePlan := core.UpdatePlan{
+				GameID:       gid,
+				ManifestETag: "live-etag",
+				Version:      tc.liveVersion, // != predlVersion → predl_not_live
+			}
+
+			upd := &fakeUpdaterRecording{fakeUpdater: fakeUpdater{
+				id:          "kurogames",
+				games:       []core.GameDescriptor{{ID: gid, Backend: "kurogames"}},
+				checkResult: livePlan,
+			}}
+
+			a := &App{
+				settings:       Settings{App: AppSettings{TempDir: t.TempDir()}},
+				logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+				providers:      []core.Provider{upd},
+				resolved:       map[core.GameID]resolvedEntry{gid: {Path: t.TempDir(), Source: core.SourceDefault}},
+				updateRegistry: NewUpdateStateRegistry(func(string, ...any) {}, realClock{}),
+			}
+			defer a.updateRegistry.emitter.Stop()
+
+			state := a.updateRegistry.Get(gid)
+			state.mu.Lock()
+			state.PredlReady = &predlPlan
+			state.mu.Unlock()
+
+			if err := a.ApplyPredownload(string(gid)); err != nil {
+				t.Fatalf("ApplyPredownload: %v", err)
+			}
+			waitInFlightClear(t, state, 2*time.Second)
+
+			upd.mu.Lock()
+			gotRunPlan := upd.gotRunPlan
+			upd.mu.Unlock()
+			if gotRunPlan != nil {
+				t.Fatal("RunUpdate must NOT be invoked when predl target is not yet live")
+			}
+
+			state.mu.RLock()
+			defer state.mu.RUnlock()
+			if state.LastError == nil || state.LastError.Code != "predl_not_live" {
+				t.Fatalf("LastError = %+v, want Code=predl_not_live", state.LastError)
+			}
+			if state.PredlReady == nil {
+				t.Fatal("PredlReady was cleared on a not-live abort; must be preserved for retry")
+			}
+		})
+	}
+}
+
+// TestApplyPredownload_PreflightFailureKeepsStaged is review fix-round-1
+// MEDIUM-F2: ApplyPredownload's preflightChecks call is otherwise unpinned
+// (deleting it entirely would not fail any Task 9 test). livePlan carries
+// the SAME version as the staged predl (passes the not_live gate) but an
+// absurd PeakTempBytes (1<<62), which makes the REAL free-space check fail
+// deterministically on any real machine (platformHasFreeSpace is a
+// build-tag func and cannot be stubbed). Also pins fix-round-1 F4: since the
+// failure is a PREFLIGHT failure (before any staged-bytes adoption begins
+// inside the provider's RunUpdate), PredlReady must survive so the [套用]
+// button remains available to retry once the blocker clears.
+func TestApplyPredownload_PreflightFailureKeepsStaged(t *testing.T) {
 	gid := core.GameID("kurogames/wuwa")
 	predlPlan := core.UpdatePlan{
 		GameID:       gid,
@@ -654,9 +746,10 @@ func TestApplyPredownload_NotLiveKeepsStaged(t *testing.T) {
 		Files:        []core.FileTask{{Path: "old.dll", Hash: "h1", Size: 10}},
 	}
 	livePlan := core.UpdatePlan{
-		GameID:       gid,
-		ManifestETag: "live-etag",
-		Version:      "3.5.0", // still pre-go-live: != predl's 3.6.0
+		GameID:        gid,
+		ManifestETag:  "live-etag",
+		Version:       "3.6.0", // same version → live, passes not_live gate
+		PeakTempBytes: 1 << 62,
 	}
 
 	upd := &fakeUpdaterRecording{fakeUpdater: fakeUpdater{
@@ -688,16 +781,16 @@ func TestApplyPredownload_NotLiveKeepsStaged(t *testing.T) {
 	gotRunPlan := upd.gotRunPlan
 	upd.mu.Unlock()
 	if gotRunPlan != nil {
-		t.Fatal("RunUpdate must NOT be invoked when predl target is not yet live")
+		t.Fatal("RunUpdate must NOT be invoked when preflight rejects the re-planned plan")
 	}
 
 	state.mu.RLock()
 	defer state.mu.RUnlock()
-	if state.LastError == nil || state.LastError.Code != "predl_not_live" {
-		t.Fatalf("LastError = %+v, want Code=predl_not_live", state.LastError)
+	if state.LastError == nil || state.LastError.Code != "disk_full" {
+		t.Fatalf("LastError = %+v, want Code=disk_full", state.LastError)
 	}
 	if state.PredlReady == nil {
-		t.Fatal("PredlReady was cleared on a not-live abort; must be preserved for retry")
+		t.Fatal("PredlReady was cleared on a preflight failure; must be preserved for retry (fix-round-1 F4)")
 	}
 }
 

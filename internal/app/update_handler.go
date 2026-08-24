@@ -121,19 +121,11 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 			a.updateRegistry.EmitTerminal(gid)
 			return
 		}
-		// Verify-progress callback kept local here — CheckForPredownload isn't
-		// part of checkForUpdateVerifying's CheckForUpdate-only scope — so
-		// BottomBar still renders "驗證本地檔案 X / Y" during the predl probe.
-		onVerifyProgress := func(done, total int) {
-			state.mu.Lock()
-			if state.InFlight != nil && state.InFlight.Stage == "verifying" {
-				state.InFlight.Current = int64(done)
-				state.InFlight.Total = int64(total)
-			}
-			state.mu.Unlock()
-			a.updateRegistry.EmitChanged(gid)
-		}
-		plan, err = pc.CheckForPredownload(ctx, gid, onVerifyProgress)
+		// CheckForPredownload isn't part of checkForUpdateVerifying's
+		// CheckForUpdate-only scope, but it drives the same "驗證本地檔案
+		// X / Y" BottomBar label during the predl probe, so it shares the
+		// same verify-progress callback via verifyProgressFn.
+		plan, err = pc.CheckForPredownload(ctx, gid, a.verifyProgressFn(gid))
 	} else {
 		plan, err = a.checkForUpdateVerifying(ctx, gid, upd)
 	}
@@ -179,6 +171,27 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 	a.runUpdateWorker(ctx, gid, upd, plan)
 }
 
+// verifyProgressFn returns a progress callback that writes (done, total)
+// into gid's InFlightOp — but only while it is in the "verifying" stage, so
+// a stale callback from a superseded probe can't clobber a later phase's
+// Current/Total — throttled via the registry's emitter to avoid 195+
+// events/sec saturating the bridge. Shared by checkForUpdateVerifying
+// (CheckForUpdate side) and startUpdateFlow's predl probe
+// (CheckForPredownload side): both are "驗證本地檔案 X / Y" style manifest
+// probes that drive the same BottomBar label.
+func (a *App) verifyProgressFn(gid core.GameID) func(done, total int) {
+	state := a.updateRegistry.Get(gid)
+	return func(done, total int) {
+		state.mu.Lock()
+		if state.InFlight != nil && state.InFlight.Stage == "verifying" {
+			state.InFlight.Current = int64(done)
+			state.InFlight.Total = int64(total)
+		}
+		state.mu.Unlock()
+		a.updateRegistry.EmitChanged(gid)
+	}
+}
+
 // checkForUpdateVerifying calls upd.CheckForUpdate — preferring the
 // CheckForUpdateWithProgress variant when the provider implements it — and
 // wires its per-file verify progress into gid's InFlightOp so BottomBar can
@@ -189,18 +202,8 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 // three-entry-point symmetry). Extracted so that symmetry can never drift
 // via copy-paste divergence between the three call sites.
 func (a *App) checkForUpdateVerifying(ctx context.Context, gid core.GameID, upd core.Updater) (core.UpdatePlan, error) {
-	state := a.updateRegistry.Get(gid)
-	onVerifyProgress := func(done, total int) {
-		state.mu.Lock()
-		if state.InFlight != nil && state.InFlight.Stage == "verifying" {
-			state.InFlight.Current = int64(done)
-			state.InFlight.Total = int64(total)
-		}
-		state.mu.Unlock()
-		a.updateRegistry.EmitChanged(gid)
-	}
 	if updProg, ok := upd.(core.CheckForUpdateProgress); ok {
-		return updProg.CheckForUpdateWithProgress(ctx, gid, onVerifyProgress)
+		return updProg.CheckForUpdateWithProgress(ctx, gid, a.verifyProgressFn(gid))
 	}
 	return upd.CheckForUpdate(ctx, gid)
 }
@@ -388,15 +391,15 @@ func (a *App) runApplyPredlAsync(ctx context.Context, gid core.GameID, upd core.
 	}
 	plan.Kind = core.PlanUpdate
 
-	// Live: from this point on the predl plan is permanently superseded by
-	// this re-plan, even if preflight or the apply itself fails below — the
-	// PredlReady flag disappears (spec §2.5 "旗標已消失"); recovery from any
-	// failure past this point is via ResumeInterrupted, not "predl ready"
-	// again. This is documented, expected behavior, not a bug.
-	state.mu.Lock()
-	state.PredlReady = nil
-	state.mu.Unlock()
-
+	// Live: proceed to preflight BEFORE touching PredlReady. A preflight
+	// failure here (e.g. disk_full) means nothing has been adopted or
+	// consumed yet — keeping PredlReady intact leaves the [套用] button
+	// available to retry once the blocker clears, instead of downgrading
+	// straight to "resume only". This is strictly safer than clearing the
+	// flag right after the not-live check while still satisfying spec §2.5's
+	// "旗標已消失" wording, which describes failures AFTER staged-bytes
+	// adoption has begun (inside the provider's RunUpdate) — preflight runs
+	// before that, at the App layer.
 	tempDir := a.tempDirFor(p.ID(), gid)
 	gameDir := a.gameInstallDir(gid, p)
 	if err := a.preflightChecks(tempDir, gameDir, plan); err != nil {
@@ -404,13 +407,19 @@ func (a *App) runApplyPredlAsync(ctx context.Context, gid core.GameID, upd core.
 		return
 	}
 
-	// Verify phase done — rewrite InFlight with the real re-planned plan and
-	// switch out of "verifying" (same swap as runStartUpdateAsync).
+	// Preflight passed: from this point on the predl plan is permanently
+	// superseded by this re-plan, even if the apply itself fails below —
+	// the PredlReady flag disappears; recovery from any failure past this
+	// point is via ResumeInterrupted, not "predl ready" again. This is
+	// documented, expected behavior, not a bug. Cleared in the SAME lock as
+	// the InFlight swap below (rather than the InFlight==nil early-return
+	// guard racing a separate PredlReady write).
 	state.mu.Lock()
 	if state.InFlight == nil {
 		state.mu.Unlock()
 		return
 	}
+	state.PredlReady = nil
 	state.InFlight.Plan = plan
 	state.InFlight.Stage = ""
 	state.InFlight.Current = 0
