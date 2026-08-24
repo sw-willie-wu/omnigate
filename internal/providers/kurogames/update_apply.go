@@ -37,6 +37,52 @@ type applier struct {
 	lock     applyLock
 }
 
+// errEphemeralLeak is returned by assertNotEphemeral when a relPath about to
+// be renamed into gameDir belongs to an Ephemeral FileTask. Theoretically
+// unreachable (the rename loop's `if f.Ephemeral { continue }` already skips
+// these paths) — this is the independent defence-in-depth check per spec
+// invariant 2, guarding against a future refactor that drops the loop guard.
+var errEphemeralLeak = errors.New("ephemeral file must never be renamed into game dir")
+
+// assertNotEphemeral returns errEphemeralLeak when relPath belongs to an
+// Ephemeral task in plan. Called immediately before every gameDir rename.
+func assertNotEphemeral(plan *core.UpdatePlan, relPath string) error {
+	for _, f := range plan.Files {
+		if f.Ephemeral && f.Path == relPath {
+			return errEphemeralLeak
+		}
+	}
+	return nil
+}
+
+// safeGameRelPath validates rel as a gameDir-relative path with no
+// traversal (spec §4-3 deleteFiles guard — the mirror image of the
+// 2026-08-20 incident: a corrupt/hostile DeleteFiles entry must never
+// resolve outside gameDir). Rejects absolute paths, ".." components, and
+// any path that escapes gameDir after filepath.Clean. Returns the absolute
+// joined path on success.
+func safeGameRelPath(gameDir, rel string) (string, error) {
+	if rel == "" {
+		return "", fmt.Errorf("empty delete path")
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("absolute path not allowed: %s", rel)
+	}
+	cleanRel := filepath.Clean(rel)
+	if cleanRel == "." || cleanRel == ".." || strings.HasPrefix(cleanRel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes game dir: %s", rel)
+	}
+	absGameDir, err := filepath.Abs(gameDir)
+	if err != nil {
+		return "", err
+	}
+	full := filepath.Join(absGameDir, cleanRel)
+	if full != absGameDir && !strings.HasPrefix(full, absGameDir+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes game dir: %s", rel)
+	}
+	return full, nil
+}
+
 // applyErr classifies an apply-phase write failure: a permission error (e.g.
 // game installed under C:\Program Files\ without admin) becomes permission_denied
 // — carrying the game id so the UI can offer one-click elevation — otherwise the
@@ -93,10 +139,19 @@ func (a *applier) runApply(ctx context.Context) error {
 	defer a.lock.Release()
 	a.logger.Debug("runApply: applyLock acquired", "game", a.plan.GameID, "lock_dir", lockDir)
 
-	// Initialize WAL with all pending paths
-	pending := make([]string, len(a.plan.Files))
-	for i, f := range a.plan.Files {
-		pending[i] = f.Path
+	// Initialize WAL with all pending paths. Ephemeral tasks are excluded
+	// (spec invariant 2): they feed the patch phase below, not a gameDir
+	// rename, and must never appear as a WAL rename target — the
+	// 2026-08-20 incident was exactly a diff file getting renamed into the
+	// game dir.
+	pending := make([]string, 0, len(a.plan.Files))
+	renameTotal := 0
+	for _, f := range a.plan.Files {
+		if f.Ephemeral {
+			continue
+		}
+		pending = append(pending, f.Path)
+		renameTotal++
 	}
 	wal := applyWAL{
 		GameID:   string(a.plan.GameID),
@@ -122,9 +177,19 @@ func (a *applier) runApply(ctx context.Context) error {
 	// Now safe to drop progress.json (spec §5.3 transition)
 	_ = os.Remove(filepath.Join(a.progress.dir(), "progress.json"))
 
-	// Apply each file; cancel.Done() is no-op (spec §2.6)
+	// Apply each file; cancel.Done() is no-op (spec §2.6). Ephemeral tasks
+	// (krpdiff diffs) are never a gameDir rename target — they're consumed
+	// by runPatchGroups below. Total counts rename targets + patch groups
+	// so the progress bar spans both sub-phases.
 	var done atomic.Int64
+	renameEventTotal := int64(renameTotal + len(a.plan.PatchGroups))
 	for _, f := range a.plan.Files {
+		if f.Ephemeral {
+			continue // never a gameDir rename target
+		}
+		if err := assertNotEphemeral(a.plan, f.Path); err != nil {
+			return a.applyErr(f.Path, err)
+		}
 		src := filepath.Join(a.progress.dir(), f.Path)
 		dst := filepath.Join(a.gameDir, f.Path)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -143,9 +208,21 @@ func (a *applier) runApply(ctx context.Context) error {
 			a.onEvent(core.UpdateEvent{
 				Phase:       core.PhaseApply,
 				Current:     done.Load(),
-				Total:       int64(len(a.plan.Files)),
+				Total:       renameEventTotal,
 				CurrentFile: f.Path,
 			})
+		}
+	}
+
+	// deleteFiles (spec §4-3): applied strictly after all patch groups.
+	// Missing target = no-op (idempotent across resume/retry).
+	for _, rel := range a.plan.DeleteFiles {
+		clean, err := safeGameRelPath(a.gameDir, rel)
+		if err != nil {
+			return a.applyErr(rel, err)
+		}
+		if rmErr := os.Remove(clean); rmErr != nil && !os.IsNotExist(rmErr) {
+			return a.applyErr(rel, rmErr)
 		}
 	}
 
@@ -330,5 +407,3 @@ func removeString(s []string, target string) []string {
 	}
 	return out
 }
-
-var _ = errors.Is // silence unused import if errors not actually used

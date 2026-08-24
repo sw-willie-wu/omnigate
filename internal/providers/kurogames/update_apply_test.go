@@ -186,3 +186,168 @@ func TestApply_LockHeld(t *testing.T) {
 		t.Errorf("err = %+v, want process_blocked+lock_held", ue)
 	}
 }
+
+// TestApply_EphemeralNeverRenamed pins the invariant behind the 2026-08-20
+// incident: a krpdiff diff staged as Files[].Ephemeral must never end up
+// renamed into gameDir, and the WAL built at apply-start must never
+// reference it either (WAL Pending/Done is the union of all rename
+// targets ever tracked — checked mid-run via onEvent, since apply.wal is
+// deleted from disk on overall success). Also directly exercises both
+// branches of assertNotEphemeral, the independent defence-in-depth check.
+func TestApply_EphemeralNeverRenamed(t *testing.T) {
+	tmp := t.TempDir()
+	gameDir := t.TempDir()
+	ps := newProgressStore(tmp, "kurogames/wuwa", "3.4.0")
+	if err := ps.Init("etag-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(ps.dir(), "staged"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "staged", "a.krpdiff"), []byte("bogus-diff-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir(), "a.dll"), []byte("aaa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &core.UpdatePlan{
+		GameID:       "kurogames/wutheringwaves",
+		Version:      "3.4.0",
+		ManifestETag: `"etag-1"`,
+		Files: []core.FileTask{
+			{Path: "staged/a.krpdiff", Size: 16, Ephemeral: true},
+			{Path: "a.dll", Size: 3},
+		},
+	}
+
+	walPath := filepath.Join(ps.dir(), "apply.wal")
+	var sawEvent bool
+	var walPendingSnapshot, walDoneSnapshot []string
+	onEvent := func(core.UpdateEvent) {
+		sawEvent = true
+		body, err := os.ReadFile(walPath)
+		if err != nil {
+			t.Fatalf("read apply.wal mid-run: %v", err)
+		}
+		var w applyWAL
+		if err := json.Unmarshal(body, &w); err != nil {
+			t.Fatalf("unmarshal apply.wal mid-run: %v", err)
+		}
+		walPendingSnapshot = append([]string{}, w.Pending...)
+		walDoneSnapshot = append([]string{}, w.Done...)
+	}
+
+	a := &applier{
+		logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+		progress: ps, plan: plan, onEvent: onEvent, lock: newApplyLock(),
+	}
+	if err := a.runApply(context.Background()); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+	if !sawEvent {
+		t.Fatal("onEvent never fired; test setup broken")
+	}
+
+	if _, err := os.Stat(filepath.Join(gameDir, "staged", "a.krpdiff")); err == nil {
+		t.Errorf("ephemeral diff must never be renamed into gameDir")
+	}
+	if _, err := os.Stat(filepath.Join(gameDir, "a.dll")); err != nil {
+		t.Errorf("a.dll missing in gameDir: %v", err)
+	}
+	for _, p := range append(walPendingSnapshot, walDoneSnapshot...) {
+		if p == "staged/a.krpdiff" {
+			t.Errorf("WAL Pending/Done referenced ephemeral path: pending=%v done=%v", walPendingSnapshot, walDoneSnapshot)
+		}
+	}
+
+	// assertNotEphemeral: direct unit coverage of both branches.
+	if err := assertNotEphemeral(plan, "staged/a.krpdiff"); !errors.Is(err, errEphemeralLeak) {
+		t.Errorf("assertNotEphemeral(ephemeral path) = %v, want errEphemeralLeak", err)
+	}
+	if err := assertNotEphemeral(plan, "a.dll"); err != nil {
+		t.Errorf("assertNotEphemeral(normal path) = %v, want nil", err)
+	}
+}
+
+// TestApply_DeleteFiles covers spec §4-3: normal delete, missing-file
+// no-op, and the path guard (absolute path / ".." traversal) rejecting
+// with a structured error while leaving any out-of-gameDir file untouched.
+func TestApply_DeleteFiles(t *testing.T) {
+	tmp := t.TempDir()
+	parent := t.TempDir()
+	gameDir := filepath.Join(parent, "game")
+	if err := os.MkdirAll(gameDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, "legacy.dat"), []byte("legacy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, "keep.dat"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	escapePath := filepath.Join(parent, "escape.txt")
+	if err := os.WriteFile(escapePath, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	absTarget := filepath.Join(t.TempDir(), "abs.txt")
+	if err := os.WriteFile(absTarget, []byte("absolute"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	newApplier := func(version string, deleteFiles []string) *applier {
+		ps := newProgressStore(tmp, "kurogames/wuwa", version)
+		if err := ps.Init("etag-1"); err != nil {
+			t.Fatal(err)
+		}
+		plan := &core.UpdatePlan{
+			GameID: "kurogames/wutheringwaves", Version: version, ManifestETag: `"etag-1"`,
+			Files: []core.FileTask{}, DeleteFiles: deleteFiles,
+		}
+		return &applier{
+			logger: slog.Default(), tempRoot: tmp, gameDir: gameDir,
+			progress: ps, plan: plan, lock: newApplyLock(),
+		}
+	}
+
+	// Normal delete + missing-file no-op.
+	a1 := newApplier("3.4.0", []string{"legacy.dat", "missing.dat"})
+	if err := a1.runApply(context.Background()); err != nil {
+		t.Fatalf("runApply (normal deletes): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(gameDir, "legacy.dat")); err == nil {
+		t.Errorf("legacy.dat should have been deleted")
+	}
+	if _, err := os.Stat(filepath.Join(gameDir, "keep.dat")); err != nil {
+		t.Errorf("keep.dat should still exist: %v", err)
+	}
+
+	// Traversal escape.
+	a2 := newApplier("3.4.1", []string{"../escape.txt"})
+	err2 := a2.runApply(context.Background())
+	if err2 == nil {
+		t.Fatal("expected structured error for ../escape traversal")
+	}
+	if _, ok := err2.(*core.UpdateError); !ok {
+		t.Errorf("err type = %T, want *core.UpdateError", err2)
+	}
+	got, err := os.ReadFile(escapePath)
+	if err != nil || string(got) != "outside" {
+		t.Errorf("escape.txt should be untouched: content=%q err=%v", got, err)
+	}
+
+	// Absolute path.
+	a3 := newApplier("3.4.2", []string{absTarget})
+	err3 := a3.runApply(context.Background())
+	if err3 == nil {
+		t.Fatal("expected structured error for absolute delete path")
+	}
+	if _, ok := err3.(*core.UpdateError); !ok {
+		t.Errorf("err type = %T, want *core.UpdateError", err3)
+	}
+	got3, err := os.ReadFile(absTarget)
+	if err != nil || string(got3) != "absolute" {
+		t.Errorf("abs.txt should be untouched: content=%q err=%v", got3, err)
+	}
+}
+
