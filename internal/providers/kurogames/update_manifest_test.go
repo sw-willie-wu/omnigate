@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"omnigate/internal/core"
@@ -278,6 +279,88 @@ func TestFilterChangedFiles_CarriesChunks(t *testing.T) {
 
 	if len(byPath["small.dll"].Chunks) != 0 {
 		t.Errorf("small.dll should have no chunks: %+v", byPath["small.dll"].Chunks)
+	}
+}
+
+// TestLocalFileMD5s (Task 4): generic parallel local-hash helper extracted
+// from filterChangedFiles. Covers missing files (result ""), size pre-check
+// short-circuit (result "" without hashing), and progress-callback contract
+// (done strictly increasing, offset by progressBase, total pinned to the
+// caller-supplied progressTotal for multi-batch merging).
+func TestLocalFileMD5s(t *testing.T) {
+	tmp := t.TempDir()
+	aPath := filepath.Join(tmp, "a")
+	if err := os.WriteFile(aPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bPath := filepath.Join(tmp, "b")
+	if err := os.WriteFile(bPath, []byte("yy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// c intentionally not created (missing file case).
+
+	wantA, err := md5File(aPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantB, err := md5File(bPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rels := []string{"a", "b", "c"}
+	sizes := []int64{1, -1, 5}
+
+	var (
+		progressMu sync.Mutex
+		progress   [][2]int
+	)
+	onProgress := func(done, total int) {
+		progressMu.Lock()
+		progress = append(progress, [2]int{done, total})
+		progressMu.Unlock()
+	}
+
+	got := localFileMD5s(context.Background(), tmp, rels, sizes, 7, 10, onProgress)
+	if len(got) != 3 {
+		t.Fatalf("got %d results, want 3", len(got))
+	}
+	if got[0] != wantA {
+		t.Errorf("result[0] = %q, want %q (md5 of \"x\")", got[0], wantA)
+	}
+	if got[1] != wantB {
+		t.Errorf("result[1] = %q, want %q (md5 of \"yy\")", got[1], wantB)
+	}
+	if got[2] != "" {
+		t.Errorf("result[2] = %q, want \"\" (missing file)", got[2])
+	}
+
+	if len(progress) != 3 {
+		t.Fatalf("got %d progress callbacks, want 3: %+v", len(progress), progress)
+	}
+	prevDone := 7 // progressBase
+	for _, p := range progress {
+		done, total := p[0], p[1]
+		if total != 10 {
+			t.Errorf("progress total = %d, want 10 (progressTotal, unchanged across callbacks)", total)
+		}
+		if done <= prevDone {
+			t.Errorf("progress done = %d, not strictly increasing from previous %d", done, prevDone)
+		}
+		prevDone = done
+	}
+	if prevDone != 10 {
+		t.Errorf("final done = %d, want 10 (progressBase 7 + 3 items)", prevDone)
+	}
+
+	// Size pre-check: mismatched size skips hashing entirely -> "".
+	sizesMismatch := []int64{999, -1, 5}
+	got2 := localFileMD5s(context.Background(), tmp, rels, sizesMismatch, 0, 3, nil)
+	if got2[0] != "" {
+		t.Errorf("size-mismatch result[0] = %q, want \"\" (999 != actual size 1)", got2[0])
+	}
+	if got2[1] != wantB {
+		t.Errorf("size-mismatch case: result[1] = %q, want %q (size -1 always hashes)", got2[1], wantB)
 	}
 }
 
