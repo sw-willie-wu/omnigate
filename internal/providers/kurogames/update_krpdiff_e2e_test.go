@@ -394,6 +394,21 @@ func TestE2E_PatchHappyPath(t *testing.T) {
 	if len(plan.DeleteFiles) != 1 || plan.DeleteFiles[0] != "toDelete.dat" {
 		t.Errorf("plan.DeleteFiles = %v, want [toDelete.dat]", plan.DeleteFiles)
 	}
+	// Mirror-face of case 2's fallback-URL assertion: a general resource
+	// file (not a group's dst) must be URL'd from the PATCH base
+	// (cdn/baseURL), never the FULL base fallback route.
+	var sawRegularTask bool
+	for _, f := range plan.Files {
+		if f.Path == "regular.dat" {
+			sawRegularTask = true
+			if !strings.HasPrefix(f.URL, env.srv.URL+"/patch-files/") {
+				t.Errorf("regular.dat URL = %q, want PATCH base prefix %q (general resource files use the patch cdn/baseURL, not the full one)", f.URL, env.srv.URL+"/patch-files/")
+			}
+		}
+	}
+	if !sawRegularTask {
+		t.Fatalf("plan.Files missing regular.dat task: %+v", plan.Files)
+	}
 
 	if err := p.RunUpdate(ctx, plan, func(core.UpdateEvent) {}); err != nil {
 		t.Fatalf("RunUpdate: %v", err)
@@ -610,11 +625,14 @@ func TestE2E_BadDstHashKeepsOldFile(t *testing.T) {
 		t.Fatalf("RunUpdate (run 1) succeeded, want patch_failed (post-patch md5 mismatch)")
 	}
 	var uerr *core.UpdateError
-	if errors.As(err, &uerr) && uerr.Code != "patch_failed" {
-		t.Errorf("run 1 error code = %q, want patch_failed", uerr.Code)
+	if !errors.As(err, &uerr) || uerr.Code != "patch_failed" {
+		t.Errorf("run 1 error = %v, want a *core.UpdateError with Code=patch_failed", err)
 	}
 	if got := readGameFile(t, gameDir, chunkAPath); string(got) != string(a.old) {
 		t.Errorf("gameDir file must be untouched after a failed patch; got content differs from old_a.bin")
+	}
+	if got := env.patchFS.hitCount("a.krpdiff"); got != 1 {
+		t.Fatalf("post-run-1 a.krpdiff download hits = %d, want 1", got)
 	}
 
 	// Correct the manifest and re-run — must converge.
@@ -629,6 +647,19 @@ func TestE2E_BadDstHashKeepsOldFile(t *testing.T) {
 	}
 	if got := readGameFile(t, gameDir, chunkAPath); string(got) != string(a.new_) {
 		t.Errorf("chunk_a.pak content mismatch after convergent re-run")
+	}
+	// Pins the current warm-resume semantics rather than asserting an
+	// aspirational "no re-download": run 1's runApply removes
+	// progress.json unconditionally near the top of the apply phase —
+	// BEFORE the patch phase (and thus before it can fail) — so by the
+	// time run 1 returns its error, progress.json is already gone. Run 2's
+	// progress.Init() therefore finds no progress.json, takes the "no
+	// match" branch, and starts from a fresh empty progress ledger; a.krpdiff
+	// has no recorded entry to short-circuit isComplete(), so the download
+	// phase re-fetches it from the CDN even though the correct bytes were
+	// already sitting on disk from run 1. Hits go 1 (run 1) → 2 (run 2).
+	if got := env.patchFS.hitCount("a.krpdiff"); got != 2 {
+		t.Errorf("post-run-2 a.krpdiff download hits = %d, want 2 (re-downloaded: progress.json was wiped by run 1's apply-phase failure before the patch phase ran)", got)
 	}
 	noKrpdiffLeaked(t, gameDir)
 }
@@ -707,8 +738,43 @@ func TestE2E_KillBetweenPatchAndRename(t *testing.T) {
 		t.Fatalf("plan.PatchGroups = %+v, want exactly 1 group", plan.PatchGroups)
 	}
 
+	// The test's structural argument ("hpatchz never ran") only holds if
+	// the bad diff genuinely went through download+verify first — i.e. the
+	// bytes on disk really are the corrupt ones (matching their own wrong
+	// manifest hash), not some accidental pass-through. Stage the download
+	// phase directly (same construction pattern as the package's other
+	// downloader-level tests) BEFORE calling RunUpdate, so this can be
+	// asserted independently of the apply phase that follows.
+	preStage := newProgressStore(tempDir, string(e2eGID), plan.Version)
+	if err := preStage.Init(plan.ManifestETag); err != nil {
+		t.Fatalf("pre-stage progress.Init: %v", err)
+	}
+	d := &downloader{
+		client: env.srv.Client(), logger: testLogger(), tempRoot: tempDir,
+		progress: preStage, plan: &plan, clock: fakeRetryClock{},
+	}
+	if err := d.runDownload(ctx); err != nil {
+		t.Fatalf("pre-stage download: %v", err)
+	}
+	if got := env.patchFS.hitCount("a.krpdiff"); got != 1 {
+		t.Fatalf("a.krpdiff download hit count = %d, want 1 (download+verify of the bad-but-hash-matching diff must have happened)", got)
+	}
+	stagedDiff, err := os.ReadFile(filepath.Join(preStage.dir(), "a.krpdiff"))
+	if err != nil {
+		t.Fatalf("bad diff must have landed in the version dir after download: %v", err)
+	}
+	if string(stagedDiff) != string(badDiff) {
+		t.Errorf("staged diff bytes mismatch — want the bad bytes actually served by the CDN")
+	}
+
 	if err := p.RunUpdate(ctx, plan, func(core.UpdateEvent) {}); err != nil {
 		t.Fatalf("RunUpdate failed — bad diff bytes must not have been applied by hpatchz if the cached _out shortcut worked: %v", err)
+	}
+	// The pre-staged download above already consumed the one legitimate
+	// CDN request; RunUpdate's own download phase must find the identical
+	// bytes already complete (same progress dir/ETag) and NOT re-fetch.
+	if got := env.patchFS.hitCount("a.krpdiff"); got != 1 {
+		t.Errorf("a.krpdiff download hit count after RunUpdate = %d, want still 1 (no re-download)", got)
 	}
 
 	if got := readGameFile(t, gameDir, chunkAPath); string(got) != string(a.new_) {
@@ -895,11 +961,22 @@ func TestE2E_PredlThenApply(t *testing.T) {
 	if hitsAAfterPredl != 1 || hitsBAfterPredl != 1 {
 		t.Fatalf("post-predl diff download counts = a:%d b:%d, want 1/1", hitsAAfterPredl, hitsBAfterPredl)
 	}
-	// gameDir must be untouched by a predownload: only the pre-seeded
-	// Client/ tree (chunk_a.pak + chunk_b.pak share this top-level dir) and
-	// launcherDownloadConfig.json.
-	if entries, _ := os.ReadDir(gameDir); len(entries) != 2 {
-		t.Errorf("gameDir top-level entries = %d, want 2 (untouched by predl)", len(entries))
+	// gameDir must be untouched by a predownload. A top-level entry COUNT
+	// has zero discrimination here — both chunk_a.pak and chunk_b.pak live
+	// under the shared Client/ subtree, so even an (erroneous) in-place
+	// apply during predl would leave the count unchanged. Assert content
+	// directly instead: both chunk files must still read as their OLD
+	// (pre-update) bytes, and the staged predl must have landed as
+	// predl_ready.json (not progress.json) in the version dir.
+	if got := readGameFile(t, gameDir, chunkAPath); string(got) != string(a.old) {
+		t.Errorf("chunk_a.pak must still be the OLD content after a predownload (got patched/new content)")
+	}
+	if got := readGameFile(t, gameDir, chunkBPath); string(got) != string(b.old) {
+		t.Errorf("chunk_b.pak must still be the OLD content after a predownload (got patched/new content)")
+	}
+	predlReadyPath := filepath.Join(tempDir, "kurogames-wutheringwaves", e2ePredlVersion, "predl_ready.json")
+	if _, err := os.Stat(predlReadyPath); err != nil {
+		t.Errorf("predl_ready.json missing after predl RunUpdate: %v", err)
 	}
 
 	updatePlan := predlPlan
@@ -1041,6 +1118,11 @@ func TestE2E_LegacyManifestUnchanged(t *testing.T) {
 	newA := []byte("NEW_LEGACY_A_CONTENT_LONGER")
 	oldB := []byte("OLD_LEGACY_B_CONTENT")
 	newB := []byte("NEW_LEGACY_B_CONTENT_LONGER")
+	// alreadyC is the definitive legacy-behavior leg (MINOR-1): a file whose
+	// local content already matches the manifest md5 must be filtered out
+	// of the plan entirely (filterChangedFiles' whole purpose), and its CDN
+	// route must never be hit.
+	alreadyC := []byte("ALREADY_UP_TO_DATE_C_CONTENT")
 
 	env := newE2EEnv(t)
 	tempDir := t.TempDir()
@@ -1048,15 +1130,18 @@ func TestE2E_LegacyManifestUnchanged(t *testing.T) {
 
 	seedGameFile(t, gameDir, "legacy_a.dat", oldA)
 	seedGameFile(t, gameDir, "legacy_b.dat", oldB)
+	seedGameFile(t, gameDir, "legacy_c.dat", alreadyC)
 	writeLauncherVersion(t, gameDir, e2eLocalVersion)
 
 	env.patchFS.set("legacy_a.dat", newA)
 	env.patchFS.set("legacy_b.dat", newB)
+	env.patchFS.set("legacy_c.dat", alreadyC)
 
 	idxFile := &indexFileRaw{
 		Resource: []manifestFileRaw{
 			{Dest: "legacy_a.dat", MD5: md5hexBytes(newA), Size: int64(len(newA))},
 			{Dest: "legacy_b.dat", MD5: md5hexBytes(newB), Size: int64(len(newB))},
+			{Dest: "legacy_c.dat", MD5: md5hexBytes(alreadyC), Size: int64(len(alreadyC))},
 		},
 	}
 	mountJSON(env.mux, "/legacy/indexFile.json", idxFile)
@@ -1082,7 +1167,12 @@ func TestE2E_LegacyManifestUnchanged(t *testing.T) {
 		t.Errorf("plan.DeleteFiles = %v, want empty (legacy manifest)", plan.DeleteFiles)
 	}
 	if len(plan.Files) != 2 {
-		t.Fatalf("plan.Files = %+v, want 2", plan.Files)
+		t.Fatalf("plan.Files = %+v, want 2 (legacy_c.dat already matches, must be filtered out)", plan.Files)
+	}
+	for _, f := range plan.Files {
+		if f.Path == "legacy_c.dat" {
+			t.Errorf("legacy_c.dat (already up to date) must not appear in plan.Files: %+v", plan.Files)
+		}
 	}
 
 	if err := p.RunUpdate(ctx, plan, func(core.UpdateEvent) {}); err != nil {
@@ -1094,5 +1184,73 @@ func TestE2E_LegacyManifestUnchanged(t *testing.T) {
 	}
 	if got := readGameFile(t, gameDir, "legacy_b.dat"); string(got) != string(newB) {
 		t.Errorf("legacy_b.dat content mismatch")
+	}
+	if got := readGameFile(t, gameDir, "legacy_c.dat"); string(got) != string(alreadyC) {
+		t.Errorf("legacy_c.dat content mismatch (must remain untouched)")
+	}
+	if got := env.patchFS.hitCount("legacy_c.dat"); got != 0 {
+		t.Errorf("legacy_c.dat CDN route hits = %d, want 0 (already up to date, never downloaded)", got)
+	}
+}
+
+// TestE2E_LegacyPatchConfigPresentButNoGroupInfos is MINOR-1's variant leg:
+// index.json's default.config DOES have a matching patchType="patch"
+// patchConfig entry (so pickIndexFileForVersion picks the patch route), but
+// the indexFile.json actually fetched from that route carries no
+// groupInfos/applyTypes at all — a real-world shape for "a patch update
+// with zero binary diffs, just plain file replacements". The
+// legacy-vs-patch-aware routing decision in CheckForUpdateWithProgress must
+// be driven by the FETCHED idxFile's own fields (len(GroupInfos) > 0 ||
+// len(ApplyTypes) > 0), never by whether the outer patchConfig was picked —
+// this pins that against a future regression that gates on cfg.PatchType
+// instead.
+func TestE2E_LegacyPatchConfigPresentButNoGroupInfos(t *testing.T) {
+	oldA := []byte("OLD_PLAIN_A_CONTENT")
+	newA := []byte("NEW_PLAIN_A_CONTENT_LONGER")
+
+	env := newE2EEnv(t)
+	tempDir := t.TempDir()
+	gameDir := t.TempDir()
+
+	seedGameFile(t, gameDir, "plain_a.dat", oldA)
+	writeLauncherVersion(t, gameDir, e2eLocalVersion)
+
+	env.patchFS.set("plain_a.dat", newA)
+
+	idxFile := &indexFileRaw{
+		Resource: []manifestFileRaw{
+			{Dest: "plain_a.dat", MD5: md5hexBytes(newA), Size: int64(len(newA))},
+		},
+		// No GroupInfos, no ApplyTypes — the crux of this variant.
+	}
+	mountJSON(env.mux, "/patch/indexFile.json", idxFile)
+	mountEmptyFullManifest(env.mux, "/full/indexFile.json")
+	mountIndexJSON(env.mux, buildE2EIndexJSON(e2eIndexOpts{
+		cdnURL:              env.srv.URL,
+		defaultVersion:      e2eTargetVersion,
+		defaultIndexFileURL: "/full/indexFile.json",
+		defaultBaseURL:      "/full-files/",
+		defaultPatch:        &patchRoute{fromVersion: e2eLocalVersion, indexFileURL: "/patch/indexFile.json", baseURL: "/patch-files/"},
+	}))
+
+	p := newE2EProvider(tempDir, gameDir)
+	ctx := context.Background()
+
+	plan, err := p.CheckForUpdateWithProgress(ctx, e2eGID, nil)
+	if err != nil {
+		t.Fatalf("CheckForUpdateWithProgress: %v", err)
+	}
+	if len(plan.PatchGroups) != 0 {
+		t.Errorf("plan.PatchGroups = %+v, want 0 (patchConfig picked, but fetched indexFile has no groupInfos/applyTypes — must still be legacy flow)", plan.PatchGroups)
+	}
+	if len(plan.Files) != 1 || plan.Files[0].Path != "plain_a.dat" {
+		t.Fatalf("plan.Files = %+v, want exactly [plain_a.dat]", plan.Files)
+	}
+
+	if err := p.RunUpdate(ctx, plan, func(core.UpdateEvent) {}); err != nil {
+		t.Fatalf("RunUpdate: %v", err)
+	}
+	if got := readGameFile(t, gameDir, "plain_a.dat"); string(got) != string(newA) {
+		t.Errorf("plain_a.dat content mismatch")
 	}
 }
