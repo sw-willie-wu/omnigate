@@ -147,6 +147,40 @@ func TestEndfieldChain_GrantAuthFailExpired(t *testing.T) {
 	}
 }
 
+// An HTTP-level 401 (not a 200 body with status!=0) must also map to
+// ErrGachaCredentialExpired so the UI prompts a re-login instead of showing a
+// generic internal error. Real incident 2026-09-02: the Endfield 1.5.3 update
+// invalidated stored tokens and as.gryphline.com answered the grant with a raw
+// 401 — surfaced as code=internal.
+func TestEndfieldChain_HTTP401MapsToExpired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.oauthBase, p.bindingBase = srv.URL, srv.URL
+
+	if _, err := p.efGrant(context.Background(), "stale"); !errors.Is(err, core.ErrGachaCredentialExpired) {
+		t.Fatalf("grant err = %v; want ErrGachaCredentialExpired", err)
+	}
+	if _, _, _, err := p.efBinding(context.Background(), "stale-oauth"); !errors.Is(err, core.ErrGachaCredentialExpired) {
+		t.Fatalf("binding err = %v; want ErrGachaCredentialExpired", err)
+	}
+	if _, err := p.efU8Token(context.Background(), "stale-oauth", "uid"); !errors.Is(err, core.ErrGachaCredentialExpired) {
+		t.Fatalf("u8 err = %v; want ErrGachaCredentialExpired", err)
+	}
+	// other HTTP errors must stay generic (e.g. 503 is not a credential problem)
+	srv500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv500.Close()
+	p2 := New(Settings{}, nil)
+	p2.oauthBase = srv500.URL
+	if _, err := p2.efGrant(context.Background(), "tok"); err == nil || errors.Is(err, core.ErrGachaCredentialExpired) {
+		t.Fatalf("503 err = %v; must be generic, not credential-expired", err)
+	}
+}
+
 func TestEndfieldFetchRecords_CharNormalizes(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/record/char", func(w http.ResponseWriter, r *http.Request) {

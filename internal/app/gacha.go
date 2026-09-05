@@ -145,7 +145,11 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 			a.logger.Warn("RefreshGacha credential fetch failed", "gid", gameID, "code", core.ErrorCode(err))
 			// Token hygiene (spec §10): *url.Error from transport failures embeds the
 			// record URL carrying the live u8_token — never let it reach the frontend.
-			// Sentinel errors (Required/Expired/NoGameRole) are token-free and drive the link UX.
+			// Sentinel errors (Required/Expired/NoGameRole) are token-free and drive the
+			// link UX. Note: efPostJSON's HTTP-401 wrap now carries its rawURL through
+			// this path — safe today (grant/u8 endpoints put tokens in the BODY, not
+			// the URL), but any future token-in-URL efPostJSON caller must not rely
+			// on this passthrough.
 			if errors.Is(err, core.ErrGachaCredentialRequired) || errors.Is(err, core.ErrGachaCredentialExpired) || errors.Is(err, core.ErrGachaNoGameRole) {
 				return core.GachaSummary{}, err
 			}

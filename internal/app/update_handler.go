@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -525,6 +526,49 @@ func readSidecarETag(dir string) string {
 	return ""
 }
 
+// versionNewer reports whether a is a strictly newer version than b, comparing
+// dot-separated numeric segments (missing segments count as 0, so "1.2" equals
+// "1.2.0"; "2.100" beats "2.99" — numeric, never lexical). If either side has
+// a non-numeric segment or is empty, it falls back to `a != b` (the historical
+// behavior), so exotic version strings still surface an update rather than
+// silently hiding one.
+func versionNewer(a, b string) bool {
+	as, aok := versionSegments(a)
+	bs, bok := versionSegments(b)
+	if !aok || !bok {
+		return a != b
+	}
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var av, bv int
+		if i < len(as) {
+			av = as[i]
+		}
+		if i < len(bs) {
+			bv = bs[i]
+		}
+		if av != bv {
+			return av > bv
+		}
+	}
+	return false
+}
+
+func versionSegments(v string) ([]int, bool) {
+	if v == "" {
+		return nil, false
+	}
+	parts := strings.Split(v, ".")
+	out := make([]int, len(parts))
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return nil, false
+		}
+		out[i] = n
+	}
+	return out, true
+}
+
 // CheckForUpdate probes the manifest and populates state.AvailableUpdate when
 // the server-reported version differs from the locally-installed version.
 // Frontend calls this from Topbar.onRefresh for each installed game so the
@@ -574,7 +618,12 @@ func (a *App) CheckForUpdate(gameID string) error {
 	a.logger.Debug("CheckForUpdate result", "game", gid, "latest", vi.Latest, "current", vi.Current)
 
 	state.mu.Lock()
-	if vi.Latest != "" && vi.Latest != vi.Current {
+	// Strictly-newer comparison, not inequality: during a version rollover the
+	// API's main version can lag a local install that already applied the
+	// predownload (HSR 2026-09-05: local 4.5.0 vs API 4.4.0), and `!=` would
+	// offer an "update" to the OLDER version.
+	updateAvail := vi.Latest != "" && versionNewer(vi.Latest, vi.Current)
+	if updateAvail {
 		state.AvailableUpdate = &core.UpdatePlan{
 			GameID:  gid,
 			Kind:    core.PlanUpdate,
@@ -590,7 +639,8 @@ func (a *App) CheckForUpdate(gameID string) error {
 	// exclusive), and nothing is already staged for that target.
 	pc, predlCapable := p.(core.PredownloadChecker)
 	if predlCapable && pc.SupportsPredownload(gid) &&
-		vi.Predownload != nil && vi.Latest == vi.Current &&
+		vi.Predownload != nil && vi.Predownload.TargetVersion != "" && !updateAvail &&
+		versionNewer(vi.Predownload.TargetVersion, vi.Current) &&
 		(state.PredlReady == nil || state.PredlReady.Version != vi.Predownload.TargetVersion) {
 		state.AvailablePredl = &core.UpdatePlan{
 			GameID:  gid,
