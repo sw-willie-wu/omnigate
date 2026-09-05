@@ -171,7 +171,7 @@ func TestApplyPredl_HappyPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ps.dir(), "next.dll"), []byte("body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ps.MarkComplete("next.dll", time.Now(), 4); err != nil {
+	if err := ps.MarkComplete("next.dll", time.Now(), 4, "hash-next"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ps.RenameToPredlReady(); err != nil {

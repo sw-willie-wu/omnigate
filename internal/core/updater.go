@@ -87,6 +87,17 @@ type UpdatePlan struct {
 	// it as a tooltip on the [Update] button. Empty string (ReasonUnspecified)
 	// is the M3.A-era zero value; frontend renders no tooltip in that case.
 	Reason ReasonCode `json:"reason,omitempty"`
+	// PatchGroups are 1:1 binary-diff applications (WuWa krpdiff / HDiffPatch):
+	// old game file + downloaded Ephemeral diff → verified new file. Sorted by
+	// Dst.Size ascending at plan build time (the disk-peak formula depends on
+	// this order; runApply re-asserts it).
+	PatchGroups []PatchGroup `json:"patch_groups,omitempty"`
+	// DeleteFiles are game-dir-relative paths removed AFTER all PatchGroups
+	// complete (a group's src may be a delete target; spec §1-5).
+	DeleteFiles []string `json:"delete_files,omitempty"`
+	// PeakTempBytes is the provider-computed worst-case temp usage of the
+	// apply phase (spec §5). 0 = no patch phase; preflight uses TotalBytes only.
+	PeakTempBytes int64 `json:"peak_temp_bytes,omitempty"`
 }
 
 // FileTask is one file to download + apply during an update run.
@@ -108,6 +119,10 @@ type FileTask struct {
 	// and continued instead of re-downloaded from zero. Empty for
 	// providers/files without chunk metadata → whole-file download.
 	Chunks []Chunk `json:"chunks,omitempty"`
+	// Ephemeral marks a download that feeds the apply phase (e.g. a krpdiff
+	// binary diff) and MUST NEVER be renamed into the game dir. It lives and
+	// dies inside the version temp dir. runApply hard-asserts on violation.
+	Ephemeral bool `json:"ephemeral,omitempty"`
 }
 
 // Chunk is one verifiable byte range of a FileTask. End is INCLUSIVE
@@ -117,6 +132,23 @@ type Chunk struct {
 	Start int64  `json:"start"`
 	End   int64  `json:"end"`
 	Hash  string `json:"hash"` // hex MD5 of the range
+}
+
+// PatchFile describes a source or destination file in a binary-diff operation.
+type PatchFile struct {
+	Path string `json:"path"` // relative: Src → game dir; Dst → game dir (rename target)
+	Hash string `json:"hash"` // hex MD5
+	Size int64  `json:"size"`
+}
+
+// PatchGroup is one binary-diff application (WuWa krpdiff / HDiffPatch):
+// old game file + downloaded Ephemeral diff → verified new file. UpdatePlan.PatchGroups
+// is sorted by Dst.Size ascending at plan build time (the disk-peak formula depends on
+// this order; runApply re-asserts it).
+type PatchGroup struct {
+	DiffPath string    `json:"diff_path"` // version-dir-relative path of the staged Ephemeral diff
+	Src      PatchFile `json:"src"`
+	Dst      PatchFile `json:"dst"`
 }
 
 // UpdateEvent is emitted by RunUpdate via the onEvent callback during

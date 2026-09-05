@@ -184,6 +184,7 @@
       "manifest_not_found": "Update manifest not found (server returned 404)",
       "auth_failed": "Authentication failed; please contact support",
       "predl_stale": "Pre-download outdated ({version}). Clear and update to {newVersion}?",
+      "predl_not_live": "This pre-downloaded version ({predl_version}) is not live yet (current: {live_version}); apply once it goes live",
       "interrupted_resume_download": "Last update interrupted. Continue?",
       "interrupted_resume_apply": "Last apply interrupted. Retry?",
       "interrupted_resume_predl_download": "Last pre-download interrupted. Continue?",
@@ -195,6 +196,8 @@
       "network": "Network error: {detail}",
       "corrupt": "Downloaded file corrupted; please retry",
       "apply_partial": "Apply phase failed; please retry",
+      "patch_failed": "Failed to apply patch ({file}) — please retry; a full download will be used if this keeps failing",
+      "invalid_path": "Update data contained an invalid path ({file}) — aborted to protect the game directory",
       "unrecoverable": "Update state corrupted; please use KRLauncher to repair",
       "internal": "Internal error: {detail}"
     },

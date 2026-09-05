@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"omnigate/internal/providers/hoyoverse/hpatchz"
+	"omnigate/internal/patch/hpatchz"
 	"omnigate/internal/providers/hoyoverse/sevenzip"
 )
 

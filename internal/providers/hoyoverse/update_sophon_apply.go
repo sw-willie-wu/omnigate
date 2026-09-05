@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"omnigate/internal/core"
-	"omnigate/internal/providers/hoyoverse/hpatchz"
+	"omnigate/internal/patch/hpatchz"
 	"omnigate/internal/providers/hoyoverse/sophon"
 )
 
