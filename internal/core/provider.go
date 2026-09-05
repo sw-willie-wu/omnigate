@@ -92,6 +92,11 @@ type VersionInfo struct {
 	Current     string
 	Latest      string
 	Predownload *PredownloadInfo
+	// UpdateAvailable is computed at the app layer (RefreshVersion, via the
+	// same versionNewer comparison CheckForUpdate uses) — providers leave it
+	// false. The frontend consumes this instead of comparing version strings
+	// itself, so the "is an update available" logic has exactly one home.
+	UpdateAvailable bool
 }
 
 type PredownloadInfo struct {
