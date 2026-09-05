@@ -501,10 +501,13 @@ func (p *Provider) efFetchRecords(ctx context.Context, u8, serverID, lang string
 	return p.efFetchPools(ctx, u8, serverID, lang, endfieldAllPools, known)
 }
 
-// efFetchPools paginates each pool newest-first. known is the set of seqIds already
-// stored for this account; a pool stops as soon as it reaches a known record
-// (incremental sync — only new pulls are fetched). A nil/empty known set fetches
-// the full history (first sync).
+// efFetchPools paginates each pool newest-first. known holds
+// "<bannerKey>|<seqId>" composites for the pulls already stored for this
+// account; a pool stops as soon as it reaches a known record (incremental
+// sync — only new pulls are fetched). The banner prefix is load-bearing:
+// Endfield char and weapon use independent seqId counters, so a bare seqId
+// is ambiguous across banners. A nil/empty known set fetches the full
+// history (first sync).
 func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, pools []endfieldPool, known map[string]bool) (core.GachaFetchResult, error) {
 	out := core.GachaFetchResult{Pulls: []core.GachaPull{}}
 	for i, pool := range pools {
@@ -560,7 +563,7 @@ func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, 
 			reachedKnown := false
 			for _, e := range r.Data.List {
 				id := string(e.SeqID)
-				if known[id] { // nil map → always false (full first sync)
+				if known[pool.bannerKey+"|"+id] { // nil map → always false (full first sync)
 					reachedKnown = true
 					break
 				}
@@ -601,8 +604,10 @@ func (p *Provider) efFetchPools(ctx context.Context, u8, serverID, lang string, 
 }
 
 // FetchGachaWithCredential runs the full chain and returns pulls + roleId uid.
-// known is the set of seqIds already stored for this account; pools stop early
-// once they reach a known record (incremental sync). Pass nil for a full fetch.
+// known keys are "<bannerKey>|<seqId>" composites for the pulls already stored
+// for this account — Endfield char and weapon use independent seqId counters,
+// so a bare seqId is ambiguous across banners. Pools stop early once they
+// reach a known record (incremental sync). Pass nil for a full fetch.
 func (p *Provider) FetchGachaWithCredential(ctx context.Context, gid core.GameID, credential, lang string, known map[string]bool) (core.GachaFetchResult, error) {
 	if findByID(gid) == nil {
 		return core.GachaFetchResult{}, core.ErrUnknownGame
