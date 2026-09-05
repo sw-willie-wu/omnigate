@@ -7,10 +7,12 @@ import en from '../../locales/en.json';
 const getSummary = vi.fn();
 const refreshGacha = vi.fn();
 const listAccounts = vi.fn();
+const importRecords = vi.fn();
 vi.mock('../../../wailsjs/go/app/App', () => ({
   GetGachaSummary: (...a: unknown[]) => getSummary(...a),
   RefreshGacha: (...a: unknown[]) => refreshGacha(...a),
   ListGameAccounts: (...a: unknown[]) => listAccounts(...a),
+  ImportGachaRecords: (...a: unknown[]) => importRecords(...a),
   SetAccountLabel: vi.fn(),
 }));
 vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
@@ -18,9 +20,9 @@ vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 import GachaBoard from '../GachaBoard.vue';
 import { useGachaStore } from '../../stores/gacha';
 
-function mountBoard() {
+function mountBoard(gid = 'hypergryph/endfield') {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
-  return mount(GachaBoard, { props: { gid: 'hypergryph/endfield' }, global: { plugins: [i18n] } });
+  return mount(GachaBoard, { props: { gid }, global: { plugins: [i18n] } });
 }
 const base = {
   supported: true, uid: 'u1', totalPulls: 12, perBanner: { special: 8, standard: 4 }, spendEst: 1200, currency: 'primogem',
@@ -36,7 +38,7 @@ const base = {
 };
 
 describe('GachaBoard', () => {
-  beforeEach(() => { setActivePinia(createPinia()); getSummary.mockReset(); refreshGacha.mockReset(); listAccounts.mockReset(); listAccounts.mockResolvedValue([]); });
+  beforeEach(() => { setActivePinia(createPinia()); getSummary.mockReset(); refreshGacha.mockReset(); listAccounts.mockReset(); importRecords.mockReset(); listAccounts.mockResolvedValue([]); });
 
   it('renders the dashboard sections from summary', async () => {
     getSummary.mockResolvedValue(base);
@@ -277,12 +279,43 @@ describe('GachaBoard', () => {
     expect(w.find('.gacha-cards').exists()).toBe(false);
   });
 
-  it('renders a disabled import-records placeholder button', async () => {
+  it('hides the import button entirely for games without an import source', async () => {
     getSummary.mockResolvedValue(base);
     const w = mountBoard(); await flushPromises();
-    const imp = w.find('.gacha-import');
+    expect(w.find('.gacha-import').exists()).toBe(false);
+  });
+
+  it('enables import for WuWa: click → ImportGachaRecords → success message + reload', async () => {
+    getSummary.mockResolvedValue(base);
+    importRecords.mockResolvedValue({ uid: 'u1', added: 42, total: 2629 });
+    const w = mountBoard('kurogames/wutheringwaves'); await flushPromises();
+    const imp = w.find('.gacha-import-on');
     expect(imp.exists()).toBe(true);
-    expect(imp.attributes('disabled')).toBeDefined();
+    expect(imp.attributes('disabled')).toBeUndefined();
+    const callsBefore = getSummary.mock.calls.length;
+    await imp.trigger('click'); await flushPromises();
+    expect(importRecords).toHaveBeenCalledWith('kurogames/wutheringwaves');
+    expect(w.text()).toContain('42');                                   // import_done message
+    expect(getSummary.mock.calls.length).toBeGreaterThan(callsBefore);  // board reloaded
+  });
+
+  it('cancelled import picker (empty uid) shows no message and no reload', async () => {
+    getSummary.mockResolvedValue(base);
+    importRecords.mockResolvedValue({ uid: '', added: 0, total: 0 });
+    const w = mountBoard('kurogames/wutheringwaves'); await flushPromises();
+    const callsBefore = getSummary.mock.calls.length;
+    await w.find('.gacha-import-on').trigger('click'); await flushPromises();
+    expect(w.find('.gacha-import-ok').exists()).toBe(false);
+    expect(getSummary.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('failed import surfaces the inline error message', async () => {
+    getSummary.mockResolvedValue(base);
+    importRecords.mockRejectedValue(new Error('wuwatracker export: bad json'));
+    const w = mountBoard('kurogames/wutheringwaves'); await flushPromises();
+    await w.find('.gacha-import-on').trigger('click'); await flushPromises();
+    expect(w.text()).toContain('Import failed');
+    expect(w.find('.gacha-import-ok').exists()).toBe(false);
   });
 
   it('shows the play-first prompt (no refresh button) when active uid is unknown', async () => {

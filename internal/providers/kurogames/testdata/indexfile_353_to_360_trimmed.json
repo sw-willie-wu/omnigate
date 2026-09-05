@@ -1,0 +1,211 @@
+{
+  "resource": [
+    {
+      "dest": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
+      "md5": "7e917e55d6601da84c5a517b60b90eca",
+      "size": 975548424,
+      "fromFolder": "launcher/game/G153/50004/3.6.0/kIILpILagqlxyFKWpexGltuOiOwdrYKr/zip/",
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "b7161820bf385d41f6a1e9626ecdff34"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "18cbcf0ed0e7331ab57d2f6785f4ca44"
+        }
+      ]
+    },
+    {
+      "dest": "3.5.3_3.6.0_group_0_1786181737304.krpdiff",
+      "md5": "8acb7af0d87a8478eee14255f5e9c9a8",
+      "size": 1649690516,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "9926a87c488499cf40028a65f35822c4"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "35ad7e935e873cb9d48824e0c6ae5c3d"
+        }
+      ]
+    },
+    {
+      "dest": "3.5.3_3.6.0_group_1_1786182955371.krpdiff",
+      "md5": "e13bfac66257bed11b53838115d8d01e",
+      "size": 116783471,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "a334d0e0f209b687596ee757768c9670"
+        },
+        {
+          "start": 104857600,
+          "end": 116783470,
+          "md5": "30d6fe2954cd79172e21a65c54e8afd1"
+        }
+      ]
+    },
+    {
+      "dest": "3.5.3_3.6.0_group_2_1786183027972.krpdiff",
+      "md5": "baf64822df0c90ee1bd8f96518f7af99",
+      "size": 26101496
+    },
+    {
+      "dest": "3.5.3_3.6.0_group_3_1786183044329.krpdiff",
+      "md5": "db68142a0094d83e97f499e5b5a202f4",
+      "size": 31714164
+    }
+  ],
+  "deleteFiles": [
+    "Client/Content/Paks/pakchunk73-WindowsNoEditor.sig",
+    "Client/Content/Paks/pakchunk73-WindowsNoEditor.pak",
+    "Client/Content/Paks/pakchunk18-WindowsNoEditor.pak",
+    "Client/Content/Paks/pakchunk18-WindowsNoEditor.sig"
+  ],
+  "groupInfos": [
+    {
+      "dest": "3.5.3_3.6.0_group_0_1786181737304.krpdiff",
+      "srcFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk0-WindowsNoEditor.pak",
+          "md5": "8c55b94f0ff4cd133e3be0c75d00cea8",
+          "size": 5999444961
+        }
+      ],
+      "dstFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk0-WindowsNoEditor.pak",
+          "md5": "2f40f4536f61f07afa502339e840032e",
+          "size": 6331982049,
+          "chunkInfos": [
+            {
+              "start": 0,
+              "end": 104857599,
+              "md5": "d4c26cf450f044a8c238bf4c3d908f07"
+            },
+            {
+              "start": 104857600,
+              "end": 209715199,
+              "md5": "742092ed482c6b7192793d4bed4a407a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dest": "3.5.3_3.6.0_group_1_1786182955371.krpdiff",
+      "srcFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk1-WindowsNoEditor.pak",
+          "md5": "f2f3faf5110c9cbd2087326123d6c718",
+          "size": 535976165
+        }
+      ],
+      "dstFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk1-WindowsNoEditor.pak",
+          "md5": "2c11a93b1ff8beec754fce6c7d2fd7d5",
+          "size": 705975470,
+          "chunkInfos": [
+            {
+              "start": 0,
+              "end": 104857599,
+              "md5": "3be5eba5b37b655ea9f594262ec6edf4"
+            },
+            {
+              "start": 104857600,
+              "end": 209715199,
+              "md5": "c4219245cbb53e173113a59fc369aedb"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dest": "3.5.3_3.6.0_group_41_1786190752217.krpdiff",
+      "srcFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk18-WindowsNoEditor.sig",
+          "md5": "600824c84eb80aa2406eeae8bec16a5f",
+          "size": 8120
+        },
+        {
+          "dest": "Client/Content/Paks/pakchunk73-WindowsNoEditor.sig",
+          "md5": "20b6588d37e131df965adb9e85763375",
+          "size": 7508
+        },
+        {
+          "dest": "ClearThirdParty.exe",
+          "md5": "6aa43c2c0cd19506c99b012218c9a64e",
+          "size": 220592
+        },
+        {
+          "dest": "Client/Binaries/Win64/AntiCheatExpert/ACE-BASE.sys",
+          "md5": "8825446baf4feb546db4a56c1b4ec167",
+          "size": 4230360
+        }
+      ],
+      "dstFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk112-WindowsNoEditor.sig",
+          "md5": "950147ee151e2fa1237f40b58fffb41d",
+          "size": 24624
+        },
+        {
+          "dest": "Client/Content/Paks/pakchunk43-WindowsNoEditor.sig",
+          "md5": "f8489596326f506b096931c1eb70ee00",
+          "size": 18764
+        },
+        {
+          "dest": "ClearThirdParty.exe",
+          "md5": "1dc07fb0b1f7fc2aa77347fdceeb94a9",
+          "size": 220592
+        },
+        {
+          "dest": "Client/Binaries/Win64/AntiCheatExpert/ACE-BASE.sys",
+          "md5": "cc05394dcaef7a1002c04dbc324ff3fd",
+          "size": 4125432
+        }
+      ]
+    },
+    {
+      "dest": "3.5.3_3.6.0_group_3_1786183044329.krpdiff",
+      "srcFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk103-WindowsNoEditor.pak",
+          "md5": "53bf6efb7ba5a8c866166375614ffcf7",
+          "size": 443492619
+        }
+      ],
+      "dstFiles": [
+        {
+          "dest": "Client/Content/Paks/pakchunk103-WindowsNoEditor.pak",
+          "md5": "b9499435ce6dbfe85297b9f8a976fb7e",
+          "size": 443597131,
+          "chunkInfos": [
+            {
+              "start": 0,
+              "end": 104857599,
+              "md5": "cf10c3a5e8940ae3cc9b4efb052ff015"
+            },
+            {
+              "start": 104857600,
+              "end": 209715199,
+              "md5": "99306bff8c64b873f94a34401cf50182"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "applyTypes": [
+    "group"
+  ]
+}

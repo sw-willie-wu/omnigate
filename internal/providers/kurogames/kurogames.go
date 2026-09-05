@@ -292,9 +292,32 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 	// Filter to changed files only — onProgress fires after each file.
 	// Workers honor ctx.Done() between files so cancel mid-verify takes
 	// effect within ~1 file's worth of MD5 (worst case ~30s for biggest .pak).
-	files := filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
-	if ctx.Err() != nil {
-		return core.UpdatePlan{}, ctx.Err()
+	// Patch manifests (groupInfos present) go through the patch-aware
+	// classifier (spec §2); legacy full-manifest indexFiles keep the
+	// original filterChangedFiles flow unchanged.
+	var (
+		files       []core.FileTask
+		patchGroups []core.PatchGroup
+		deleteFiles []string
+		peakTemp    int64
+	)
+	if len(idxFile.GroupInfos) > 0 || len(idxFile.ApplyTypes) > 0 {
+		// ApplyTypes alone (even with empty GroupInfos) must still route
+		// through the builder so step-0's unknown-applyTypes fallback (spec
+		// §2, which is ordered BEFORE the len(GroupInfos)==0 legacy check)
+		// can fire — an unrecognized apply strategy with a sparse manifest
+		// is exactly the "don't understand this format" case it exists for.
+		fullCDN := pickCDN(idx.Default.CDNList)
+		fetchFull := p.mkFetchFull(idx.Default.Config, fullCDN)
+		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, fullCDN, idx.Default.Config.BaseURL, idxFile, fetchFull, onProgress)
+		if err != nil {
+			return core.UpdatePlan{}, err
+		}
+	} else {
+		files = filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
 	}
 	var totalBytes int64
 	for _, f := range files {
@@ -308,12 +331,15 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 	// pre-update value → AvailableUpdate re-flags on next Refresh.
 	targetVersion := idx.Default.Version
 	plan := core.UpdatePlan{
-		GameID:       gid,
-		Kind:         core.PlanUpdate,
-		ManifestETag: idxETag,
-		Version:      targetVersion,
-		Files:        files,
-		TotalBytes:   totalBytes,
+		GameID:        gid,
+		Kind:          core.PlanUpdate,
+		ManifestETag:  idxETag,
+		Version:       targetVersion,
+		Files:         files,
+		TotalBytes:    totalBytes,
+		PatchGroups:   patchGroups,
+		DeleteFiles:   deleteFiles,
+		PeakTempBytes: peakTemp,
 	}
 	plan.Reason = core.ReasonVersionChanged // M3.B forward-consistency: kurogames is always version-change driven
 	p.logger.Info("CheckForUpdate complete",
@@ -365,22 +391,45 @@ func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onP
 		return core.UpdatePlan{}, err
 	}
 
-	files := filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
-	if ctx.Err() != nil {
-		return core.UpdatePlan{}, ctx.Err()
+	// See CheckForUpdateWithProgress: patch manifests go through the shared
+	// patch-aware classifier. fetchFull is bound to THIS entry point's own
+	// (predownload) full config/CDN — never idx.Default, or a predl
+	// whole-plan fallback would fetch the live-version manifest (plan gate
+	// B1).
+	var (
+		files       []core.FileTask
+		patchGroups []core.PatchGroup
+		deleteFiles []string
+		peakTemp    int64
+	)
+	if len(idxFile.GroupInfos) > 0 || len(idxFile.ApplyTypes) > 0 {
+		fullCDN := pickCDN(idx.Predownload.CDNList)
+		fetchFull := p.mkFetchFull(idx.Predownload.Config, fullCDN)
+		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, fullCDN, idx.Predownload.Config.BaseURL, idxFile, fetchFull, onProgress)
+		if err != nil {
+			return core.UpdatePlan{}, err
+		}
+	} else {
+		files = filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
+		if ctx.Err() != nil {
+			return core.UpdatePlan{}, ctx.Err()
+		}
 	}
 	var totalBytes int64
 	for _, f := range files {
 		totalBytes += f.Size
 	}
 	plan := core.UpdatePlan{
-		GameID:       gid,
-		Kind:         core.PlanPredownload,
-		ManifestETag: idxETag,
-		Version:      idx.Predownload.Version,
-		Files:        files,
-		TotalBytes:   totalBytes,
-		Reason:       core.ReasonPredownload,
+		GameID:        gid,
+		Kind:          core.PlanPredownload,
+		ManifestETag:  idxETag,
+		Version:       idx.Predownload.Version,
+		Files:         files,
+		TotalBytes:    totalBytes,
+		Reason:        core.ReasonPredownload,
+		PatchGroups:   patchGroups,
+		DeleteFiles:   deleteFiles,
+		PeakTempBytes: peakTemp,
 	}
 	p.logger.Info("CheckForPredownload complete", "game", gid, "predl_version", idx.Predownload.Version, "files", len(files), "bytes", totalBytes)
 	return plan, nil
@@ -439,6 +488,46 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	tempDir := p.tempRoot(plan.GameID)
 
 	progress := newProgressStore(tempDir, string(plan.GameID), plan.Version)
+
+	// Staged-bytes adoption (spec §2.5, R3-B1) — MUST run BEFORE progress.Init.
+	// A successfully-staged predl leaves ONLY predl_ready.json in the version
+	// dir (RenameToPredlReady moved progress.json away); this adopting run's
+	// Init(newETag) therefore finds no progress.json and — were it called
+	// first — would take Init's "no match" branch, which calls
+	// removeStaleParts() and wipes EVERY *.part under the version dir before
+	// Consume ever runs. removeStaleParts is a blunt, version-dir-wide sweep
+	// (not scoped to the files Consume is about to restore), so that delete
+	// is real and NOT self-healed by Consume's restore running afterward —
+	// unlike progress.json's *entries*, which Consume's later write would
+	// simply overwrite either way, the deleted chunked-resume .part bytes on
+	// disk are gone for good. Running Consume first means progress.json
+	// already exists (stamped with plan.ManifestETag) by the time Init runs,
+	// so Init takes the "same ETag → preserve" branch and never touches
+	// removeStaleParts at all. Consume-before-Init is therefore load-bearing
+	// for on-disk .part survival, not (only) a ledger-content concern — do
+	// not reorder. Pinned by TestRunUpdate_ConsumeBeforeInit_PreservesParts.
+	wantHash := map[string]string{}
+	ephemeral := map[string]bool{}
+	for _, f := range plan.Files {
+		wantHash[f.Path] = f.Hash
+		ephemeral[f.Path] = f.Ephemeral
+	}
+	adopted, stagedEphemeralBytes, consumeErr := progress.ConsumePredlStaged(plan.ManifestETag, wantHash, ephemeral)
+	if adopted {
+		// stagedEphemeralBytes is informational only. It must NOT be used for
+		// disk-space math here: the App-layer preflight (preflightChecks /
+		// measureStagedBytes) already measured staged bytes on disk and ran
+		// its own disk-need calculation BEFORE RunUpdate was ever called.
+		// Subtracting it again here would double-deduct the same bytes.
+		p.logger.Info("predl staged bytes adopted", "game", plan.GameID, "staged_ephemeral_bytes", stagedEphemeralBytes)
+	} else if consumeErr != nil {
+		// Non-fatal: no staged predl to adopt is the common case (nil err,
+		// adopted=false) and must not abort the run. A non-nil err here means
+		// adoption itself failed (e.g. write error) — log and fall through to
+		// a normal full download rather than failing the whole update.
+		p.logger.Warn("predl staged adoption failed; full re-download", "game", plan.GameID, "err", consumeErr)
+	}
+
 	if err := progress.Init(plan.ManifestETag); err != nil {
 		return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": err.Error()}}
 	}
@@ -468,14 +557,16 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 
 	// Apply phase
 	a := &applier{
-		logger:   p.logger,
-		tempRoot: tempDir,
-		gameDir:  installPath,
-		progress: progress,
-		plan:     &plan,
-		wasPredl: false,
-		onEvent:  onEvent,
-		lock:     newApplyLock(),
+		logger:      p.logger,
+		tempRoot:    tempDir,
+		gameDir:     installPath,
+		progress:    progress,
+		plan:        &plan,
+		wasPredl:    false,
+		onEvent:     onEvent,
+		lock:        newApplyLock(),
+		exeName:     g.ExeName,
+		procRunning: isProcessRunning,
 	}
 	return a.runApply(ctx)
 }
@@ -483,7 +574,18 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 // isProcessRunning checks if the given exe name appears in the process list.
 // Uses Windows toolhelp snapshot (kurogames is Windows-only). Stub for
 // non-Windows builds always returns false.
-func isProcessRunning(exeName string) bool {
+//
+// Package-level VAR (not a plain func) so tests can stub process detection
+// end-to-end through the real RunUpdate path — this is what makes the
+// exeName/procRunning injection into RunUpdate's applier literal (spec §4-2)
+// independently regression-tested: a test that only constructs *applier
+// directly can pin the guard's behavior, but cannot catch a dropped
+// injection at the RunUpdate call site (2026-08 review IMPORTANT-1 —
+// see TestRunUpdate_ProcessGuardBlocksDuringPatchPhase). Reassigning this
+// var affects both the RunUpdate entry guard (spec §2.7) and the
+// applier's patch-phase re-guard (spec §4-2), since both read it at call
+// time via a func value, not a fixed reference.
+var isProcessRunning = func(exeName string) bool {
 	return platformIsProcessRunning(exeName)
 }
 

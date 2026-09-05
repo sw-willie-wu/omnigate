@@ -477,7 +477,7 @@ func TestProgressInit_ETagChangeCleansParts(t *testing.T) {
 	if err := ps.Init("etag-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ps.MarkComplete("done.dll", time.Now(), 5); err != nil {
+	if err := ps.MarkComplete("done.dll", time.Now(), 5, "hash-done"); err != nil {
 		t.Fatal(err)
 	}
 	nested := filepath.Join(ps.dir(), "Client", "Content", "Paks", "big.pak.part")

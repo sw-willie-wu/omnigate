@@ -4,14 +4,14 @@
 // measurements on Windows-NTFS reveal the targets are infeasible without
 // architectural changes:
 //
-//   BenchmarkProgressAppend_1000Entries: ~8.6s (vs 50ms budget) — each
-//     MarkComplete does load-modify-write of progress.json. With 1000
-//     entries, that's O(N²) over a growing JSON file. Real-world download
-//     pace bounds this (network is the bottleneck), but a tight loop
-//     exposes the design cost.
-//   BenchmarkApplyLoop_RenameOnly:   ~155ms (vs 50ms budget) — Windows
-//     filesystem is slower at MkdirAll + Rename than the spec assumed.
-//   BenchmarkSidecarParse_LargeProgress: ~7ms — within budget.
+//	BenchmarkProgressAppend_1000Entries: ~8.6s (vs 50ms budget) — each
+//	  MarkComplete does load-modify-write of progress.json. With 1000
+//	  entries, that's O(N²) over a growing JSON file. Real-world download
+//	  pace bounds this (network is the bottleneck), but a tight loop
+//	  exposes the design cost.
+//	BenchmarkApplyLoop_RenameOnly:   ~155ms (vs 50ms budget) — Windows
+//	  filesystem is slower at MkdirAll + Rename than the spec assumed.
+//	BenchmarkSidecarParse_LargeProgress: ~7ms — within budget.
 //
 // Benchmarks log timings with `b.Logf` (not `b.Errorf`) so the suite
 // passes under `go test -tags=load`; the numbers themselves are the
@@ -68,7 +68,7 @@ func BenchmarkProgressAppend_1000Entries(b *testing.B) {
 		}
 		start := time.Now()
 		for _, f := range files {
-			if err := ps.MarkComplete(f.Dest, time.Now(), f.Size); err != nil {
+			if err := ps.MarkComplete(f.Dest, time.Now(), f.Size, f.MD5); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -89,7 +89,7 @@ func BenchmarkSidecarParse_LargeProgress(b *testing.B) {
 		b.Fatal(err)
 	}
 	for _, f := range files {
-		if err := ps.MarkComplete(f.Dest, time.Now(), f.Size); err != nil {
+		if err := ps.MarkComplete(f.Dest, time.Now(), f.Size, f.MD5); err != nil {
 			b.Fatal(err)
 		}
 	}

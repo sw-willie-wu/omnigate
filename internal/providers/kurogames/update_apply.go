@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"omnigate/internal/core"
+	"omnigate/internal/patch/hpatchz"
 )
 
 // applyWAL is the on-disk shape of apply.wal (spec §2.2). Embeds the
@@ -35,6 +36,82 @@ type applier struct {
 	wasPredl bool
 	onEvent  func(core.UpdateEvent)
 	lock     applyLock
+
+	// exeName + procRunning back the cheap re-guard immediately before each
+	// patch group (spec §4-2). Injected by RunUpdate as g.ExeName /
+	// isProcessRunning — the applier itself never queries the process
+	// registry. Zero-value (exeName == "") disables the guard, which is why
+	// RunUpdate's applier literal MUST set both; a missing injection fails
+	// silently (no compile error, no test failure short of the dedicated
+	// process-guard test), so treat this wiring as load-bearing.
+	exeName     string
+	procRunning func(string) bool
+}
+
+// errEphemeralLeak is returned by assertNotEphemeral when a relPath about to
+// be renamed into gameDir belongs to an Ephemeral FileTask. Theoretically
+// unreachable (the rename loop's `if f.Ephemeral { continue }` already skips
+// these paths) — this is the independent defence-in-depth check per spec
+// invariant 2, guarding against a future refactor that drops the loop guard.
+var errEphemeralLeak = errors.New("ephemeral file must never be renamed into game dir")
+
+// assertNotEphemeral returns errEphemeralLeak when relPath belongs to an
+// Ephemeral task in plan. Called immediately before every gameDir rename.
+func assertNotEphemeral(plan *core.UpdatePlan, relPath string) error {
+	for _, f := range plan.Files {
+		if f.Ephemeral && f.Path == relPath {
+			return errEphemeralLeak
+		}
+	}
+	return nil
+}
+
+// hasKrpdiffSuffix reports whether relPath ends in ".krpdiff"
+// (case-insensitive) — used by runApply's rename loop to reject any task
+// bearing this suffix, independent of its Ephemeral flag.
+//
+// This is the categorical choke point: buildFileAndPatchPlan's own suffix
+// check (update_patchplan.go, "orphan krpdiff resource entry") only covers
+// the groupInfos-classification path it owns. Two other plan-producing
+// routes call filterChangedFiles directly — step 1's legacy no-groupInfos
+// flow and fullFallback's whole-plan-fallback flow (update_patchplan.go)
+// — and neither passes through that check, so a hypothetical *.krpdiff
+// resource entry reaching either of them would be staged as an ordinary
+// non-Ephemeral FileTask and sail straight past assertNotEphemeral (which
+// only inspects the Ephemeral flag, not the suffix). Catching the suffix
+// here, at the single point immediately before every gameDir rename,
+// closes that gap regardless of which upstream path produced the plan —
+// the 2026-08-20 incident class this whole defence exists for.
+func hasKrpdiffSuffix(relPath string) bool {
+	return strings.EqualFold(filepath.Ext(relPath), ".krpdiff")
+}
+
+// safeGameRelPath validates rel as a gameDir-relative path with no
+// traversal (spec §4-3 deleteFiles guard — the mirror image of the
+// 2026-08-20 incident: a corrupt/hostile DeleteFiles entry must never
+// resolve outside gameDir). Rejects absolute paths, ".." components, and
+// any path that escapes gameDir after filepath.Clean. Returns the absolute
+// joined path on success.
+func safeGameRelPath(gameDir, rel string) (string, error) {
+	if rel == "" {
+		return "", fmt.Errorf("empty delete path")
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("absolute path not allowed: %s", rel)
+	}
+	cleanRel := filepath.Clean(rel)
+	if cleanRel == "." || cleanRel == ".." || strings.HasPrefix(cleanRel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes game dir: %s", rel)
+	}
+	absGameDir, err := filepath.Abs(gameDir)
+	if err != nil {
+		return "", err
+	}
+	full := filepath.Join(absGameDir, cleanRel)
+	if full != absGameDir && !strings.HasPrefix(full, absGameDir+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes game dir: %s", rel)
+	}
+	return full, nil
 }
 
 // applyErr classifies an apply-phase write failure: a permission error (e.g.
@@ -52,13 +129,34 @@ func (a *applier) applyErr(path string, err error) error {
 	return &core.UpdateError{
 		Code:      "apply_partial",
 		Retryable: true,
-		Params:    map[string]string{"path": path, "reason": err.Error()},
+		// "file" duplicates "path" — the apply_partial locale strings
+		// interpolate {file}, not {path} (pre-existing mismatch fixed in
+		// Task 11); "path" is kept for compat with any existing consumer.
+		Params: map[string]string{"path": path, "file": path, "reason": err.Error()},
+	}
+}
+
+// pathGuardErr classifies a safeGameRelPath rejection (spec §4-3 traversal
+// guard) as invalid_path — deliberately distinct from apply_partial. A
+// rejected path is a corrupt/hostile manifest entry, not a transient I/O
+// failure: it is never retryable, and apply_partial's "close the game and
+// retry" copy is actively wrong advice here.
+func pathGuardErr(rel string) error {
+	return &core.UpdateError{
+		Code:      "invalid_path",
+		Retryable: false,
+		Params:    map[string]string{"file": rel},
 	}
 }
 
 // runApply executes the apply phase: writes WAL, atomic-renames each file,
 // appends to WAL Done list, deletes WAL on success. ctx.Done() inside the
-// loop is treated as no-op per spec §2.6 (apply is atomic-batch).
+// file-rename loop is treated as no-op per spec §2.6 (apply is
+// atomic-batch; renames are cheap and there's no meaningful place to
+// interrupt mid-loop). The patch phase (runPatchGroups) below is the
+// intentional exception: it DOES check ctx.Err() at each group boundary
+// before invoking hpatchz, since a single krpdiff apply can run long
+// enough that a genuine cancel should still take effect between groups.
 func (a *applier) runApply(ctx context.Context) error {
 	a.logger.Debug("runApply: enter", "game", a.plan.GameID, "files", len(a.plan.Files), "version", a.plan.Version, "game_dir", a.gameDir, "temp_root", a.tempRoot)
 
@@ -93,10 +191,19 @@ func (a *applier) runApply(ctx context.Context) error {
 	defer a.lock.Release()
 	a.logger.Debug("runApply: applyLock acquired", "game", a.plan.GameID, "lock_dir", lockDir)
 
-	// Initialize WAL with all pending paths
-	pending := make([]string, len(a.plan.Files))
-	for i, f := range a.plan.Files {
-		pending[i] = f.Path
+	// Initialize WAL with all pending paths. Ephemeral tasks are excluded
+	// (spec invariant 2): they feed the patch phase below, not a gameDir
+	// rename, and must never appear as a WAL rename target — the
+	// 2026-08-20 incident was exactly a diff file getting renamed into the
+	// game dir.
+	pending := make([]string, 0, len(a.plan.Files))
+	renameTotal := 0
+	for _, f := range a.plan.Files {
+		if f.Ephemeral {
+			continue
+		}
+		pending = append(pending, f.Path)
+		renameTotal++
 	}
 	wal := applyWAL{
 		GameID:   string(a.plan.GameID),
@@ -122,9 +229,24 @@ func (a *applier) runApply(ctx context.Context) error {
 	// Now safe to drop progress.json (spec §5.3 transition)
 	_ = os.Remove(filepath.Join(a.progress.dir(), "progress.json"))
 
-	// Apply each file; cancel.Done() is no-op (spec §2.6)
+	// Apply each file; cancel.Done() is no-op for this rename loop (spec
+	// §2.6) — the patch phase below is where ctx cancellation actually
+	// takes effect (at group boundaries). Ephemeral tasks (krpdiff diffs)
+	// are never a gameDir rename target — they're consumed by
+	// runPatchGroups below. Total counts rename targets + patch groups so
+	// the progress bar spans both sub-phases.
 	var done atomic.Int64
+	renameEventTotal := int64(renameTotal + len(a.plan.PatchGroups))
 	for _, f := range a.plan.Files {
+		if f.Ephemeral {
+			continue // never a gameDir rename target
+		}
+		if err := assertNotEphemeral(a.plan, f.Path); err != nil {
+			return a.applyErr(f.Path, err)
+		}
+		if hasKrpdiffSuffix(f.Path) {
+			return pathGuardErr(f.Path)
+		}
 		src := filepath.Join(a.progress.dir(), f.Path)
 		dst := filepath.Join(a.gameDir, f.Path)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -143,9 +265,27 @@ func (a *applier) runApply(ctx context.Context) error {
 			a.onEvent(core.UpdateEvent{
 				Phase:       core.PhaseApply,
 				Current:     done.Load(),
-				Total:       int64(len(a.plan.Files)),
+				Total:       renameEventTotal,
 				CurrentFile: f.Path,
 			})
+		}
+	}
+
+	// Patch phase: krpdiff-based binary diffs (spec §4). Must run before
+	// deleteFiles — a group's Src may coincide with a delete target.
+	if err := a.runPatchGroups(ctx, renameTotal); err != nil {
+		return err
+	}
+
+	// deleteFiles (spec §4-3): applied strictly after all patch groups.
+	// Missing target = no-op (idempotent across resume/retry).
+	for _, rel := range a.plan.DeleteFiles {
+		clean, err := safeGameRelPath(a.gameDir, rel)
+		if err != nil {
+			return pathGuardErr(rel)
+		}
+		if rmErr := os.Remove(clean); rmErr != nil && !os.IsNotExist(rmErr) {
+			return a.applyErr(rel, rmErr)
 		}
 	}
 
@@ -233,10 +373,10 @@ func resumeApply(ctx context.Context, walPath, gameDir string, lock applyLock, o
 		src := filepath.Join(tempDir, rel)
 		dst := filepath.Join(gameDir, rel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel}}
+			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel, "file": rel}}
 		}
 		if err := atomicRename(src, dst); err != nil {
-			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel, "reason": err.Error()}}
+			return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"path": rel, "file": rel, "reason": err.Error()}}
 		}
 		wal.Done = append(wal.Done, rel)
 		wal.Pending = removeString(wal.Pending, rel)
@@ -331,4 +471,112 @@ func removeString(s []string, target string) []string {
 	return out
 }
 
-var _ = errors.Is // silence unused import if errors not actually used
+// runPatchGroups applies each PatchGroup via hpatchz in size-ascending
+// order (spec §5 disk-peak formula depends on this order; builder already
+// sorts, this re-asserts against a hand-edited plan). renameDone is the
+// count of gameDir renames already completed by the loop above — used only
+// as the progress-event offset so the apply-phase bar spans both
+// sub-phases.
+//
+// dir-diff semantics (spec §4 runtime correction): hpatchz's old/out
+// arguments are ROOT DIRECTORIES here, not single files — the krpdiff
+// embeds relative paths (e.g. Client/Content/Paks/x.pak) and hpatchz reads
+// old content from under gameDir and writes new content under outRoot at
+// that same relative path.
+func (a *applier) runPatchGroups(ctx context.Context, renameDone int) error {
+	gs := a.plan.PatchGroups
+
+	// Assert size-ascending (builder already sorts; this guards a
+	// hand-edited/corrupt plan — the disk-peak formula in spec §5 depends
+	// on this order holding at apply time).
+	for i := 1; i < len(gs); i++ {
+		if gs[i].Dst.Size < gs[i-1].Dst.Size {
+			return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": "patch groups not size-sorted"}}
+		}
+	}
+
+	outRoot := filepath.Join(a.progress.dir(), "_out")
+
+	for i, g := range gs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Cheap re-guard (spec §4-2): exeName/procRunning are injected by
+		// RunUpdate's applier literal (g.ExeName / isProcessRunning) — the
+		// applier itself never queries the process registry.
+		if a.exeName != "" && a.procRunning != nil && a.procRunning(a.exeName) {
+			return &core.UpdateError{Code: "process_blocked", Retryable: true, Params: map[string]string{"kind": "process_running"}}
+		}
+
+		// Path validation before joining (free defence-in-depth now that
+		// safeGameRelPath exists — spec §4-3's traversal guard applies just
+		// as much to a corrupt/hostile PatchGroup as to DeleteFiles): reject
+		// absolute paths, "..", and any escape after Clean. Dst.Path is
+		// validated against gameDir (it's the eventual rename target);
+		// DiffPath is validated against the version temp dir (where it's
+		// staged and read from).
+		if _, err := safeGameRelPath(a.gameDir, g.Dst.Path); err != nil {
+			return pathGuardErr(g.Dst.Path)
+		}
+		if _, err := safeGameRelPath(a.progress.dir(), g.DiffPath); err != nil {
+			return pathGuardErr(g.DiffPath)
+		}
+
+		out := filepath.Join(outRoot, filepath.FromSlash(g.Dst.Path))
+		diff := filepath.Join(a.progress.dir(), g.DiffPath)
+
+		// Crash-resume shortcut: _out already holds a verified product
+		// from a prior interrupted run (bad/consumed diff notwithstanding)
+		// → skip straight to rename, don't re-invoke hpatchz.
+		cached := false
+		if h, err := md5File(out); err == nil && h == g.Dst.Hash {
+			cached = true
+		}
+
+		if !cached {
+			if a.onEvent != nil {
+				a.onEvent(core.UpdateEvent{
+					Phase: core.PhaseApply, Stage: "patching",
+					Current: int64(renameDone + i), Total: int64(renameDone + len(gs)), CurrentFile: g.Dst.Path,
+				})
+			}
+			if err := os.MkdirAll(outRoot, 0o755); err != nil {
+				return a.applyErr(g.Dst.Path, err)
+			}
+			if err := hpatchz.Run(ctx, a.gameDir, diff, outRoot); err != nil {
+				_ = os.RemoveAll(outRoot)
+				return &core.UpdateError{Code: "patch_failed", Retryable: true, Params: map[string]string{"file": g.Dst.Path, "reason": err.Error()}}
+			}
+			if h, err := md5File(out); err != nil || h != g.Dst.Hash {
+				_ = os.Remove(out)
+				return &core.UpdateError{Code: "patch_failed", Retryable: true, Params: map[string]string{"file": g.Dst.Path, "reason": "post-patch md5 mismatch"}}
+			}
+		}
+
+		// MkdirAll before rename (symmetry with the plain rename loop
+		// above): a group whose Dst.Path introduces a new subdirectory
+		// (not just an in-place replace) would otherwise hit a latent
+		// ENOENT here.
+		dst := filepath.Join(a.gameDir, g.Dst.Path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return a.applyErr(g.Dst.Path, err)
+		}
+		if err := atomicRename(out, dst); err != nil {
+			return a.applyErr(g.Dst.Path, err)
+		}
+		_ = os.Remove(diff) // spec §5 precondition (ii): release the diff's disk space immediately
+		if a.onEvent != nil {
+			// Stage:"patching" here too (not just the pre-hpatchz start event
+			// above) — otherwise the label reverts to empty between groups
+			// (T8-M7 deferred fix). This completion event fires for BOTH
+			// freshly-patched AND cache-hit (crash-resume) groups since it's
+			// outside the `if !cached` block above, so a fully-cached resume
+			// still shows progress instead of going silent.
+			a.onEvent(core.UpdateEvent{
+				Phase: core.PhaseApply, Stage: "patching",
+				Current: int64(renameDone + i + 1), Total: int64(renameDone + len(gs)), CurrentFile: g.Dst.Path,
+			})
+		}
+	}
+	return nil
+}

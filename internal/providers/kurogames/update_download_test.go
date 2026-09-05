@@ -644,7 +644,7 @@ func TestPrecountSkipConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Entry claims completion, but the file does not exist on disk.
-	if err := ps.MarkComplete("a.dll", time.Now(), int64(len(body))); err != nil {
+	if err := ps.MarkComplete("a.dll", time.Now(), int64(len(body)), md5hex(body)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -683,7 +683,7 @@ func TestDownload_ResumeSkipsCompleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	fi, _ := os.Stat(completePath)
-	if err := ps.MarkComplete("a.dll", fi.ModTime(), fi.Size()); err != nil {
+	if err := ps.MarkComplete("a.dll", fi.ModTime(), fi.Size(), md5hex(body)); err != nil {
 		t.Fatal(err)
 	}
 

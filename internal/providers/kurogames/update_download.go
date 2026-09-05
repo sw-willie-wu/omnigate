@@ -48,7 +48,7 @@ var errStalled = errors.New("download stalled")
 type downloader struct {
 	client    *http.Client
 	logger    *slog.Logger
-	tempRoot  string                 // <TempDir>/<gameID-flat>/<version>/
+	tempRoot  string // <TempDir>/<gameID-flat>/<version>/
 	progress  *progressStore
 	plan      *core.UpdatePlan
 	onEvent   func(core.UpdateEvent) // throttled by App layer
@@ -238,7 +238,7 @@ func (d *downloader) processFile(ctx context.Context, f core.FileTask, pf *core.
 	if err != nil {
 		return fmt.Errorf("stat post-rename %s: %w", finalPath, err)
 	}
-	if err := d.progress.MarkComplete(f.Path, fi.ModTime(), fi.Size()); err != nil {
+	if err := d.progress.MarkComplete(f.Path, fi.ModTime(), fi.Size(), f.Hash); err != nil {
 		return fmt.Errorf("progress.MarkComplete: %w", err)
 	}
 	d.emitProgress(f.Path)

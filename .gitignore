@@ -20,7 +20,7 @@ frontend/package.json.md5
 !internal/providers/iconext/testdata/*.exe
 
 # Exceptions for vendored binaries
-!internal/providers/hoyoverse/hpatchz/third_party_hpatchz/hpatchz.exe
+!internal/patch/hpatchz/third_party_hpatchz/hpatchz.exe
 !internal/providers/hoyoverse/sevenzip/third_party_7zr/7zr.exe
 
 # runtime state (portable mode)
@@ -58,3 +58,6 @@ settings.toml
 
 # gacha-icon match-rate probe input (real user data, not shipped)
 internal/gachaicon/testdata/wuwa_real_names.txt
+
+# repo-local Claude Code rules (personal, not shipped)
+CLAUDE.md

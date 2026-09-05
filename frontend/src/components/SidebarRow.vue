@@ -56,6 +56,7 @@ const inflightLabel = computed(() => {
     if (ifl.total > 0) return `${t('update.verifying_local')} ${ifl.current} / ${ifl.total}`;
     return t('update.verifying_local');
   }
+  if (ifl.stage === 'patching') return t('update.stage.patching', { x: ifl.current, y: ifl.total });
   if (ifl.kind === 'predownload') return t('update.predl_downloading', { pct: Math.round(progressPct.value) });
   if (ifl.phase === 'apply') return t('update.applying', { cur: ifl.current, total: ifl.total });
   return t('update.downloading', { pct: Math.round(progressPct.value) });

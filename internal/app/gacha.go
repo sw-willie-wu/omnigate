@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/store"
 )
 
 // gachaUIDFor resolves the gacha uid for a specific account. For switcher
@@ -100,7 +101,30 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 	if base == nil {
 		base = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(base, 120*time.Second)
+
+	// Resolve the credential account BEFORE building the ctx: a pending
+	// schema-v7 repair key widens the timeout to 300s (a full refetch is
+	// ~40+ pages with politeness delays — measured too tight for 120s).
+	_, isCred := p.(core.GachaCredentialProvider)
+	var acc store.GachaAccount
+	var accErr error
+	forceFull := false
+	if isCred {
+		acc, accErr = a.resolveGachaAccount(game, accountID)
+		if accErr == nil && acc.UID != "" && a.store != nil {
+			if _, ok, err := a.store.GetMeta(repairKey(gid, acc.UID)); err == nil && ok {
+				forceFull = true
+			}
+		}
+	}
+	d := 120 * time.Second
+	if forceFull {
+		d = 300 * time.Second
+	}
+	// base = a.ctx keeps app-shutdown cancellation propagating; never swap in
+	// context.Background() here (tests run with a.ctx == nil and cannot catch
+	// that regression).
+	ctx, cancel := context.WithTimeout(base, d)
 	defer cancel()
 
 	// Stream pagination progress to the UI (banner/page/pool — never the URL).
@@ -112,16 +136,20 @@ func (a *App) RefreshGacha(gameID, accountID string) (core.GachaSummary, error) 
 	// Credential path (Endfield): durable account_token, per-account resolution
 	// (Task 6). Fetch + write back the roleId uid via the shared helper, then
 	// compute the summary from that account's partition.
-	if _, isCred := p.(core.GachaCredentialProvider); isCred {
-		acc, err := a.resolveGachaAccount(game, accountID)
-		if err != nil {
-			return core.GachaSummary{}, err
+	if isCred {
+		if accErr != nil {
+			// ErrGachaCredentialRequired drives the frontend login UX — never drop it.
+			return core.GachaSummary{}, accErr
 		}
-		if err := a.refreshAndWriteBackUID(ctx, gid, &acc); err != nil {
+		if err := a.refreshAndWriteBackUID(ctx, gid, &acc, forceFull); err != nil {
 			a.logger.Warn("RefreshGacha credential fetch failed", "gid", gameID, "code", core.ErrorCode(err))
 			// Token hygiene (spec §10): *url.Error from transport failures embeds the
 			// record URL carrying the live u8_token — never let it reach the frontend.
-			// Sentinel errors (Required/Expired/NoGameRole) are token-free and drive the link UX.
+			// Sentinel errors (Required/Expired/NoGameRole) are token-free and drive the
+			// link UX. Note: efPostJSON's HTTP-401 wrap now carries its rawURL through
+			// this path — safe today (grant/u8 endpoints put tokens in the BODY, not
+			// the URL), but any future token-in-URL efPostJSON caller must not rely
+			// on this passthrough.
 			if errors.Is(err, core.ErrGachaCredentialRequired) || errors.Is(err, core.ErrGachaCredentialExpired) || errors.Is(err, core.ErrGachaNoGameRole) {
 				return core.GachaSummary{}, err
 			}

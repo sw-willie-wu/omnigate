@@ -6,6 +6,7 @@ import { useAccountStore } from '../stores/account';
 import { useGachaAccountStore } from '../stores/gachaAccount';
 import { useGamesStore } from '../stores/games';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { ImportGachaRecords } from '../../wailsjs/go/app/App';
 import { splitByType, distinctRanks, shouldShowPity, isEquip, buildPoolSections, computeCardMetrics, compactNum, buildBannerPanels, baseKey } from '../utils/gachaHighlights';
 import type { BannerPity } from '../stores/gacha';
 
@@ -56,6 +57,27 @@ const errDetail = computed(() => {
     default: return t('gacha.error_other');
   }
 });
+
+// wuwatracker JSON import — WuWa only; other games keep the disabled UIGF placeholder.
+const canImport = computed(() => props.gid === 'kurogames/wutheringwaves');
+const importing = ref(false);
+const importMsg = ref('');
+const importErr = ref(false);
+async function doImport() {
+  if (importing.value) return;
+  importing.value = true; importMsg.value = ''; importErr.value = false;
+  try {
+    const r = await ImportGachaRecords(props.gid);
+    if (!r?.uid) return; // file picker cancelled
+    importMsg.value = t('gacha.import_done', { added: r.added, total: r.total, uid: r.uid });
+    await gacha.reload(props.gid, accountID.value);
+  } catch {
+    importErr.value = true;
+    importMsg.value = t('gacha.import_fail');
+  } finally {
+    importing.value = false;
+  }
+}
 
 function localize(m: Record<string, string> | undefined): string {
   if (!m) return '';
@@ -273,6 +295,14 @@ watch(() => st.value.loaded, (loaded) => {
       </p>
       <p v-else>{{ t('gacha.empty') }}</p>
       <button class="gacha-refresh" @click="gacha.refresh(props.gid, accountID)">{{ t('gacha.refresh') }}</button>
+      <!-- import works before any live fetch too (fresh install / other PC) -->
+      <button v-if="canImport" class="gacha-import gacha-import-on gacha-btn-icon" :disabled="importing" :title="t('gacha.import_hint')" @click="doImport">
+        <span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('gacha.import') }}
+      </button>
+      <!-- offset inference needs existing pulls; importing first on a non-UTC+8
+           server would bake in wrong local times (dup rows on the next refresh) -->
+      <p v-if="canImport" class="gacha-import-tzhint">{{ t('gacha.import_tz_hint') }}</p>
+      <p v-if="importMsg" :class="importErr ? 'gacha-inline-err' : 'gacha-inline-err gacha-import-ok'">{{ importMsg }}</p>
     </div>
 
     <div v-else-if="isErrorOther" class="gacha-error">
@@ -285,11 +315,15 @@ watch(() => st.value.loaded, (loaded) => {
         <button class="gacha-refresh gacha-btn-icon" @click="gacha.refresh(props.gid, accountID)">
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>{{ t('gacha.refresh') }}
         </button>
-        <button class="gacha-import gacha-btn-icon" disabled :title="t('gacha.import_soon')">
+        <!-- hidden (not disabled) for games without an import source -->
+        <button v-if="canImport" class="gacha-import gacha-import-on gacha-btn-icon" :disabled="importing" :title="t('gacha.import_hint')" @click="doImport">
           <span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('gacha.import') }}
         </button>
         <span v-if="refreshError" class="gacha-inline-err" :title="errDetail">
           <span class="material-symbols-outlined" aria-hidden="true">error</span>{{ t('gacha.refresh_failed') }}
+        </span>
+        <span v-else-if="importMsg" class="gacha-inline-err" :class="{ 'gacha-import-ok': !importErr }">
+          <span class="material-symbols-outlined" aria-hidden="true">{{ importErr ? 'error' : 'check_circle' }}</span>{{ importMsg }}
         </span>
       </div>
 
@@ -461,18 +495,29 @@ watch(() => st.value.loaded, (loaded) => {
 /* actions */
 .gacha-actions { display: flex; justify-content: flex-start; align-items: center; gap: 10px; }
 .gacha-refresh {
-  background: var(--gold-soft); color: var(--gold-hi); border: 1px solid rgba(230,197,115,.4);
+  background: rgba(255,255,255,.14); color: rgba(255,255,255,.95); border: 1px solid rgba(255,255,255,.3);
   border-radius: 8px; padding: 6px 14px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0,0,0,.65); /* readable over light backgrounds */
 }
-.gacha-refresh:hover { background: rgba(230,197,115,.2); }
+.gacha-refresh:hover { background: rgba(255,255,255,.22); }
 .gacha-btn-icon { display: inline-flex; align-items: center; gap: 6px; line-height: 1; }
-.gacha-btn-icon .material-symbols-outlined { font-size: 18px; }
-/* import-records: present but disabled — UIGF import is a planned follow-up */
-.gacha-import {
-  background: rgba(255,255,255,.05); color: rgba(255,255,255,.42);
-  border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 14px;
-  font-family: inherit; font-size: 12px; font-weight: 600; cursor: not-allowed;
+/* frosted backing so both action buttons stay legible over bright backgrounds */
+.gacha-refresh, .gacha-import {
+  backdrop-filter: blur(var(--glass-2-blur)); -webkit-backdrop-filter: blur(var(--glass-2-blur));
 }
+.gacha-btn-icon .material-symbols-outlined { font-size: 18px; }
+/* import-records (WuWa wuwatracker JSON; hidden on games without a source) —
+   identical look to .gacha-refresh: the two actions are peers */
+.gacha-import {
+  background: rgba(255,255,255,.14); color: rgba(255,255,255,.95);
+  border: 1px solid rgba(255,255,255,.3); border-radius: 8px; padding: 6px 14px;
+  font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  text-shadow: 0 1px 2px rgba(0,0,0,.65); /* readable over light backgrounds */
+}
+.gacha-import:hover:not(:disabled) { background: rgba(255,255,255,.22); }
+.gacha-import:disabled { color: rgba(255,255,255,.42); border-color: rgba(255,255,255,.12); cursor: progress; }
+.gacha-import-ok { color: #7fce8a; }
+.gacha-import-tzhint { color: rgba(255,255,255,.45); font-size: 11px; margin-top: 6px; }
 /* non-destructive refresh failure: dashboard stays, error shows inline (pushed right) */
 .gacha-inline-err { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; color: #f0a35e; font-size: 12px; font-weight: 600; }
 .gacha-inline-err .material-symbols-outlined { font-size: 16px; }

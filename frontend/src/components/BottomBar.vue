@@ -99,9 +99,15 @@ async function onRelaunchElevated() {
 
 // Stage label from in_flight.stage + params (M3.B i18n)
 const stageLabel = computed<string>(() => {
-  const stage = inFlight.value?.stage;
+  const ifl = inFlight.value;
+  const stage = ifl?.stage;
   if (!stage) return '';
-  return t(`update.stage.${stage}`, (inFlight.value as any)?.params || {});
+  // update.stage.patching interpolates {x}/{y} (current/total file counts).
+  // InFlightOp has no `.params` field, so the generic fallback below always
+  // rendered blank numbers during the whole patch phase — mirror
+  // SidebarRow.vue's approach and feed the snapshot's current/total in directly.
+  if (stage === 'patching') return t('update.stage.patching', { x: (ifl as any)?.current, y: (ifl as any)?.total });
+  return t(`update.stage.${stage}`, (ifl as any)?.params || {});
 });
 
 // Cancel tooltip when in apply phase — shows ETA if available

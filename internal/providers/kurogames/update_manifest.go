@@ -83,8 +83,29 @@ type indexConfigRaw struct {
 }
 
 // indexFileRaw is the per-version file manifest discovered via indexConfigRaw.IndexFile.
+// DeleteFiles/GroupInfos/ApplyTypes are present on krpdiff patch manifests
+// (patchType == "patch"): DeleteFiles lists paths to remove outright,
+// GroupInfos describes multi-file-in/multi-file-out patch groups (one
+// .krpdiff per group, applied against all of GroupInfos[i].SrcFiles to
+// produce all of GroupInfos[i].DstFiles), and ApplyTypes records which
+// patch-application strategies the manifest uses (observed: ["group"]).
 type indexFileRaw struct {
-	Resource []manifestFileRaw `json:"resource"`
+	Resource    []manifestFileRaw `json:"resource"`
+	DeleteFiles []string          `json:"deleteFiles,omitempty"`
+	GroupInfos  []groupInfoRaw    `json:"groupInfos,omitempty"`
+	ApplyTypes  []string          `json:"applyTypes,omitempty"`
+}
+
+// groupInfoRaw is one krpdiff patch group: applying the .krpdiff named by
+// Dest against SrcFiles yields DstFiles. SrcFiles and DstFiles are NOT
+// necessarily the same set or the same length — a group can be
+// non-bijective, with delete-only entries (present in SrcFiles, absent from
+// DstFiles) and add-only entries (present in DstFiles, absent from
+// SrcFiles) alongside same-path pairs whose content changed.
+type groupInfoRaw struct {
+	Dest     string            `json:"dest"`
+	SrcFiles []manifestFileRaw `json:"srcFiles"`
+	DstFiles []manifestFileRaw `json:"dstFiles"`
 }
 
 // manifestFileRaw is one file entry. URL = <cdn>/<baseUrl OR fromFolder><dest>.
@@ -280,13 +301,99 @@ func newFileTask(cdn, parentBaseURL string, f manifestFileRaw) *core.FileTask {
 // ~600 MiB/s so going wider than ~8 doesn't help on commodity NVMe.
 const verifyWorkers = 4
 
+// localFileMD5s stats+hashes installDir-relative paths in parallel
+// (verifyWorkers pool). Result[i] = lowercase-hex md5, or "" when the file is
+// missing/a dir/unreadable. sizes[i] >= 0 enables the cheap pre-check: local
+// size != sizes[i] → skip hashing, result[i] = "" (caller treats as mismatch);
+// pass -1 to always hash. onProgress(done, total) fires once per path, where
+// total = progressTotal (caller merges multi-batch progress; spec §2 合併 total).
+// progressBase offsets `done` for multi-batch callers.
+//
+// Output order is preserved by indexing the input array. onProgress may be
+// nil; callbacks should be cheap and non-blocking. ctx is checked at the top
+// of each worker iteration so cancel takes effect at the next file boundary
+// (worst case ~30s for the largest .pak) — results computed so far for
+// not-yet-started paths stay "".
+func localFileMD5s(ctx context.Context, installDir string, rels []string, sizes []int64, progressBase, progressTotal int, onProgress func(done, total int)) []string {
+	n := len(rels)
+	if n == 0 {
+		return nil
+	}
+
+	results := make([]string, n)
+
+	// Job dispatch
+	jobs := make(chan int, n)
+	for i := range rels {
+		jobs <- i
+	}
+	close(jobs)
+
+	// Progress is reported under a mutex so done counter stays monotonic
+	// even as workers complete out of order.
+	var (
+		progressMu sync.Mutex
+		done       = progressBase
+	)
+	// onProgress fires INSIDE the lock (fix round 1 finding I5): calling it
+	// after Unlock left a window where two workers could interleave their
+	// increment vs their callback, delivering onProgress(5,...) before
+	// onProgress(4,...) even though `done` itself was monotonic — reproduced
+	// via -count=500 on TestBuildPlan_MergedProgressMonotonic. Keeping the
+	// whole increment+callback atomic guarantees callback delivery order
+	// matches increment order. Callbacks are documented cheap/non-blocking,
+	// so serializing them here is the same cost as before, just ordered.
+	emit := func() {
+		progressMu.Lock()
+		done++
+		d := done
+		if onProgress != nil {
+			onProgress(d, progressTotal)
+		}
+		progressMu.Unlock()
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(verifyWorkers)
+	for w := 0; w < verifyWorkers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				full := filepath.Join(installDir, rels[i])
+				fi, err := os.Stat(full)
+				if err != nil || fi.IsDir() {
+					emit()
+					continue
+				}
+				if sizes[i] >= 0 && fi.Size() != sizes[i] {
+					emit()
+					continue
+				}
+				h, err := md5File(full)
+				if err != nil {
+					emit()
+					continue
+				}
+				results[i] = h
+				emit()
+			}
+		}()
+	}
+	wg.Wait()
+
+	return results
+}
+
 // filterChangedFiles drops manifest entries whose MD5 matches the
 // already-installed file. URL for each surviving entry is constructed
 // via fileURL(cdn, parentBaseURL, entry).
 //
-// MD5 hashing runs in a worker pool (size verifyWorkers) so 195 GB-class
-// .pak files don't take 5+ minutes single-threaded. Output order is
-// preserved by indexing the input array.
+// MD5 hashing runs in a worker pool (size verifyWorkers, via localFileMD5s)
+// so 195 GB-class .pak files don't take 5+ minutes single-threaded. Output
+// order is preserved by indexing the input array.
 //
 // onProgress is called after each file finishes hashing with (done, total).
 // May be nil. Callbacks should be cheap and non-blocking; the App layer's
@@ -301,76 +408,24 @@ func filterChangedFiles(ctx context.Context, installDir, cdn, parentBaseURL stri
 		return nil
 	}
 
-	// results[i] is non-nil iff files[i] needs to be downloaded.
-	results := make([]*core.FileTask, total)
-
-	// Job dispatch
-	jobs := make(chan int, total)
-	for i := range files {
-		jobs <- i
-	}
-	close(jobs)
-
-	// Progress is reported under a mutex so done counter stays monotonic
-	// even as workers complete out of order.
-	var (
-		progressMu sync.Mutex
-		done       int
-	)
-	emit := func() {
-		progressMu.Lock()
-		done++
-		d := done
-		progressMu.Unlock()
-		if onProgress != nil {
-			onProgress(d, total)
-		}
+	rels := make([]string, total)
+	sizes := make([]int64, total)
+	for i, f := range files {
+		rels[i] = f.Dest
+		sizes[i] = f.Size
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(verifyWorkers)
-	for w := 0; w < verifyWorkers; w++ {
-		go func() {
-			defer wg.Done()
-			for i := range jobs {
-				if ctx.Err() != nil {
-					return
-				}
-				f := files[i]
-				full := filepath.Join(installDir, f.Dest)
-				fi, err := os.Stat(full)
-				if err != nil || fi.IsDir() {
-					results[i] = newFileTask(cdn, parentBaseURL, f)
-					emit()
-					continue
-				}
-				if fi.Size() != f.Size {
-					results[i] = newFileTask(cdn, parentBaseURL, f)
-					emit()
-					continue
-				}
-				h, err := md5File(full)
-				if err != nil {
-					if logger != nil {
-						logger.Debug("md5 check failed; will re-download", "path", f.Dest, "err", err)
-					}
-					results[i] = newFileTask(cdn, parentBaseURL, f)
-					emit()
-					continue
-				}
-				if h != f.MD5 {
-					results[i] = newFileTask(cdn, parentBaseURL, f)
-				}
-				emit()
-			}
-		}()
-	}
-	wg.Wait()
+	// A file whose md5 computation errors (unreadable) maps to "" here,
+	// same as missing/dir/size-mismatch — all land on ""≠f.MD5 below, so
+	// the outcome (re-download) matches the pre-refactor per-branch logic.
+	// Debug logging for the unreadable-but-present case is lost in the
+	// extraction (localFileMD5s has no logger); acceptable per brief.
+	md5s := localFileMD5s(ctx, installDir, rels, sizes, 0, total, onProgress)
 
 	out := make([]core.FileTask, 0, total)
-	for _, r := range results {
-		if r != nil {
-			out = append(out, *r)
+	for i, f := range files {
+		if md5s[i] != f.MD5 {
+			out = append(out, *newFileTask(cdn, parentBaseURL, f))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })

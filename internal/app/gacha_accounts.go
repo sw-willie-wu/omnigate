@@ -26,6 +26,12 @@ func newAccountID() string {
 	return "ga_" + hex.EncodeToString(b)
 }
 
+// repairKey names the one-shot full-refetch flag seeded by schema v7 for an
+// Endfield account whose weapon records were dropped by the old pulls PK.
+func repairKey(gid core.GameID, uid string) string {
+	return "v7_refetch_pending:" + string(gid) + ":" + uid
+}
+
 // GameAccountKind reports how the frontend should source account UI for a game:
 //   - "switcher"   — provider implements AccountSwitcher (WuWa)
 //   - "credential" — provider implements GachaLoginProvider (Endfield)
@@ -147,15 +153,17 @@ func (a *App) upsertDedupedCredentialAccount(gameID, hgID, email, label, token s
 
 // refreshAndWriteBackUID calls FetchGachaWithCredential with the account's token,
 // persists the returned pulls, and writes the resulting roleId (res.UID) back
-// onto the account row. ctx is caller-supplied so both AddGachaAccountByLogin
-// (plain timeout ctx) and future RefreshGacha integration (progress-wired ctx)
-// can share this path.
-func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *store.GachaAccount) error {
+// onto the account row. ctx is caller-supplied so the caller can size the
+// timeout (RefreshGacha widens it to 300s when forceFull is set).
+// forceFull discards the incremental known set for one full refetch — the
+// schema-v7 repair path; on success the account's v7 repair key(s) are retired.
+func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *store.GachaAccount, forceFull bool) error {
 	p, _ := a.provider(gid)
 	cp, ok := p.(core.GachaCredentialProvider)
 	if !ok {
 		return core.ErrGachaCredentialRequired
 	}
+	seedUID := acc.UID // the uid the repair key was seeded under (pre-write-back)
 
 	a.settingsMu.RLock()
 	uiLang := a.settings.App.Language
@@ -182,7 +190,10 @@ func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *
 		}
 		needsBackfill := false
 		for _, pull := range existing {
-			known[pull.ID] = true
+			// Composite key: Endfield char and weapon use independent seqId
+			// counters, so a bare id is ambiguous across banners (schema-v7
+			// root cause). Must match what efFetchPools consumes.
+			known[pull.BannerKey+"|"+pull.ID] = true
 			if perPool[pull.BannerKey] && pull.PoolID == "" {
 				needsBackfill = true
 			}
@@ -190,6 +201,9 @@ func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *
 		if needsBackfill {
 			known = nil // force full re-fetch to backfill poolId on PerPool pulls
 		}
+	}
+	if forceFull {
+		known = nil // one-shot v7 repair: re-fetch everything the server still has
 	}
 
 	res, err := cp.FetchGachaWithCredential(ctx, gid, acc.Token, mapEndfieldLang(uiLang), known)
@@ -200,7 +214,24 @@ func (a *App) refreshAndWriteBackUID(ctx context.Context, gid core.GameID, acc *
 		return err
 	}
 	acc.UID = res.UID
-	return a.gachaStore.UpsertGachaAccount(*acc) // write back roleId uid
+	if err := a.gachaStore.UpsertGachaAccount(*acc); err != nil { // write back roleId uid
+		return err
+	}
+	if forceFull && a.store != nil {
+		// Both UpsertPulls and the uid write-back succeeded — retire the
+		// flag(s). The key was seeded under seedUID; if the roleId changed,
+		// clear the new uid's key too (deleting an absent key is a no-op) so
+		// a stale key can never wedge us into permanent 300s full refetches.
+		for _, u := range []string{seedUID, acc.UID} {
+			if u == "" {
+				continue
+			}
+			if err := a.store.DeleteMeta(repairKey(gid, u)); err != nil {
+				a.logger.Warn("v7 repair key delete failed", "gid", gid, "err", err)
+			}
+		}
+	}
+	return nil
 }
 
 // resolveGachaAccount picks the account for a credential game: the named one, else

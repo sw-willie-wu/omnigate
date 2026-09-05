@@ -15,6 +15,30 @@ func openTmp(t *testing.T) *SQLiteStore {
 	return s
 }
 
+func TestDeleteMeta(t *testing.T) {
+	s := openTmp(t)
+	if err := s.SetMeta("k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta("keep", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteMeta("k"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.GetMeta("k"); err != nil || ok {
+		t.Fatalf("GetMeta after delete: ok=%v err=%v", ok, err)
+	}
+	// deletion is scoped to its key — sibling meta rows survive
+	if _, ok, _ := s.GetMeta("keep"); !ok {
+		t.Fatal("unrelated meta key deleted")
+	}
+	// deleting an absent key is a no-op, not an error
+	if err := s.DeleteMeta("absent"); err != nil {
+		t.Fatalf("DeleteMeta(absent) = %v", err)
+	}
+}
+
 func TestMetaConfigRoundTrip(t *testing.T) {
 	s := openTmp(t)
 	if _, ok, _ := s.GetMeta("legacy_settings_migrated"); ok {

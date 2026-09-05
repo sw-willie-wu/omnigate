@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 type SQLiteStore struct {
 	db   *sql.DB
@@ -44,9 +44,9 @@ func (s *SQLiteStore) migrate() error {
 		`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`,
 		`CREATE TABLE IF NOT EXISTS pulls (
   game TEXT NOT NULL, uid TEXT NOT NULL, id TEXT NOT NULL,
-  banner_key TEXT, item_type TEXT, rank INTEGER, name TEXT, time TEXT, is_free INTEGER,
+  banner_key TEXT NOT NULL DEFAULT '', item_type TEXT, rank INTEGER, name TEXT, time TEXT, is_free INTEGER,
   pool_id TEXT, pool_name TEXT,
-  PRIMARY KEY (game, uid, id)
+  PRIMARY KEY (game, uid, banner_key, id)
 )`,
 		`CREATE INDEX IF NOT EXISTS idx_pulls_game_uid ON pulls(game, uid)`,
 		`CREATE TABLE IF NOT EXISTS url_cache (
@@ -123,6 +123,14 @@ func (s *SQLiteStore) migrate() error {
 			return err
 		}
 		if _, err := s.db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','6')`); err != nil {
+			return err
+		}
+	}
+	// MUST stay after the ver<6 block: that block's version write would
+	// otherwise overwrite '7' with '6' and re-run this migration (and re-seed
+	// the refetch keys) on every open. migrateV7 writes '7' inside its own txn.
+	if ver < 7 {
+		if err := s.migrateV7PullsPKBanner(); err != nil {
 			return err
 		}
 	}
@@ -308,6 +316,72 @@ func (s *SQLiteStore) migrateV6CustomLabelColumn() error {
 	return nil
 }
 
+// migrateV7PullsPKBanner rebuilds pulls with banner_key in the PRIMARY KEY.
+// Root cause: Endfield char and weapon use two independent per-account seqId
+// counters whose ranges overlap, so the old (game,uid,id) PK made
+// INSERT OR IGNORE silently drop colliding weapon records. Seeds a one-shot
+// full-refetch meta key per affected Endfield uid so the dropped records are
+// re-fetched (the server still has them). Backs up the DB first.
+func (s *SQLiteStore) migrateV7PullsPKBanner() error {
+	// Backup outside the txn (VACUUM INTO cannot run inside one); never clobber.
+	if s.path != "" && s.path != ":memory:" {
+		bak := s.path + ".bak-v7"
+		if _, err := os.Stat(bak); os.IsNotExist(err) {
+			if _, err := s.db.Exec(`VACUUM INTO ?`, bak); err != nil {
+				return fmt.Errorf("gacha v7 backup: %w", err)
+			}
+		}
+	}
+	// Crash residue from a previous interrupted run.
+	if _, err := s.db.Exec(`DROP TABLE IF EXISTS pulls_new`); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`CREATE TABLE pulls_new (
+  game TEXT NOT NULL, uid TEXT NOT NULL, id TEXT NOT NULL,
+  banner_key TEXT NOT NULL DEFAULT '', item_type TEXT, rank INTEGER, name TEXT, time TEXT, is_free INTEGER,
+  pool_id TEXT, pool_name TEXT,
+  PRIMARY KEY (game, uid, banner_key, id)
+)`); err != nil {
+		return err
+	}
+	// Explicit column lists on BOTH sides (a positional insert would misalign
+	// id/banner_key). The old PK (game,uid,id) was stricter, so no conflicts.
+	if _, err := tx.Exec(`INSERT INTO pulls_new
+  (game,uid,id,banner_key,item_type,rank,name,time,is_free,pool_id,pool_name)
+  SELECT game,uid,id,COALESCE(banner_key,''),item_type,rank,name,time,is_free,pool_id,pool_name
+  FROM pulls`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE pulls`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE pulls_new RENAME TO pulls`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_pulls_game_uid ON pulls(game, uid)`); err != nil {
+		return err
+	}
+	// One-shot repair keys, one per affected Endfield uid. Single statement —
+	// no Rows may stay open inside the txn under MaxOpenConns(1).
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta(key,value)
+  SELECT 'v7_refetch_pending:hypergryph/endfield:'||uid, '1'
+  FROM (SELECT DISTINCT uid FROM pulls
+        WHERE game='hypergryph/endfield' AND uid<>'')`); err != nil {
+		return err
+	}
+	// Version write lives INSIDE this txn (atomic with the repair keys); the
+	// ver<7 gate in migrate() deliberately does not write it again.
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version','7')`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int, error) {
@@ -326,7 +400,7 @@ func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int
 	// updStmt backfills pool columns on rows that pre-date v5 (where the INSERT
 	// OR IGNORE above is a no-op and their pool columns remain NULL/'').
 	updStmt, err := tx.Prepare(`UPDATE pulls SET pool_id=?, pool_name=?
-		WHERE game=? AND uid=? AND id=? AND (pool_id IS NULL OR pool_id='')`)
+		WHERE game=? AND uid=? AND id=? AND banner_key=? AND (pool_id IS NULL OR pool_id='')`)
 	if err != nil {
 		return 0, err
 	}
@@ -342,7 +416,7 @@ func (s *SQLiteStore) UpsertPulls(game, uid string, pulls []core.GachaPull) (int
 		}
 		// Backfill pool_id/pool_name onto rows inserted before v5 (INSERT OR IGNORE
 		// above is a no-op for an existing row, so its pool columns would stay empty).
-		if _, err := updStmt.Exec(p.PoolID, p.PoolName, game, uid, p.ID); err != nil {
+		if _, err := updStmt.Exec(p.PoolID, p.PoolName, game, uid, p.ID, p.BannerKey); err != nil {
 			return 0, err
 		}
 	}

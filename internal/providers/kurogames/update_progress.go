@@ -80,14 +80,19 @@ func (p *progressStore) removeStaleParts() {
 // Holds p.mu so concurrent download workers serialize their load-modify-write
 // of progress.json (without the lock, last writer wins and earlier entries
 // are silently dropped — verified bug found in Task 8 code review).
-func (p *progressStore) MarkComplete(relPath string, mtime time.Time, size int64) error {
+//
+// hash is the manifest-provided (already-verified) per-file hash — download
+// verification proved the file matches it, so callers must pass that value
+// rather than re-hashing here (spec §2.5). It lets ConsumePredlStaged later
+// validate individual staged files without re-checking the whole ETag.
+func (p *progressStore) MarkComplete(relPath string, mtime time.Time, size int64, hash string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	pf, err := core.LoadProgressFromPath(filepath.Join(p.dir(), "progress.json"))
 	if err != nil {
 		return err
 	}
-	pf.Entries[relPath] = core.ProgressEntry{Size: size, MTime: mtime.Truncate(time.Millisecond)}
+	pf.Entries[relPath] = core.ProgressEntry{Size: size, MTime: mtime.Truncate(time.Millisecond), Hash: hash}
 	return p.writeAtomic("progress.json", pf)
 }
 
@@ -97,6 +102,63 @@ func (p *progressStore) RenameToPredlReady() error {
 	src := filepath.Join(p.dir(), "progress.json")
 	dst := filepath.Join(p.dir(), "predl_ready.json")
 	return os.Rename(src, dst)
+}
+
+// ConsumePredlStaged detects a staged predl_ready.json for p.version, restores
+// it as progress.json stamped with newETag (correctness moves from ETag to
+// per-file Hash — spec §2.5), and deletes predl_ready.json. Entries whose Hash
+// mismatches wantHash[rel] (or, for legacy hash-less entries, whose on-disk
+// re-hash mismatches) are dropped → re-downloaded. Returns (adopted, staged
+// Ephemeral bytes on disk, error). (false, 0, nil) when nothing staged or
+// version mismatch (predl for another version stays untouched).
+func (p *progressStore) ConsumePredlStaged(newETag string, wantHash map[string]string, ephemeral map[string]bool) (bool, int64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	predlPath := filepath.Join(p.dir(), "predl_ready.json")
+	pf, err := core.LoadProgressFromPath(predlPath)
+	if err != nil || pf == nil {
+		return false, 0, nil //nolint:nilerr — no staged predl is not an error
+	}
+	if pf.Version != p.version {
+		return false, 0, nil // predl for another version — leave untouched
+	}
+
+	var stagedEphemeralBytes int64
+	for rel, e := range pf.Entries {
+		want, ok := wantHash[rel]
+		if !ok {
+			// New manifest no longer needs this file.
+			delete(pf.Entries, rel)
+			continue
+		}
+
+		matched := false
+		if e.Hash != "" {
+			matched = e.Hash == want
+		} else {
+			// Legacy hash-less entry (staged before Task 7): re-hash from disk.
+			onDisk, hashErr := md5File(filepath.Join(p.dir(), rel))
+			matched = hashErr == nil && onDisk == want
+		}
+
+		if !matched {
+			delete(pf.Entries, rel)
+			_ = os.Remove(filepath.Join(p.dir(), rel))
+			continue
+		}
+
+		if ephemeral[rel] {
+			stagedEphemeralBytes += e.Size
+		}
+	}
+
+	pf.ETag = newETag
+	if err := p.writeAtomic("progress.json", pf); err != nil {
+		return false, 0, err
+	}
+	_ = os.Remove(predlPath)
+	return true, stagedEphemeralBytes, nil
 }
 
 func (p *progressStore) writeAtomic(name string, v any) error {

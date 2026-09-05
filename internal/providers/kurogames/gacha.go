@@ -147,6 +147,9 @@ var wuwaStandardPool = map[string]bool{
 	"Verina": true, "維里奈": true, "维里奈": true,
 }
 
+// ⚠️ banner_key is part of the pulls PRIMARY KEY (schema v7): the mapping from
+// a server record to its bannerKey must stay stable forever — changing an
+// existing mapping re-inserts the same records as duplicates.
 func poolBanner(t int) string {
 	if b, ok := wuwaPoolBanner[t]; ok {
 		return b

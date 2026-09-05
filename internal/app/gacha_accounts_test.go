@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"omnigate/internal/core"
 	"omnigate/internal/store"
@@ -17,8 +18,8 @@ import (
 // the known-map capture, not the computed summary statistics.
 type testPity struct{}
 
-func (testPity) HardPity() int { return 80 }
-func (testPity) Has5050() bool { return false }
+func (testPity) HardPity() int                                        { return 80 }
+func (testPity) Has5050() bool                                        { return false }
 func (testPity) Walk(_ []core.GachaPull, _ int) ([]core.PityHit, int) { return nil, 0 }
 
 // fakeLoginCredProvider satisfies core.Provider (via embedded fakeProvider),
@@ -27,13 +28,14 @@ func (testPity) Walk(_ []core.GachaPull, _ int) ([]core.PityHit, int) { return n
 // Endfield per-account gacha flow.
 type fakeLoginCredProvider struct {
 	fakeProvider
-	loginRes    core.GachaLoginResult
-	loginErr    error
-	fetchRes    core.GachaFetchResult
-	fetchErr    error
-	lastKnown   map[string]bool // captures the `known` arg of the most recent FetchGachaWithCredential call
-	userInfo    core.GachaUserInfo
-	userInfoErr error
+	loginRes     core.GachaLoginResult
+	loginErr     error
+	fetchRes     core.GachaFetchResult
+	fetchErr     error
+	lastKnown    map[string]bool // captures the `known` arg of the most recent FetchGachaWithCredential call
+	lastDeadline time.Time       // captures ctx deadline (observes the 120s vs 300s repair window)
+	userInfo     core.GachaUserInfo
+	userInfoErr  error
 }
 
 func (f *fakeLoginCredProvider) LoginByEmailPassword(_ context.Context, _, _ string) (core.GachaLoginResult, error) {
@@ -44,8 +46,11 @@ func (f *fakeLoginCredProvider) FetchUserInfo(_ context.Context, _ string) (core
 	return f.userInfo, f.userInfoErr
 }
 
-func (f *fakeLoginCredProvider) FetchGachaWithCredential(_ context.Context, _ core.GameID, _, _ string, known map[string]bool) (core.GachaFetchResult, error) {
+func (f *fakeLoginCredProvider) FetchGachaWithCredential(ctx context.Context, _ core.GameID, _, _ string, known map[string]bool) (core.GachaFetchResult, error) {
 	f.lastKnown = known
+	if d, ok := ctx.Deadline(); ok {
+		f.lastDeadline = d
+	}
 	return f.fetchRes, f.fetchErr
 }
 
@@ -105,6 +110,7 @@ func newTestAppWithEndfield(t *testing.T) *App {
 	}
 	t.Cleanup(func() { st.Close() })
 	a.gachaStore = st
+	a.store = st // StateStore view of the same DB (v7 repair-key path)
 	a.providers = []core.Provider{prov}
 	return a
 }
@@ -379,5 +385,101 @@ func TestCustomLabelPreservedAcrossReLogin(t *testing.T) {
 	}
 	if got.Label != "新暱" {
 		t.Errorf("Label=%q want 新暱 (refreshed)", got.Label)
+	}
+}
+
+// A v7 repair key forces one full refetch (known=nil, 300s window); success
+// clears the key and the next refresh is incremental again.
+func TestRepairKey_ForcesFullRefetchThenClears(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.fetchRes.UID = "U1" // keep the seeded uid so key bookkeeping is 1:1
+	seedAccount(t, a, "ga_x", "U1", 1)
+	if err := a.store.SetMeta("v7_refetch_pending:hypergryph/endfield:U1", "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.RefreshGacha("hypergryph/endfield", ""); err != nil {
+		t.Fatal(err)
+	}
+	if prov.lastKnown != nil {
+		t.Errorf("repair refresh: known = %v, want nil (full refetch)", prov.lastKnown)
+	}
+	if until := time.Until(prov.lastDeadline); until < 200*time.Second {
+		t.Errorf("repair window deadline %v away, want ~300s", until.Round(time.Second))
+	}
+	if _, ok, _ := a.store.GetMeta("v7_refetch_pending:hypergryph/endfield:U1"); ok {
+		t.Error("repair key not cleared after success")
+	}
+
+	// second refresh: incremental again, normal 120s window
+	if _, err := a.RefreshGacha("hypergryph/endfield", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(prov.lastKnown) == 0 {
+		t.Error("second refresh should be incremental (non-empty known)")
+	}
+	if until := time.Until(prov.lastDeadline); until > 150*time.Second {
+		t.Errorf("normal window deadline %v away, want ~120s", until.Round(time.Second))
+	}
+}
+
+// When the write-back changes the uid (roleId re-bind), BOTH the seed uid's
+// key and the new uid's key must be retired — a stale key under either uid
+// would wedge every later refresh into a permanent 300s full refetch.
+func TestRepairKey_ClearedUnderBothUIDsOnRoleChange(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	// fake default fetchRes.UID is "ROLE42" — deliberately different from the
+	// seeded uid U1 to exercise the seedUID vs res.UID split.
+	seedAccount(t, a, "ga_x", "U1", 1)
+	for _, uid := range []string{"U1", "ROLE42"} {
+		if err := a.store.SetMeta("v7_refetch_pending:hypergryph/endfield:"+uid, "1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := a.RefreshGacha("hypergryph/endfield", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, uid := range []string{"U1", "ROLE42"} {
+		if _, ok, _ := a.store.GetMeta("v7_refetch_pending:hypergryph/endfield:" + uid); ok {
+			t.Errorf("repair key for %s not cleared after role-change write-back", uid)
+		}
+	}
+}
+
+// A failed fetch keeps the repair key so the next refresh retries the repair.
+func TestRepairKey_KeptOnFailure(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.fetchErr = errors.New("boom")
+	seedAccount(t, a, "ga_x", "U1", 1)
+	if err := a.store.SetMeta("v7_refetch_pending:hypergryph/endfield:U1", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.RefreshGacha("hypergryph/endfield", ""); err == nil {
+		t.Fatal("want error from failing fetch")
+	}
+	if _, ok, _ := a.store.GetMeta("v7_refetch_pending:hypergryph/endfield:U1"); !ok {
+		t.Error("repair key must survive a failed refresh")
+	}
+}
+
+// The known set handed to the provider must use "<bannerKey>|<id>" composites,
+// matching what efFetchPools consumes (bare ids are ambiguous across the
+// independent char/weapon seqId counters).
+func TestKnownKeysAreBannerScoped(t *testing.T) {
+	a := newTestAppWithEndfield(t)
+	prov := a.providers[0].(*fakeLoginCredProvider)
+	prov.fetchRes.UID = "U1"
+	seedAccount(t, a, "ga_x", "U1", 1) // seeds pull ID "seed-ga_x-0" under banner "standard"
+
+	if _, err := a.RefreshGacha("hypergryph/endfield", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !prov.lastKnown["standard|seed-ga_x-0"] {
+		t.Errorf("known missing composite key; got %v", prov.lastKnown)
+	}
+	if prov.lastKnown["seed-ga_x-0"] {
+		t.Error("known must not contain bare ids")
 	}
 }

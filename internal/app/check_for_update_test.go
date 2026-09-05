@@ -234,6 +234,125 @@ func TestCheckForUpdate_SwallowsCheckVersionError(t *testing.T) {
 	}
 }
 
+// versionNewer must compare dot-separated numeric segments, not string
+// (in)equality — the HSR 2026-09-05 incident: local 4.5.0 (predownload applied
+// by the official launcher) vs API main still 4.4.0 flashed an "update" to the
+// OLDER version.
+func TestVersionNewer(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"4.5.0", "4.4.0", true},
+		{"4.4.0", "4.5.0", false}, // local ahead — NOT an update
+		{"3.3.0", "3.3.0", false},
+		{"2.100.0", "2.99.0", true}, // numeric, not lexical
+		{"1.10", "1.9", true},
+		{"1.2", "1.2.0", false}, // missing segment == 0
+		{"1.2.0", "1.2", false},
+		{"1.2.1", "1.2", true},
+		// fallback: unparseable → old != semantics
+		{"abc", "abd", true},
+		{"3.3.0", "", true},
+		{"", "3.3.0", true},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		if got := versionNewer(c.a, c.b); got != c.want {
+			t.Errorf("versionNewer(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// Local ahead of the API (version-rollover lag window, or a predownload applied
+// by the official launcher) must NOT flag an update — and must clear a stale one.
+func TestCheckForUpdate_LocalAheadOfAPI_NoUpdate(t *testing.T) {
+	gid := core.GameID("kurogames/wuwa") // fake's backend is kurogames; the comparator is game-agnostic
+	fake := &checkUpdaterFake{
+		gid:                gid,
+		checkVersionResult: core.VersionInfo{Current: "4.5.0", Latest: "4.4.0"},
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+
+	state := a.updateRegistry.Get(gid)
+	state.AvailableUpdate = &core.UpdatePlan{Version: "stale"}
+
+	if err := a.CheckForUpdate(string(gid)); err != nil {
+		t.Fatalf("CheckForUpdate: %v", err)
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.AvailableUpdate != nil {
+		t.Fatalf("AvailableUpdate = %+v, want nil when local is ahead of the API", state.AvailableUpdate)
+	}
+}
+
+// A predl whose target is not newer than the local version must not surface
+// (e.g. local already rolled to the predl target via the official launcher).
+func TestCheckForUpdate_PredlTargetNotNewerSuppressed(t *testing.T) {
+	gid := core.GameID("kurogames/wutheringwaves")
+	fake := &checkUpdaterFake{
+		gid:           gid,
+		supportsPredl: true,
+		checkVersionResult: core.VersionInfo{
+			Current: "4.5.0", Latest: "4.4.0", // rollover lag window
+			Predownload: &core.PredownloadInfo{TargetVersion: "4.5.0"},
+		},
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+	_ = a.CheckForUpdate(string(gid))
+	st := a.updateRegistry.Get(gid)
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if st.AvailablePredl != nil {
+		t.Fatalf("AvailablePredl = %+v, want nil when target <= local", st.AvailablePredl)
+	}
+	if st.AvailableUpdate != nil {
+		t.Fatalf("AvailableUpdate = %+v, want nil (local ahead)", st.AvailableUpdate)
+	}
+}
+
+// When the API's main version is unavailable (Latest==""), no update is
+// flagged, but an advertised predl with a genuinely newer target still
+// surfaces — predl is an opt-in download, so a missing main version must not
+// hide it. (Behavior pinned during the versionNewer fix: the old
+// `Latest == Current` gate hid predl here as a side effect.)
+func TestCheckForUpdate_PredlSurfacesWithoutLatest(t *testing.T) {
+	gid := core.GameID("kurogames/wuwa")
+	fake := &checkUpdaterFake{
+		gid:           gid,
+		supportsPredl: true,
+		checkVersionResult: core.VersionInfo{
+			Current: "3.3.0", Latest: "",
+			Predownload: &core.PredownloadInfo{TargetVersion: "3.4.0"},
+		},
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+	_ = a.CheckForUpdate(string(gid))
+	st := a.updateRegistry.Get(gid)
+	st.mu.RLock()
+	upd, predl := st.AvailableUpdate, st.AvailablePredl
+	st.mu.RUnlock()
+	if upd != nil {
+		t.Fatalf("AvailableUpdate = %+v, want nil when Latest is unknown", upd)
+	}
+	if predl == nil || predl.Version != "3.4.0" {
+		t.Fatalf("AvailablePredl = %+v, want 3.4.0 (missing Latest must not hide predl)", predl)
+	}
+	// empty predl target must never surface as a Version:"" plan
+	fake.checkVersionResult.Predownload = &core.PredownloadInfo{TargetVersion: ""}
+	_ = a.CheckForUpdate(string(gid))
+	st.mu.RLock()
+	predl = st.AvailablePredl
+	st.mu.RUnlock()
+	if predl != nil {
+		t.Fatalf("AvailablePredl = %+v, want nil for empty target", predl)
+	}
+}
+
 // --- Predownload wiring (Phase 1) ---
 
 func TestCheckForUpdate_SetsAvailablePredlWhenUpToDateAndSupported(t *testing.T) {
