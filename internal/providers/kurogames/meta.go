@@ -4,7 +4,7 @@ import "omnigate/internal/core"
 
 const (
 	BackendID core.BackendID = "kurogames"
-	UserAgent                = "omnigate/0.5 (+https://github.com/willie/omnigate)"
+	UserAgent                = "omnigate/0.4 (+https://github.com/willie/omnigate)"
 )
 
 // gameMeta holds compile-time per-game constants for kurogames.
