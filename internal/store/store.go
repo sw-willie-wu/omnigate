@@ -58,6 +58,7 @@ type AccountUID struct{ UID, Label string }
 type StateStore interface {
 	GetMeta(key string) (val string, ok bool, err error)
 	SetMeta(key, val string) error
+	DeleteMeta(key string) error
 	GetConfig(key string) (val string, ok bool, err error)
 	SetConfig(key, val string) error
 	AllConfig() (map[string]string, error)

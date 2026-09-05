@@ -177,8 +177,8 @@ func TestMigrate_FreshDB_SchemaVersion3AndTables(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "6" {
-		t.Fatalf("schema_version = %q, want 6", v)
+	if v != "7" {
+		t.Fatalf("schema_version = %q, want 7", v)
 	}
 	for _, tbl := range []string{"config", "game_settings", "playstate", "account_uid"} {
 		var name string
@@ -207,8 +207,8 @@ func TestMigrate_ExistingV2DB_BumpedTo4(t *testing.T) {
 	if err := s2.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "6" {
-		t.Fatalf("schema_version = %q, want 6 after re-open", v)
+	if v != "7" {
+		t.Fatalf("schema_version = %q, want 7 after re-open", v)
 	}
 }
 
@@ -315,8 +315,8 @@ func TestMigrateV5_AddsPoolColumns(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != "6" {
-		t.Fatalf("schema_version=%q want 6 after migration", v)
+	if v != "7" {
+		t.Fatalf("schema_version=%q want 7 after migration", v)
 	}
 	all, err := s.AllPulls("hypergryph/endfield", "u1")
 	if err != nil || len(all) != 1 {
@@ -337,5 +337,238 @@ func TestMigrateV5_AddsPoolColumns(t *testing.T) {
 	all2, err := s2.AllPulls("hypergryph/endfield", "u1")
 	if err != nil || len(all2) != 1 {
 		t.Fatalf("second open AllPulls: %v, len=%d", err, len(all2))
+	}
+}
+
+// buildV6DB hand-crafts a v6-shaped DB (old (game,uid,id) PK, schema_version=6)
+// plus the given extra statements, mirroring the v4 fixture pattern above.
+func buildV6DB(t *testing.T, dbPath string, extra ...string) {
+	t.Helper()
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	stmts := []string{
+		`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`,
+		`CREATE TABLE pulls (
+			game TEXT NOT NULL, uid TEXT NOT NULL, id TEXT NOT NULL,
+			banner_key TEXT, item_type TEXT, rank INTEGER, name TEXT, time TEXT, is_free INTEGER,
+			pool_id TEXT, pool_name TEXT,
+			PRIMARY KEY (game, uid, id)
+		)`,
+		`INSERT INTO meta(key,value) VALUES('schema_version','6')`,
+	}
+	for _, q := range append(stmts, extra...) {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatalf("fixture %q: %v", q, err)
+		}
+	}
+}
+
+// v6→v7: PK gains banner_key, per-uid endfield repair keys are seeded inside
+// the same txn, and a .bak-v7 backup is produced.
+func TestMigrateV7PullsPKBanner(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v6.db")
+	buildV6DB(t, dbPath,
+		// collision scenario: char already owns id=400
+		`INSERT INTO pulls(game,uid,id,banner_key,item_type,rank,name,time,is_free)
+		 VALUES('hypergryph/endfield','U1','400','special','char',5,'卡契爾','2026-04-17 15:13:34',0)`,
+		`INSERT INTO pulls(game,uid,id,banner_key,item_type,rank,name,time,is_free)
+		 VALUES('hypergryph/endfield','U2','10','weapon','weapon',4,'w','2026-01-01 00:00:00',0)`,
+		// empty-uid row: must not seed a "…endfield:" orphan key
+		`INSERT INTO pulls(game,uid,id,banner_key,item_type,rank,name,time,is_free)
+		 VALUES('hypergryph/endfield','','11','weapon','weapon',4,'w2','2026-01-01 00:00:00',0)`,
+		// non-endfield row: must NOT seed a repair key
+		`INSERT INTO pulls(game,uid,id,banner_key,item_type,rank,name,time,is_free)
+		 VALUES('hoyoverse/genshin','G1','1700000000000000001','character','char',5,'x','2026-01-01 00:00:00',0)`,
+	)
+
+	s, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if v, _, _ := s.GetMeta("schema_version"); v != "7" {
+		t.Fatalf("schema_version = %s", v)
+	}
+	// new PK: weapon id=400 coexists with char id=400
+	if n, err := s.UpsertPulls("hypergryph/endfield", "U1", []core.GachaPull{
+		{ID: "400", BannerKey: "weapon", ItemType: "weapon", Rank: 6, Name: "曜夜的首演", Time: "2026-08-15 00:00:00"},
+	}); err != nil || n != 1 {
+		t.Fatalf("cross-banner insert n=%d err=%v", n, err)
+	}
+	all, _ := s.AllPulls("hypergryph/endfield", "U1")
+	if len(all) != 2 {
+		t.Fatalf("want 2 rows for U1, got %d", len(all))
+	}
+	// repair keys: one per endfield uid, none for genshin or empty uid
+	for _, uid := range []string{"U1", "U2"} {
+		if _, ok, _ := s.GetMeta("v7_refetch_pending:hypergryph/endfield:" + uid); !ok {
+			t.Errorf("repair key missing for %s", uid)
+		}
+	}
+	if _, ok, _ := s.GetMeta("v7_refetch_pending:hypergryph/endfield:G1"); ok {
+		t.Error("genshin uid must not get a repair key")
+	}
+	if _, ok, _ := s.GetMeta("v7_refetch_pending:hypergryph/endfield:"); ok {
+		t.Error("empty uid must not get a repair key")
+	}
+	if _, err := os.Stat(dbPath + ".bak-v7"); err != nil {
+		t.Errorf("bak-v7 missing: %v", err)
+	}
+}
+
+// Crash residue: a leftover pulls_new table from an interrupted run must not
+// block the migration.
+func TestMigrateV7CrashResidue(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v6r.db")
+	buildV6DB(t, dbPath, `CREATE TABLE pulls_new (x TEXT)`)
+	s, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("open with residue: %v", err)
+	}
+	s.Close()
+}
+
+// No endfield rows → no repair keys seeded (a stranger's v6 DB must not be
+// forced into a full refetch).
+func TestMigrateV7NoEndfieldRows(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v6e.db")
+	buildV6DB(t, dbPath)
+	s, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM meta WHERE key LIKE 'v7_refetch_pending:%'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("repair keys on clean DB: n=%d err=%v", n, err)
+	}
+}
+
+// Convergence: once a repair key is deleted, reopening the DB must not
+// resurrect it (guards the R3 failure mode where a mis-ordered version gate
+// re-runs migrateV7 on every open).
+func TestMigrateV7Convergence(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v6c.db")
+	buildV6DB(t, dbPath,
+		`INSERT INTO pulls(game,uid,id,banner_key,item_type,rank,name,time,is_free)
+		 VALUES('hypergryph/endfield','U1','1','special','char',5,'a','2026-01-01 00:00:00',0)`,
+	)
+	s, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close() // double Close (explicit below) is a no-op; guards Fatal paths
+	if _, ok, _ := s.GetMeta("v7_refetch_pending:hypergryph/endfield:U1"); !ok {
+		t.Fatal("repair key not seeded")
+	}
+	if err := s.DeleteMeta("v7_refetch_pending:hypergryph/endfield:U1"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s2, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if _, ok, _ := s2.GetMeta("v7_refetch_pending:hypergryph/endfield:U1"); ok {
+		t.Fatal("repair key resurrected on reopen — migration re-ran")
+	}
+	if v, _, _ := s2.GetMeta("schema_version"); v != "7" {
+		t.Fatalf("schema_version after reopen = %s", v)
+	}
+}
+
+// Pool-column backfill must be scoped to the banner: with banner_key in the
+// PK, a char and a weapon row can share an id, and the v5 backfill UPDATE
+// must not write one banner's pool columns onto the other's row.
+func TestUpsertPulls_BackfillScopedToBanner(t *testing.T) {
+	s, err := OpenSQLite(filepath.Join(t.TempDir(), "bf.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	game, uid := "hypergryph/endfield", "U1"
+	// two rows sharing an id across banners, both with empty pool columns
+	// (simulating pre-v5 data)
+	for _, bk := range []string{"special", "weapon"} {
+		if _, err := s.db.Exec(`INSERT INTO pulls(game,uid,id,banner_key,item_type,rank,name,time,is_free)
+			VALUES(?,?,?,?,?,?,?,?,0)`, game, uid, "400", bk, "x", 5, "n", "2026-01-01 00:00:00"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// re-upsert carrying pool info for the weapon row only
+	if _, err := s.UpsertPulls(game, uid, []core.GachaPull{
+		{ID: "400", BannerKey: "weapon", ItemType: "weapon", Rank: 6, Name: "n",
+			Time: "2026-01-01 00:00:00", PoolID: "weponbox_1_4_2", PoolName: "明曜申領"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := s.AllPulls(game, uid)
+	if len(all) != 2 {
+		t.Fatalf("rows = %d, want 2", len(all))
+	}
+	for _, p := range all {
+		switch p.BannerKey {
+		case "weapon":
+			if p.PoolID != "weponbox_1_4_2" {
+				t.Errorf("weapon pool_id = %q", p.PoolID)
+			}
+		case "special":
+			if p.PoolID != "" {
+				t.Errorf("special pool_id polluted: %q", p.PoolID)
+			}
+		}
+	}
+}
+
+// Long-term invariant (spec): banner_key is part of the PK, so the same
+// (game,uid,id) under a different banner_key is a distinct row — which means
+// every provider's record→bannerKey mapping must stay stable forever, or the
+// same server records re-insert as duplicates.
+func TestUpsertPulls_BannerKeyIsLoadBearing(t *testing.T) {
+	s, err := OpenSQLite(filepath.Join(t.TempDir(), "lb.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	game, uid := "hypergryph/endfield", "U1"
+	p1 := []core.GachaPull{{ID: "7", BannerKey: "special", ItemType: "char", Rank: 5, Name: "a", Time: "2026-01-01 00:00:00"}}
+	if n, err := s.UpsertPulls(game, uid, p1); err != nil || n != 1 {
+		t.Fatalf("first insert n=%d err=%v", n, err)
+	}
+	// same 4-tuple → deduped
+	if n, err := s.UpsertPulls(game, uid, p1); err != nil || n != 0 {
+		t.Fatalf("dup insert n=%d err=%v", n, err)
+	}
+	// same id under another banner → a new row (deliberate semantics)
+	p2 := []core.GachaPull{{ID: "7", BannerKey: "weapon", ItemType: "weapon", Rank: 4, Name: "b", Time: "2026-01-01 00:00:00"}}
+	if n, err := s.UpsertPulls(game, uid, p2); err != nil || n != 1 {
+		t.Fatalf("cross-banner insert n=%d err=%v", n, err)
+	}
+}
+
+// Fresh DB: base CREATE TABLE already has the v7 shape, so no rebuild, no
+// repair keys, no backup.
+func TestFreshDBNoV7Artifacts(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fresh.db")
+	s, err := OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if v, _, _ := s.GetMeta("schema_version"); v != "7" {
+		t.Fatalf("fresh schema_version = %s", v)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM meta WHERE key LIKE 'v7_refetch_pending:%'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("fresh DB repair keys: n=%d err=%v", n, err)
+	}
+	if _, err := os.Stat(dbPath + ".bak-v7"); !os.IsNotExist(err) {
+		t.Fatalf("fresh DB must not create bak-v7: %v", err)
 	}
 }

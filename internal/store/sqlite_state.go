@@ -26,6 +26,11 @@ func (s *SQLiteStore) SetMeta(k, v string) error {
 	return err
 }
 
+func (s *SQLiteStore) DeleteMeta(k string) error {
+	_, err := s.db.Exec(`DELETE FROM meta WHERE key=?`, k)
+	return err
+}
+
 func (s *SQLiteStore) GetConfig(k string) (string, bool, error) { return s.getKV("config", "key", k) }
 
 func (s *SQLiteStore) SetConfig(k, v string) error {
