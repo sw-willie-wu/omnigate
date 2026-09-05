@@ -314,6 +314,33 @@ func TestCheckForUpdate_PredlTargetNotNewerSuppressed(t *testing.T) {
 	}
 }
 
+// RefreshVersion computes UpdateAvailable with the same numeric comparison as
+// CheckForUpdate — the frontend consumes this flag instead of comparing
+// version strings itself (single source of truth).
+func TestRefreshVersion_ComputesUpdateAvailable(t *testing.T) {
+	gid := core.GameID("kurogames/wuwa")
+	fake := &checkUpdaterFake{
+		gid:                gid,
+		checkVersionResult: core.VersionInfo{Current: "4.5.0", Latest: "4.4.0"}, // rollover lag
+	}
+	a := newAppWithProvider(fake)
+	defer a.updateRegistry.emitter.Stop()
+
+	vi, err := a.RefreshVersion(string(gid))
+	if err != nil {
+		t.Fatalf("RefreshVersion: %v", err)
+	}
+	if vi.UpdateAvailable {
+		t.Fatalf("UpdateAvailable = true for local-ahead %s/%s", vi.Current, vi.Latest)
+	}
+
+	fake.checkVersionResult = core.VersionInfo{Current: "4.4.0", Latest: "4.5.0"}
+	vi, err = a.RefreshVersion(string(gid))
+	if err != nil || !vi.UpdateAvailable {
+		t.Fatalf("UpdateAvailable = %v err = %v, want true for genuinely-behind", vi.UpdateAvailable, err)
+	}
+}
+
 // When the API's main version is unavailable (Latest==""), no update is
 // flagged, but an advertised predl with a genuinely newer target still
 // surfaces — predl is an opt-in download, so a missing main version must not
