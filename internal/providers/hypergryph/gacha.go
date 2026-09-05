@@ -456,6 +456,9 @@ type endfieldPool struct {
 }
 
 // endfieldCharPools are the 4 character pools.
+// ⚠️ banner_key is part of the pulls PRIMARY KEY (schema v7): the mapping from
+// a server record to its bannerKey must stay stable forever — changing an
+// existing mapping re-inserts the same records as duplicates.
 var endfieldCharPools = []endfieldPool{
 	{"/api/record/char", "E_CharacterGachaPoolType_Special", "special", "char"},
 	{"/api/record/char", "E_CharacterGachaPoolType_Standard", "standard", "char"},

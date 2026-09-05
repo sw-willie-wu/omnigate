@@ -148,6 +148,9 @@ func (m hoyoPity) Walk(sorted []core.GachaPull, headline int) ([]core.PityHit, i
 
 // gachaTypeBanner maps a per-game gacha_type code → bannerKey. Genshin 301 & 400
 // both fold into "character" so the limited-character pity merges across them.
+// ⚠️ banner_key is part of the pulls PRIMARY KEY (schema v7): the mapping from
+// a server record to its bannerKey must stay stable forever — changing an
+// existing mapping re-inserts the same records as duplicates.
 var gachaTypeBanner = map[core.GameID]map[string]string{
 	"hoyoverse/genshin":  {"301": "character", "400": "character", "302": "weapon", "200": "standard", "100": "beginner", "500": "chronicled"},
 	"hoyoverse/starrail": {"11": "character", "12": "lightcone", "1": "standard", "2": "beginner"},
