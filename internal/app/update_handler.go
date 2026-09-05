@@ -660,6 +660,14 @@ func versionNewer(a, b string) bool {
 	return false
 }
 
+// updateAvailable reports whether the API's main version is genuinely newer
+// than the local install (strictly-newer, not inequality — see versionNewer).
+// The ONLY home of this predicate: CheckForUpdate and RefreshVersion both call
+// it, so the sidebar chip and the [更新] button can never disagree on logic.
+func updateAvailable(vi core.VersionInfo) bool {
+	return vi.Latest != "" && versionNewer(vi.Latest, vi.Current)
+}
+
 func versionSegments(v string) ([]int, bool) {
 	if v == "" {
 		return nil, false
@@ -729,7 +737,7 @@ func (a *App) CheckForUpdate(gameID string) error {
 	// API's main version can lag a local install that already applied the
 	// predownload (HSR 2026-09-05: local 4.5.0 vs API 4.4.0), and `!=` would
 	// offer an "update" to the OLDER version.
-	updateAvail := vi.Latest != "" && versionNewer(vi.Latest, vi.Current)
+	updateAvail := updateAvailable(vi)
 	if updateAvail {
 		state.AvailableUpdate = &core.UpdatePlan{
 			GameID:  gid,

@@ -9,6 +9,9 @@ export type GameRow = {
   install_path?: string;
   current_version?: string;
   latest_version?: string;
+  // Backend-computed (RefreshVersion → versionNewer): the ONLY source of the
+  // "update available" state — never compare version strings in the frontend.
+  update_available?: boolean;
   has_predownload: boolean;
   icon_url?: string;
   backgrounds?: { image: string; video: string }[];
@@ -39,6 +42,7 @@ export const useGamesStore = defineStore('games', {
           const v = await RefreshVersion(g.id);
           g.current_version = v.Current;
           g.latest_version = v.Latest;
+          g.update_available = !!v.UpdateAvailable;
           g.has_predownload = !!v.Predownload;
         } catch (e) {
           console.warn('version check failed', g.id, e);
@@ -89,6 +93,7 @@ export const useGamesStore = defineStore('games', {
         const v = await RefreshVersion(gameID);
         this.games[idx].current_version = v.Current;
         this.games[idx].latest_version = v.Latest;
+        this.games[idx].update_available = !!v.UpdateAvailable;
         this.games[idx].has_predownload = !!v.Predownload;
       } catch (e) {
         console.warn('refreshVersionFor failed', gameID, e);

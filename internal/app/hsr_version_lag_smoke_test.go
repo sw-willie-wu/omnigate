@@ -8,6 +8,7 @@ package app
 //	go test ./internal/app/ -run TestHSRVersionLagSmoke -v
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"testing"
@@ -69,5 +70,18 @@ func TestHSRVersionLagSmoke(t *testing.T) {
 		t.Fatalf("AvailableUpdate = %+v — the lag window must NOT flag an update (current=%s latest=%s)",
 			state.AvailableUpdate, vi.Current, vi.Latest)
 	}
-	t.Logf("lag window handled: current=%s > latest=%s, no update flagged, stale cleared", vi.Current, vi.Latest)
+	// RefreshVersion drives the sidebar chip — its flag must agree.
+	// RefreshVersion passes a.ctx into the provider's HTTP layer, which
+	// rejects a nil context; Background is safe here because this harness's
+	// registry emit is a no-op (a.emit itself is never reached on this path).
+	a.ctx = context.Background()
+	vi2, err := a.RefreshVersion(string(gid))
+	if err != nil {
+		t.Fatalf("RefreshVersion: %v", err)
+	}
+	if vi2.UpdateAvailable {
+		t.Fatalf("RefreshVersion.UpdateAvailable = true in the lag window (current=%s latest=%s) — sidebar chip would lie",
+			vi2.Current, vi2.Latest)
+	}
+	t.Logf("lag window handled: current=%s > latest=%s, no update flagged (button AND sidebar), stale cleared", vi.Current, vi.Latest)
 }

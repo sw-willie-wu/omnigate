@@ -567,6 +567,11 @@ func (a *App) RefreshVersion(gameID string) (core.VersionInfo, error) {
 	if err != nil {
 		return vi, err
 	}
+	// Single source of truth for "update available" — same predicate
+	// CheckForUpdate uses (numeric, not string inequality: a rollover-lag
+	// window where local is ahead of the API must not read as an update).
+	// The sidebar/UI consumes this flag verbatim.
+	vi.UpdateAvailable = updateAvailable(vi)
 
 	// Spec §2.4 phantom-predl: PredlReady becomes invalid when the install
 	// version equals the predl version (user reinstalled at that version, or
