@@ -304,6 +304,12 @@ func (p *Provider) efPostJSON(ctx context.Context, rawURL string, body []byte, o
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		// A raw HTTP 401 (seen from as.gryphline.com after the 1.5.3 SDK bump
+		// invalidated stored tokens) means the credential is dead — surface the
+		// sentinel so the UI prompts a re-login instead of a generic error.
+		return fmt.Errorf("endfield POST %s status 401: %w", rawURL, core.ErrGachaCredentialExpired)
+	}
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("endfield POST %s status %d", rawURL, resp.StatusCode)
 	}
@@ -367,6 +373,9 @@ func (p *Provider) efBindingGet(ctx context.Context, oauth, tokenParam string, o
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("endfield binding_list status 401: %w", core.ErrGachaCredentialExpired)
+	}
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("endfield binding_list status %d", resp.StatusCode)
 	}
