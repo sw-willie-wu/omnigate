@@ -200,7 +200,7 @@ func runApplyPlanPatch(
 		emit("config_writeback_warning", 0, 1)
 	}
 
-	audioLangs, _ := DetectInstalledLanguages(gameDir)
+	audioLangs, _ := DetectInstalledLanguages(gid, gameDir)
 	lat := lastApplyTarget{
 		TargetVersion:     version,
 		AudioLanguages:    audioLangs,
@@ -276,7 +276,7 @@ func runApplyPlanFull(
 		configWritebackOK = false
 		emit("config_writeback_warning", 0, 1)
 	}
-	audioLangs, _ := DetectInstalledLanguages(gameDir)
+	audioLangs, _ := DetectInstalledLanguages(gid, gameDir)
 	lat := lastApplyTarget{
 		TargetVersion: version, AudioLanguages: audioLangs,
 		CompletionTS: time.Now().UTC(), ConfigWritebackOK: configWritebackOK,

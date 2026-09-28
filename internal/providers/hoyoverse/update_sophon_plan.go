@@ -28,10 +28,17 @@ import (
 // ("zh-cn", "en-us", ...) using the package-level folderToAudioLang map
 // (defined in update_manifest.go). Unknown folders are dropped. Result is
 // sorted and always non-nil.
-func mapFoldersToMatchingFields(folders []string) []string {
+func mapFoldersToMatchingFields(gid core.GameID, folders []string) []string {
+	table := folderToAudioLang // Genshin table; also the fallback for unknown ids
+	if g := findByID(gid); g != nil && len(g.AudioFolders) > 0 {
+		table = make(map[string]string, len(g.AudioFolders))
+		for code, folder := range g.AudioFolders {
+			table[folder] = code
+		}
+	}
 	out := make([]string, 0, len(folders))
 	for _, f := range folders {
-		if code, ok := folderToAudioLang[f]; ok {
+		if code, ok := table[f]; ok {
 			out = append(out, code)
 		}
 	}

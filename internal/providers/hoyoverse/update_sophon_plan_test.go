@@ -274,12 +274,28 @@ func newTestProvider(t *testing.T) *Provider {
 // ---------------------------------------------------------------------------
 
 func TestMapFoldersToMatchingFields(t *testing.T) {
-	got := mapFoldersToMatchingFields([]string{"Chinese", "English(US)", "Japanese", "Korean", "Unknown"})
-	want := []string{"en-us", "ja-jp", "ko-kr", "zh-cn"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mapFolders = %v, want %v", got, want)
+	cases := []struct {
+		name    string
+		gid     core.GameID
+		folders []string
+		want    []string
+	}{
+		{"genshin", "hoyoverse/genshin", []string{"Chinese", "English(US)", "Japanese", "Korean", "Unknown"}, []string{"en-us", "ja-jp", "ko-kr", "zh-cn"}},
+		// Star Rail folder names differ; the Genshin spelling "Chinese" is
+		// NOT a Star Rail folder and must be dropped under the HSR table.
+		{"starrail", "hoyoverse/starrail", []string{"Chinese(PRC)", "English", "Japanese", "Korean", "Chinese"}, []string{"en-us", "ja-jp", "ko-kr", "zh-cn"}},
+		// Unknown game → falls back to the package-level Genshin table.
+		{"bogus", "bogus/game", []string{"Chinese"}, []string{"zh-cn"}},
 	}
-	empty := mapFoldersToMatchingFields(nil)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := mapFoldersToMatchingFields(c.gid, c.folders)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("mapFolders = %v, want %v", got, c.want)
+			}
+		})
+	}
+	empty := mapFoldersToMatchingFields(core.GameID("hoyoverse/genshin"), nil)
 	if empty == nil || len(empty) != 0 {
 		t.Fatalf("empty input → %v, want non-nil empty", empty)
 	}

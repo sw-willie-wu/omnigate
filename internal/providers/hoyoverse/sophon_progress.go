@@ -13,7 +13,7 @@ import (
 // sophonProgressFile is the chunk-level download progress sidecar
 // (<versionSidecarDir>/sophon_progress.json, §A.6 / §5.2). v1's progress.json
 // (core.ProgressFile, per-file granularity) is untouched and still used by
-// HSR/ZZZ. Keys (ChunkName / PatchName) are the full CDN filenames from the
+// ZZZ. Keys (ChunkName / PatchName) are the full CDN filenames from the
 // manifest.
 type sophonProgressFile struct {
 	GameID      string          `json:"game_id"`

@@ -12,7 +12,7 @@ import (
 
 // sophonApplyWAL is the typed-record write-ahead log for Sophon apply
 // (<versionSidecarDir>/sophon_apply.wal, §A.6 / §6.1). v1's flat-list
-// apply.wal is untouched (HSR/ZZZ).
+// apply.wal is untouched (ZZZ).
 type sophonApplyWAL struct {
 	GameID      string              `json:"game_id"`
 	TargetTag   string              `json:"target_tag"`
