@@ -15,7 +15,12 @@ import (
 )
 
 type lastApplyTarget struct {
-	TargetVersion        string    `json:"target_version"`
+	TargetVersion string `json:"target_version"`
+	// AudioLanguages: the Sophon apply path stores matching_field codes
+	// ("ja-jp"), the legacy path stores on-disk folder names ("Japanese").
+	// Only the legacy drift check (flavorAudioOnly) reads it back, and it
+	// compares against folder names — a game that moves legacy→Sophon
+	// therefore never triggers it; do not mix the two in one game.
 	AudioLanguages       []string  `json:"audio_languages"`
 	CompletionTS         time.Time `json:"completion_ts"`
 	ConfigWritebackOK    bool      `json:"config_writeback_ok"`
@@ -105,7 +110,7 @@ func buildPlan(
 		audioLanguages: nil,
 	}
 
-	installedFolders, err := DetectInstalledLanguages(gameDir)
+	installedFolders, err := DetectInstalledLanguages(gid, gameDir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, false, fmt.Errorf("detect audio langs: %w", err)
 	}
@@ -255,7 +260,7 @@ func buildPredlPlan(
 		sourceVersion: currentVer,
 	}
 
-	installedFolders, err := DetectInstalledLanguages(gameDir)
+	installedFolders, err := DetectInstalledLanguages(gid, gameDir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("detect audio langs: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -248,5 +249,58 @@ func TestVerifyPredlStaging_Threshold(t *testing.T) {
 	}
 	if !discard {
 		t.Fatalf("26%% CDN fail: want discard=true, got false")
+	}
+}
+
+// TestCheckVersion_StarRailUsesBranches pins the 2026-09 Star Rail Sophon
+// migration: CheckVersion must read /getGameBranches (main.tag 4.6.0) and
+// must NOT touch the frozen legacy /getGamePackages endpoint (which still
+// reports 4.4.0 and hid the update behind versionNewer).
+func TestCheckVersion_StarRailUsesBranches(t *testing.T) {
+	var packagesHits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/getGameBranches", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"retcode":0,"message":"","data":{"game_branches":[{"game":{"id":"4ziysqXOQ8","biz":"hkrpg_global"},"main":{"package_id":"PePf9OoV54","branch":"main","password":"x","tag":"4.6.0","diff_tags":["4.5.0"],"categories":[{"category_id":"10049","matching_field":"game","type":"CATEGORY_TYPE_RESOURCE"}]},"pre_download":null}]}}`))
+	})
+	mux.HandleFunc("/getGamePackages", func(w http.ResponseWriter, r *http.Request) {
+		packagesHits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError) // empty body: legacy parse fails loudly
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	p := New(Settings{}, nil)
+	// CheckVersion's legacy branch goes through p.api (pinned to the live
+	// API in New), not p.apiBaseURL — rebase both so the red phase (before
+	// UsesSophon flips) hits the fake server rather than HoYoverse.
+	p.api = newAPIClient(srv.URL, srv.Client())
+	p.SetAPIBaseURL(srv.URL)
+	p.SetBranchAPIBaseURL(srv.URL)
+
+	gameDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(gameDir, "config.ini"), []byte("[General]\ngame_version=4.5.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hsr := core.GameID("hoyoverse/starrail")
+	p.SetGameDirFn(func(g core.GameID) (string, error) {
+		if g == hsr {
+			return gameDir, nil
+		}
+		return "", core.ErrUnknownGame
+	})
+
+	vi, err := p.CheckVersion(context.Background(), hsr)
+	if err != nil {
+		t.Fatalf("CheckVersion: %v (packages hits=%d)", err, packagesHits.Load())
+	}
+	if vi.Latest != "4.6.0" || vi.Current != "4.5.0" {
+		t.Errorf("Latest/Current = %q/%q, want 4.6.0/4.5.0", vi.Latest, vi.Current)
+	}
+	if vi.Predownload != nil {
+		t.Errorf("Predownload = %+v, want nil (pre_download is null)", vi.Predownload)
+	}
+	if n := packagesHits.Load(); n != 0 {
+		t.Errorf("/getGamePackages hit %d times; Sophon games must not use the frozen legacy endpoint", n)
 	}
 }

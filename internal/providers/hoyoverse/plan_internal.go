@@ -60,7 +60,7 @@ type genshinPlan struct {
 	audioLanguages []string
 	predlAvailable bool
 
-	// Sophon (M3.B v2) fields. Zero for HSR/ZZZ legacy plans.
+	// Sophon (M3.B v2) fields. Zero for ZZZ legacy plans.
 	sophonBranch              *sophon.BranchInfo
 	sophonBuildID             string
 	sophonCategories          []sophon.Category
