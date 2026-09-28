@@ -371,7 +371,7 @@ func (p *Provider) checkForPredownloadSophon(ctx context.Context, gid core.GameI
 		audioLanguages:            audioLangs,
 	}
 
-	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, g.PlatApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
+	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, gid, g.PlatApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
 	if err != nil {
 		if ctx.Err() != nil {
 			return core.UpdatePlan{}, ctx.Err()

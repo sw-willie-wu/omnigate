@@ -49,6 +49,13 @@ type gameMeta struct {
 	// "ko-kr") to the on-disk subfolder name under AudioAssetsRel. Folder
 	// names differ per game (Genshin "English(US)" vs Star Rail "English").
 	AudioFolders map[string]string
+	// OnDemandBlacklistRel is the game-maintained list of assets it downloads
+	// on demand (JSON Lines, {"fileName":"<gameDir-relative, '/'-separated>"}).
+	// When set, the Sophon planner skips a listed asset that is absent locally
+	// (and its companion "<base>_<md5>.hash" marker) instead of fetching it —
+	// mirroring HoYoPlay, which never fills in on-demand content on update.
+	// "" = no such mechanism (Genshin, ZZZ).
+	OnDemandBlacklistRel string
 	// AudioRecordRel is an optional launcher-written install record
 	// (relative to gameDir) listing the voice packs the launcher installed.
 	// When present and parseable it takes precedence over the folder scan,
@@ -82,6 +89,9 @@ var games = []gameMeta{
 		// presence alone is misleading for Star Rail because the game also
 		// drops partial on-demand audio into the same root.
 		AudioRecordRel: "StarRail_Data/Persistent/AudioLaucherRecord.txt",
+		// Written by the game itself (JSON Lines): on-demand assets it has
+		// chosen not to download (cutscene .usm, unused voice .pck).
+		OnDemandBlacklistRel: "StarRail_Data/Persistent/DownloadBlacklist.json",
 	},
 	{
 		ID: "hoyoverse/zzz", APIGameID: "U5hbdsT9W7", Biz: "nap_global",
