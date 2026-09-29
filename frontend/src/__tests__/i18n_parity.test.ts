@@ -85,6 +85,11 @@ describe('i18n parity', () => {
       'update.cancel_apply_disabled_eta',
       // Predl size label (1):
       'update.predl_available_size',
+      // BottomBar progress labels (3) — te()-guarded stageLabel falls back to
+      // these, so a missing locale would silently degrade the label:
+      'update.downloading_progress',
+      'update.predl_downloading_progress',
+      'update.applying_progress',
       // Bell entries predl_complete (4):
       'update.bell.predl_complete.title',
       'update.bell.predl_complete.body',

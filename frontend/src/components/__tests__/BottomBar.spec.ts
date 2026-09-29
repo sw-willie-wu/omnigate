@@ -29,7 +29,7 @@ import { useAccountStore } from '../../stores/account';
 import { useUpdatesStore } from '../../stores/updates';
 
 const GID = 'kurogames/wutheringwaves';
-function setup(opts: { selectedId: string; running?: boolean }) {
+function setup(opts: { selectedId: string; running?: boolean; locale?: 'en' | 'zh-TW' }) {
   setActivePinia(createPinia());
   isRunning.mockResolvedValue(!!opts.running);
   const games = useGamesStore();
@@ -43,7 +43,7 @@ function setup(opts: { selectedId: string; running?: boolean }) {
     ],
     selectedId: opts.selectedId, loaded: true, loading: false,
   };
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
+  const i18n = createI18n({ legacy: false, locale: opts.locale ?? 'en', messages: { en, 'zh-TW': tw } });
   return mount(BottomBar, { global: { plugins: [i18n], stubs: { GameConfigPopover: true } } });
 }
 
@@ -119,5 +119,90 @@ describe('BottomBar patching stage label', () => {
     expect(label.text()).toContain('42');
     // Guard against the pre-fix regression: no blank/undefined interpolation.
     expect(label.text()).not.toContain('undefined');
+  });
+});
+
+// 2026-09-29 real-run regression: Sophon emits stage "download" (no such
+// update.stage.* key) so stageLabel returned the raw key and the percentage
+// fallback never ran; the apply stage's static label carried no numbers.
+describe('BottomBar download/apply progress labels', () => {
+  beforeEach(() => { isRunning.mockReset(); launch.mockReset(); });
+
+  it('download stage shows percentage and sizes, never the raw key', async () => {
+    const w = setup({ selectedId: 'A', locale: 'zh-TW' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'update', phase: 'download', stage: 'download', current: 50 * 1024 * 1024, total: 100 * 1024 * 1024 },
+    } as never;
+    await flushPromises();
+    const label = w.find('.progress-btn.update .label');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toBe('下載中 50% (50 MB / 100 MB)');
+    expect(label.text()).not.toContain('update.stage.download');
+  });
+
+  it('download with unknown total shows percentage only', async () => {
+    const w = setup({ selectedId: 'A', locale: 'zh-TW' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'update', phase: 'download', stage: 'download', current: 0, total: 0 },
+    } as never;
+    await flushPromises();
+    const label = w.find('.progress-btn.update .label');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toBe('下載中 0%');
+    expect(label.text()).not.toContain('MB');
+  });
+
+  it('predownload shows percentage and sizes, never the raw key', async () => {
+    const w = setup({ selectedId: 'A', locale: 'zh-TW' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'predownload', phase: 'download', stage: 'download', current: 1.5 * 1024 ** 3, total: 3 * 1024 ** 3 },
+    } as never;
+    await flushPromises();
+    const label = w.find('.progress-btn.predl .label');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toBe('預下載 50% (1.5 GB / 3.0 GB)');
+    expect(label.text()).not.toContain('update.stage.download');
+  });
+
+  it('applying stage shows 套用中 pct% (x/y)', async () => {
+    const w = setup({ selectedId: 'A', locale: 'zh-TW' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'update', phase: 'apply', stage: 'applying', current: 1042, total: 2084 },
+    } as never;
+    await flushPromises();
+    const label = w.find('.progress-btn.update .label');
+    expect(label.exists()).toBe(true);
+    expect(label.text().trim()).toBe('套用中 50% (1042/2084)');
+  });
+
+  it('applying with unknown total falls back to the static stage label', async () => {
+    const w = setup({ selectedId: 'A', locale: 'zh-TW' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'update', phase: 'apply', stage: 'applying', current: 0, total: 0 },
+    } as never;
+    await flushPromises();
+    const label = w.find('.progress-btn.update .label');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toContain('套用更新（不可中斷）');
+    expect(label.text()).not.toContain('%');
+    expect(label.text()).not.toContain('NaN');
+  });
+
+  it('unknown stage falls back to phase label', async () => {
+    const w = setup({ selectedId: 'A', locale: 'zh-TW' });
+    const updates = useUpdatesStore();
+    updates.byGame[GID] = {
+      in_flight: { kind: 'update', phase: 'download', stage: 'no_such_stage', current: 25 * 1024 * 1024, total: 100 * 1024 * 1024 },
+    } as never;
+    await flushPromises();
+    const label = w.find('.progress-btn.update .label');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toContain('25%');
+    expect(label.text()).not.toContain('update.stage.no_such_stage');
   });
 });
