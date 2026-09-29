@@ -137,9 +137,9 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 	// Read real local version from <gameDir>/config.ini so App.CheckForUpdate
 	// (Topbar Refresh) can detect server > local and light the [更新] button.
 	// Best-effort: if gameDir lookup or config.ini read fails, currentLocal
-	// stays "" and fetchVersion falls back to Current=Latest (M2 behavior —
-	// no update displayed). This preserves M2 wiring for non-Genshin titles
-	// (HSR/ZZZ) until their per-game config.ini readers land.
+	// stays "" and both branches below fall back to Current=Latest (no update
+	// displayed). config.ini has the same [General] game_version shape for
+	// all three games.
 	currentLocal := ""
 	if gameDir, err := p.gameDir(gid); err == nil {
 		if ver, err := ReadGameVersion(gameDir); err == nil {
@@ -147,11 +147,11 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 		}
 	}
 
-	// Sophon-migrated games (Genshin 6.0+): the legacy /getGamePackages
-	// endpoint reports a frozen old version (5.5.0 for Genshin global).
-	// Use /getGameBranches.main.tag for the real latest so the UI displays
-	// the correct number. The actual update flow is gated separately in
-	// CheckForUpdate (returns sophon_not_supported until M3.B v2 lands).
+	// Sophon-migrated games (Genshin 6.0+, Star Rail 4.6+): the legacy
+	// /getGamePackages endpoint reports a frozen old version (5.5.0 for
+	// Genshin global, 4.4.0 for Star Rail global). Use
+	// /getGameBranches.main.tag for the real latest so the UI displays the
+	// correct number; the update flow itself is routed in checkForUpdate.
 	if g.UsesSophon {
 		branch, err := p.fetchBranchInfo(ctx, g.APIGameID)
 		if err != nil {
@@ -165,7 +165,7 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 			info.Current = info.Latest
 		}
 		// Surface predl so App.CheckForUpdate (probe) can light the predl button
-		// for Genshin. Phase-1 probe additionally gates on SupportsPredownload.
+		// for Sophon games. Phase-1 probe additionally gates on SupportsPredownload.
 		if !branch.PreDownload.IsEmpty() && branch.PreDownload.Tag != info.Current {
 			info.Predownload = &core.PredownloadInfo{TargetVersion: branch.PreDownload.Tag}
 		}
@@ -216,7 +216,7 @@ func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.Game
 // checkForUpdate is the shared CheckForUpdate body; onProgress (may be nil) is
 // threaded into the Sophon patch-plan local-file verification.
 func (p *Provider) checkForUpdate(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
-	// Sophon-migrated games (Genshin 6.0+): route to the Sophon decision tree
+	// Sophon-migrated games (Genshin 6.0+, Star Rail 4.6+): route to the Sophon decision tree
 	// (§3). gameDir is resolved the v1 way; tempRoot via p.tempRoot(gid).
 	if g := findByID(gid); g != nil && g.UsesSophon {
 		gameDir, err := p.gameDir(gid)
@@ -272,16 +272,17 @@ func (p *Provider) GetPredownloadAvailable(gid core.GameID) bool {
 	return gp.predlAvailable
 }
 
-// SupportsPredownload implements core.PredownloadChecker. PER-GAME: only Sophon
-// games (Genshin) in Phase 2; HSR/ZZZ legacy predl lands in Phase 3. This is what
-// keeps the Phase-1 App probe from lighting HSR/ZZZ buttons while one hoyoverse
-// type satisfies the interface for all three games.
+// SupportsPredownload implements core.PredownloadChecker. PER-GAME gate: all
+// three registered games support the predl probe; Sophon (Genshin, Star Rail)
+// vs legacy (ZZZ) routing happens in CheckForPredownload. Unknown ids → false
+// so the App probe never lights a button for a game this provider cannot serve.
 func (p *Provider) SupportsPredownload(gid core.GameID) bool {
 	return findByID(gid) != nil
 }
 
-// CheckForPredownload implements core.PredownloadChecker. Routes Sophon (Genshin)
-// to checkForPredownloadSophon and legacy (HSR/ZZZ) to checkForPredownloadLegacy.
+// CheckForPredownload implements core.PredownloadChecker. Routes Sophon games
+// (Genshin, Star Rail) to checkForPredownloadSophon and legacy (ZZZ) to
+// checkForPredownloadLegacy.
 func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
 	g := findByID(gid)
 	if g == nil {
@@ -293,7 +294,7 @@ func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onP
 	return p.checkForPredownloadLegacy(ctx, gid)
 }
 
-// checkForPredownloadLegacy builds a predl plan for HSR/ZZZ via getGamePackages
+// checkForPredownloadLegacy builds a predl plan for legacy games (ZZZ) via getGamePackages
 // (entry.PreDownload) and caches it so RunUpdate(PlanPredownload) can stage it.
 // Returns ErrPredownloadUnsupported when no predownload is published.
 func (p *Provider) checkForPredownloadLegacy(ctx context.Context, gid core.GameID) (core.UpdatePlan, error) {
@@ -349,8 +350,8 @@ func (p *Provider) checkForPredownloadSophon(ctx context.Context, gid core.GameI
 		return core.UpdatePlan{}, &core.UpdateError{Code: "sophon_no_install", Retryable: false}
 	}
 
-	audioFolders, _ := DetectInstalledLanguages(gameDir)
-	audioLangs := mapFoldersToMatchingFields(audioFolders)
+	audioFolders, _ := DetectInstalledLanguages(gid, gameDir)
+	audioLangs := mapFoldersToMatchingFields(gid, audioFolders)
 
 	prev := LoadAppliedManifests(tempRoot, gid)
 	oldMainManifest := prev.MatchByVersion(currentLocal, "game")
@@ -370,7 +371,7 @@ func (p *Provider) checkForPredownloadSophon(ctx context.Context, gid core.GameI
 		audioLanguages:            audioLangs,
 	}
 
-	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, g.PlatApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
+	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, gid, g.PlatApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
 	if err != nil {
 		if ctx.Err() != nil {
 			return core.UpdatePlan{}, ctx.Err()
@@ -832,8 +833,8 @@ func (p *Provider) checkForUpdateSophon(ctx context.Context, gid core.GameID, ga
 	}
 
 	// Normal plan build.
-	audioFolders, _ := DetectInstalledLanguages(gameDir)
-	audioLangs := mapFoldersToMatchingFields(audioFolders)
+	audioFolders, _ := DetectInstalledLanguages(gid, gameDir)
+	audioLangs := mapFoldersToMatchingFields(gid, audioFolders)
 	gp, predlAvail, err := buildSophonPlan(ctx, p, branch, gid, currentLocal, audioLangs, gameDir, tempRoot, onProgress)
 	if err != nil {
 		if ctx.Err() != nil {

@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"omnigate/internal/core"
 )
@@ -39,7 +41,7 @@ func TestExtractAuthQuery_PicksFreshestByTimestamp(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cache, "data_2"), []byte(blob), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cands, err := extractHoyoAuthQuery(dir, "GenshinImpact_Data")
+	cands, err := (&Provider{}).extractHoyoAuthQuery(dir, "GenshinImpact_Data")
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -57,7 +59,7 @@ func TestExtractAuthQuery_PicksFreshestByTimestamp(t *testing.T) {
 
 func TestExtractAuthQuery_NoneFound(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := extractHoyoAuthQuery(dir, "GenshinImpact_Data"); err == nil {
+	if _, err := (&Provider{}).extractHoyoAuthQuery(dir, "GenshinImpact_Data"); err == nil {
 		t.Fatalf("want error when no webCache/authkey present")
 	}
 }
@@ -75,7 +77,7 @@ func TestExtractAuthQuery_ExcludesNonGachaLog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cache, "data_1"), []byte(blob), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cands, err := extractHoyoAuthQuery(dir, "GenshinImpact_Data")
+	cands, err := (&Provider{}).extractHoyoAuthQuery(dir, "GenshinImpact_Data")
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestExtractAuthQuery_DedupAndOrder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cache, "data_3"), []byte(blob), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cands, err := extractHoyoAuthQuery(dir, "GenshinImpact_Data")
+	cands, err := (&Provider{}).extractHoyoAuthQuery(dir, "GenshinImpact_Data")
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -237,6 +239,223 @@ func TestFetchGachaAuthkeyTimeout(t *testing.T) {
 	}
 }
 
+// gachaLogURLPaged builds a getGachaLog URL fixture with the given authkey and a
+// distinct end_id/page — mimicking the per-page URLs an in-game history session
+// leaves in the webCache (same authkey, different pagination cursor).
+func gachaLogURLPaged(authkey, endID, page string) string {
+	return "https://public-operation-hk4e-sg.hoyoverse.com/gacha_info/api/getGachaLog" +
+		"?authkey=" + authkey + "&authkey_ver=1&sign_type=2&game_biz=hk4e_global" +
+		"&lang=zh-tw&region=os_asia&gacha_id=ABC&timestamp=1000" +
+		"&end_id=" + endID + "&page=" + page
+}
+
+// Regression: a gacha-history session caches one URL per page, all sharing ONE
+// authkey but differing in end_id/page. Deduping on the full query kept each as
+// a distinct candidate, so selectAuthCandidate probed the same authkey a dozen
+// times and tripped HoYo's -110 rate limiter. Dedup must collapse them to one.
+func TestExtractAuthQuery_DedupByAuthkeyAcrossPages(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "GenshinImpact_Data", "webCaches", "2.51.0.0", "Cache", "Cache_Data")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var blob string
+	for i := 1; i <= 11; i++ {
+		blob += gachaLogURLPaged("SAMEKEY", "cursor"+strconv.Itoa(i), strconv.Itoa(i)) + "\x00"
+	}
+	if err := os.WriteFile(filepath.Join(cache, "data_2"), []byte(blob), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cands, err := (&Provider{}).extractHoyoAuthQuery(dir, "GenshinImpact_Data")
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if len(cands) != 1 {
+		t.Fatalf("len(cands)=%d want 1 (11 same-authkey pages must dedup to one)", len(cands))
+	}
+	if cands[0].Get("authkey") != "SAMEKEY" {
+		t.Fatalf("authkey=%q want SAMEKEY", cands[0].Get("authkey"))
+	}
+}
+
+// Regression: a transient -110 "visit too frequently" must be retried with
+// backoff, not surfaced as a terminal authkey failure.
+func TestRequestGachaLog_RetriesOn110(t *testing.T) {
+	prev := gachaRateLimitBackoff
+	gachaRateLimitBackoff = time.Millisecond
+	defer func() { gachaRateLimitBackoff = prev }()
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.Write([]byte(`{"retcode":-110,"message":"visit too frequently","data":null}`))
+			return
+		}
+		w.Write([]byte(respList1))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	q := url.Values{"authkey": {"K"}}
+	r, status, err := p.requestGachaLog(context.Background(), srv.URL, q)
+	if err != nil {
+		t.Fatalf("requestGachaLog: %v", err)
+	}
+	if status != 200 || r.Retcode != 0 || r.Data == nil || len(r.Data.List) != 1 {
+		t.Fatalf("want success after retries, got status=%d retcode=%d", status, r.Retcode)
+	}
+	if calls != 3 {
+		t.Fatalf("calls=%d want 3 (two -110 then OK)", calls)
+	}
+}
+
+// A -110 that never clears must exhaust EXACTLY the retry budget and end as
+// ErrGachaURLUnavailable (not loop forever, not skip retries, not a different
+// error).
+func TestRequestGachaLog_Persistent110Terminal(t *testing.T) {
+	prev := gachaRateLimitBackoff
+	gachaRateLimitBackoff = time.Millisecond
+	defer func() { gachaRateLimitBackoff = prev }()
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"retcode":-110,"message":"visit too frequently","data":null}`))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.gachaEndpoint = func(core.GameID) string { return srv.URL }
+	p.gachaPageDelay = 0
+	q := url.Values{"authkey": {"K"}, "game_biz": {"hkrpg_global"}}
+	_, err := p.fetchHoyoGacha(context.Background(), "hoyoverse/starrail", q)
+	if !errors.Is(err, core.ErrGachaURLUnavailable) {
+		t.Fatalf("err=%v want ErrGachaURLUnavailable on persistent -110", err)
+	}
+	// One initial attempt + gachaMaxRateLimitRetries retries, then terminal —
+	// pins the retry cap so a regression to no-retry (or infinite retry) fails.
+	if calls != gachaMaxRateLimitRetries+1 {
+		t.Fatalf("calls=%d want %d (initial + retry budget)", calls, gachaMaxRateLimitRetries+1)
+	}
+}
+
+// Regression: the server may enforce its own page size regardless of the size
+// param (ZZZ caps every page at 5), so a SHORT non-empty page must CONTINUE
+// pagination — only an EMPTY page ends a banner. Breaking on "short page"
+// dropped all but the first 5 records per ZZZ banner.
+func TestFetchGacha_PageSizeAndBreak(t *testing.T) {
+	var sizesSeen []string
+	pages := 0
+	lastServedID := "" // last record id of the previous page (expected end_id cursor)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("gacha_type") != "11" {
+			w.Write([]byte(respEmpty))
+			return
+		}
+		sizesSeen = append(sizesSeen, q.Get("size"))
+		pages++
+		// Pin the end_id cursor: page 1 must start at 0, every later page must
+		// carry the last id served on the previous page.
+		wantEndID := lastServedID
+		if pages == 1 {
+			wantEndID = "0"
+		}
+		if got := q.Get("end_id"); got != wantEndID {
+			t.Errorf("page#%d end_id=%q want %q", pages, got, wantEndID)
+		}
+		// Server ignores size and returns 5-record pages (ZZZ behavior):
+		// two short pages, then an empty page. All 10 records must arrive.
+		if pages >= 3 {
+			w.Write([]byte(respEmpty))
+			return
+		}
+		var b strings.Builder
+		b.WriteString(`{"retcode":0,"message":"OK","data":{"list":[`)
+		for i := 0; i < 5; i++ {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			lastServedID = "p" + strconv.Itoa(pages) + "-" + strconv.Itoa(i)
+			b.WriteString(`{"id":"` + lastServedID +
+				`","gacha_type":"11","rank_type":"4","item_type":"x","name":"n","time":"t","uid":"800"}`)
+		}
+		b.WriteString(`]}}`)
+		w.Write([]byte(b.String()))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.gachaEndpoint = func(core.GameID) string { return srv.URL }
+	p.gachaPageDelay = 0
+	res, err := p.fetchHoyoGacha(context.Background(), "hoyoverse/starrail",
+		url.Values{"authkey": {"K"}, "game_biz": {"hkrpg_global"}})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if pages != 3 {
+		t.Fatalf("gt=11 pages=%d want 3 (short pages continue, empty page stops)", pages)
+	}
+	want := strconv.Itoa(gachaPageSize)
+	for _, s := range sizesSeen {
+		if s != want {
+			t.Fatalf("size=%q want %q", s, want)
+		}
+	}
+	if len(res.Pulls) != 10 {
+		t.Fatalf("pulls=%d want 10 (both short pages collected)", len(res.Pulls))
+	}
+}
+
+// Regression: ZZZ's getGachaLog keys the banner off real_gacha_type, not
+// gacha_type. A cached URL pins real_gacha_type to the banner open in-game when
+// it was written; forwarding it verbatim made every banner query return that
+// same single banner. It must be overwritten in lockstep with gacha_type —
+// and must NOT be injected for games whose URLs don't carry it (Genshin/HSR).
+func TestFetchGacha_OverridesRealGachaType(t *testing.T) {
+	realSeen := map[string]string{} // gacha_type → real_gacha_type as received
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		realSeen[q.Get("gacha_type")] = q.Get("real_gacha_type")
+		w.Write([]byte(respEmpty))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.gachaEndpoint = func(core.GameID) string { return srv.URL }
+	p.gachaPageDelay = 0
+	// Cached ZZZ query: gacha_type pinned to the page value (2001) and
+	// real_gacha_type pinned to the banner open in-game (2).
+	auth := url.Values{"authkey": {"K"}, "game_biz": {"nap_global"},
+		"gacha_type": {"2001"}, "real_gacha_type": {"2"}}
+	if _, err := p.fetchHoyoGacha(context.Background(), "hoyoverse/zzz", auth); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	for _, gt := range gachaTypesToQuery["hoyoverse/zzz"] {
+		if realSeen[gt] != gt {
+			t.Fatalf("gacha_type=%s got real_gacha_type=%q want %q", gt, realSeen[gt], gt)
+		}
+	}
+}
+
+func TestFetchGacha_NoRealGachaTypeInjectedForHSR(t *testing.T) {
+	injected := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("real_gacha_type") {
+			injected = true
+		}
+		w.Write([]byte(respEmpty))
+	}))
+	defer srv.Close()
+	p := New(Settings{}, nil)
+	p.gachaEndpoint = func(core.GameID) string { return srv.URL }
+	p.gachaPageDelay = 0
+	auth := url.Values{"authkey": {"K"}, "game_biz": {"hkrpg_global"}}
+	if _, err := p.fetchHoyoGacha(context.Background(), "hoyoverse/starrail", auth); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if injected {
+		t.Fatal("real_gacha_type must not be injected for games whose URLs don't carry it")
+	}
+}
+
 // ── Fix #1: multi-candidate probe/fallback selection ─────────────────────────
 
 func cand(authkey, ts string) url.Values {
@@ -351,7 +570,7 @@ func TestFetchGachaForwardsFullParams(t *testing.T) {
 				if i > 0 {
 					b.WriteByte(',')
 				}
-				id := string(rune('A'+i)) // distinct-ish; id used only as cursor
+				id := string(rune('A' + i)) // distinct-ish; id used only as cursor
 				b.WriteString(`{"id":"` + id + `","gacha_type":"11","rank_type":"4","item_type":"x","name":"n","time":"t","uid":"800"}`)
 			}
 			b.WriteString(`]}}`)

@@ -1,8 +1,10 @@
 package app
 
-// Live smoke for the versionNewer fix, exploiting the real HSR rollover-lag
-// window (2026-09-05: local 4.5.0 applied by HoYoPlay, API main still 4.4.0).
-// Run manually while the window lasts:
+// Historical live smoke for the versionNewer fix. It exploited the HSR
+// rollover-lag window of 2026-09-05 (local 4.5.0 applied by HoYoPlay, legacy
+// API main still 4.4.0). That window closed for good when Star Rail moved to
+// Sophon at 4.6 (CheckVersion now reads getGameBranches); the test is kept
+// only as a manual harness and is unlikely to observe a lag again. Run:
 //
 //	$env:OMNIGATE_E2E_HSR="1"; $env:CGO_ENABLED="0"
 //	go test ./internal/app/ -run TestHSRVersionLagSmoke -v

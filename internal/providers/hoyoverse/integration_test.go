@@ -56,6 +56,9 @@ type fakeSophonServer struct {
 	nChunkGET atomic.Int64
 	// buildHitCount counts /getBuild calls (scenario 14).
 	buildHitCount int
+	// packagesHitCount counts legacy /getGamePackages calls (scenario 14 /
+	// HSR Sophon migration): Sophon games must never hit it.
+	packagesHitCount int
 }
 
 // chunkGETs returns the total number of CDN chunk GETs since last resetChunkGETs.
@@ -66,6 +69,9 @@ func (f *fakeSophonServer) resetChunkGETs() { f.nChunkGET.Store(0) }
 
 // buildHitsFor returns the number of /getBuild hits (scenario 14).
 func (f *fakeSophonServer) buildHitsFor() int { return f.buildHitCount }
+
+// packagesHitsFor returns the number of legacy /getGamePackages hits.
+func (f *fakeSophonServer) packagesHitsFor() int { return f.packagesHitCount }
 
 func newFakeSophonServer(t *testing.T, branches, build, patch string) *fakeSophonServer {
 	t.Helper()
@@ -99,6 +105,12 @@ func newFakeSophonServer(t *testing.T, branches, build, patch string) *fakeSopho
 		s := strings.ReplaceAll(string(raw), `"/cdn/`, `"`+fs.URL+`/cdn/`)
 		return []byte(s)
 	}
+	mux.HandleFunc("/getGamePackages", func(w http.ResponseWriter, r *http.Request) {
+		// Legacy endpoint: counted so the HSR migration tests can prove
+		// Sophon games never touch it. No fixture — legacy games get a 500.
+		fs.packagesHitCount++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
 	mux.HandleFunc("/getBuild", func(w http.ResponseWriter, r *http.Request) {
 		// Live API: getBuild accepts GET (mirror the method contract so a
 		// method regression is caught here).
@@ -460,17 +472,53 @@ func TestSophonNoInstall_Error(t *testing.T) {
 }
 
 // 14. non-Sophon games still use v1 zip+hdiff path (cross-provider regression).
-func TestSophonHSRZZZ_LegacyPathUnchanged(t *testing.T) {
+// ZZZ is the only remaining legacy game (Genshin 6.0+ and Star Rail 4.6+
+// are Sophon). checkForUpdate hits /getGamePackages before it resolves the
+// game dir, so no config.ini is needed to prove routing.
+func TestSophonZZZ_LegacyPathUnchanged(t *testing.T) {
 	fs := newFakeSophonServer(t, "branches_main_only.json", "build_tiny.json", "")
 	p, _, _ := newSophonProvider(t, fs, "1.0.0")
-	// HSR is UsesSophon=false → CheckForUpdate must NOT hit getBuild/getPatchBuild.
-	hsr := core.GameID("hoyoverse/hsr")
-	registerTestGameDir(t, p, hsr, t.TempDir())
-	_, _ = p.CheckForUpdate(context.Background(), hsr)
-	// getBuild must not have been called for the legacy game.
-	// (Counted via a sentinel: legacy path uses getGamePackages, not getBuild.)
-	if buildHits := fs.buildHitsFor(); buildHits != 0 {
-		t.Errorf("legacy HSR hit getBuild %d times; should use getGamePackages", buildHits)
+	zzz := core.GameID("hoyoverse/zzz")
+	registerTestGameDir(t, p, zzz, t.TempDir())
+	_, err := p.CheckForUpdate(context.Background(), zzz)
+	if errors.Is(err, core.ErrUnknownGame) {
+		t.Fatalf("zzz not registered: %v", err)
+	}
+	if got := fs.packagesHitsFor(); got < 1 {
+		t.Errorf("legacy ZZZ hit /getGamePackages %d times; want >= 1", got)
+	}
+	if got := fs.buildHitsFor(); got != 0 {
+		t.Errorf("legacy ZZZ hit getBuild %d times; should use getGamePackages", got)
+	}
+}
+
+// 14b. Star Rail (Sophon since 4.6) routes CheckForUpdate to getBuild and
+// never to the frozen legacy /getGamePackages endpoint.
+func TestSophonHSR_UsesSophonPath(t *testing.T) {
+	// branches_hsr_main_only.json is branches_main_only.json with the HSR
+	// game id / biz / category id swapped in; its version numbers (6.6.0 /
+	// 6.5.0) are Genshin-shaped so it can share build_tiny.json — it is NOT
+	// a real Star Rail capture.
+	fs := newFakeSophonServer(t, "branches_hsr_main_only.json", "build_tiny.json", "")
+	p, _, _ := newSophonProvider(t, fs, "")
+	hsr := core.GameID("hoyoverse/starrail")
+	hsrDir := t.TempDir()
+	// 1.0.0 is neither main.tag (6.6.0) nor in diff_tags (["6.5.0"]) and no
+	// applied manifest exists → DecisionFull → getBuild (counted).
+	writeConfigIni(t, hsrDir, "1.0.0")
+	registerTestGameDir(t, p, hsr, hsrDir) // must follow newSophonProvider (chained lookup)
+	plan, err := p.CheckForUpdate(context.Background(), hsr)
+	if err != nil {
+		t.Fatalf("CheckForUpdate(starrail): %v", err)
+	}
+	if plan.Version != "6.6.0" {
+		t.Errorf("plan.Version = %q, want 6.6.0 (from getGameBranches main.tag)", plan.Version)
+	}
+	if got := fs.buildHitsFor(); got < 1 {
+		t.Errorf("starrail hit getBuild %d times; want >= 1", got)
+	}
+	if got := fs.packagesHitsFor(); got != 0 {
+		t.Errorf("starrail hit legacy /getGamePackages %d times; want 0", got)
 	}
 }
 

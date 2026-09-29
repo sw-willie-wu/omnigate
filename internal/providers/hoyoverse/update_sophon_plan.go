@@ -28,10 +28,17 @@ import (
 // ("zh-cn", "en-us", ...) using the package-level folderToAudioLang map
 // (defined in update_manifest.go). Unknown folders are dropped. Result is
 // sorted and always non-nil.
-func mapFoldersToMatchingFields(folders []string) []string {
+func mapFoldersToMatchingFields(gid core.GameID, folders []string) []string {
+	table := folderToAudioLang // Genshin table; also the fallback for unknown ids
+	if g := findByID(gid); g != nil && len(g.AudioFolders) > 0 {
+		table = make(map[string]string, len(g.AudioFolders))
+		for code, folder := range g.AudioFolders {
+			table[folder] = code
+		}
+	}
 	out := make([]string, 0, len(folders))
 	for _, f := range folders {
-		if code, ok := folderToAudioLang[f]; ok {
+		if code, ok := table[f]; ok {
 			out = append(out, code)
 		}
 	}
@@ -139,6 +146,8 @@ func buildSophonBuildPlan(
 	cats []sophon.Category,
 	oldManifests *appliedSet,
 	currentLocal string,
+	gameDir string, // unused here (skip probes via its own gameDir); kept for signature symmetry with buildSophonPatchPlan
+	skip *onDemandSkipper,
 ) error {
 	// §E.2 P9: getBuild returns ALL categories in one envelope — fetch ONCE.
 	build, err := fetchSophonBuild(ctx, p, slot, platApp, slot.Tag, false)
@@ -166,8 +175,14 @@ func buildSophonBuildPlan(
 		}
 		useCompress := bool(id.ChunkDownload.Compression)
 		chunkPrefix := id.ChunkDownload.URLPrefix
+		// Game-managed on-demand assets: no patch records in this flavor, so
+		// each asset is judged by its own path.
+		skip.Decide(cat.MatchingField, newManifest.Assets, nil)
 		for _, asset := range newManifest.Assets {
 			if asset.AssetType != 0 {
+				continue
+			}
+			if skip.IsSkipped(asset.AssetName) {
 				continue
 			}
 			oldIdx := sophon.BuildPerAssetMD5Index(oldManifest, asset.AssetName)
@@ -196,6 +211,7 @@ func buildSophonPatchPlan(
 	oldMainManifest *pb.SophonManifestProto,
 	gameDir string,
 	onProgress func(done, total int),
+	skip *onDemandSkipper,
 ) error {
 	// §E.2 P9: fetch getPatchBuild + getBuild ONCE per branch.
 	patchResp, err := fetchSophonBuild(ctx, p, slot, platApp, slot.Tag, true)
@@ -234,8 +250,32 @@ func buildSophonPatchPlan(
 		gp.sophonRawManifests[cat.MatchingField] = raw
 
 		patches, deletes := sophon.BuildPatchInstructions(patchProto, mainProto, currentLocal, patchID.DiffDownload.URLPrefix)
-		gp.sophonPatches = append(gp.sophonPatches, patches...)
 		gp.sophonDeletes = append(gp.sophonDeletes, deletes...)
+
+		// Game-managed on-demand assets (spec 2026-09-29): decide per asset
+		// BEFORE anything is appended. A MethodPatch asset is "absent" when
+		// its OLD file is missing (content-addressed renames make the new
+		// name absent by construction); copy-over and unchanged assets are
+		// judged by their own path. Skipped patch records are dropped here so
+		// they never reach the demotion table or the WAL.
+		byAsset := make(map[string]sophon.PatchInstr, len(patches))
+		for _, pi := range patches {
+			byAsset[pi.Asset] = pi
+		}
+		skip.Decide(cat.MatchingField, mainProto.Assets, func(name string) string {
+			if pi, ok := byAsset[name]; ok && pi.Method == sophon.MethodPatch {
+				return pi.OldFile
+			}
+			return name
+		})
+		kept := patches[:0]
+		for _, pi := range patches {
+			if !skip.IsSkipped(pi.Asset) {
+				kept = append(kept, pi)
+			}
+		}
+		patches = kept
+		gp.sophonPatches = append(gp.sophonPatches, patches...)
 
 		patched := make(map[string]bool, len(patches))
 		for _, pi := range patches {
@@ -254,6 +294,9 @@ func buildSophonPatchPlan(
 		for _, ma := range mainProto.Assets {
 			if ma.AssetType != 0 {
 				continue
+			}
+			if skip.IsSkipped(ma.AssetName) {
+				continue // left to the game's on-demand downloader (no MD5 pass, no chunk source)
 			}
 			if patched[ma.AssetName] {
 				// §6.4 demotion fallback plan; sophonAssetMD5 needed if demoted to chunk_assemble (§E.2 P1).
@@ -395,28 +438,33 @@ func buildSophonPlan(
 		audioLanguages:            audioLangs,
 	}
 
+	// Game-managed on-demand assets (Star Rail DownloadBlacklist.json) are
+	// left to the game; nil for games without the mechanism.
+	skip := loadOnDemandSkipper(gid, gameDir, p.logger)
+
 	inDiffTags := containsString(branch.Main.DiffTags, currentLocal)
 	switch {
 	case inDiffTags:
 		gp.flavor = flavorSophonPatch
-		if err := buildSophonPatchPlan(ctx, p, gp, mainSlot, platApp, cats, currentLocal, oldMainManifest, gameDir, onProgress); err != nil {
+		if err := buildSophonPatchPlan(ctx, p, gp, mainSlot, platApp, cats, currentLocal, oldMainManifest, gameDir, onProgress, skip); err != nil {
 			return nil, false, err
 		}
 	case oldMainManifest != nil:
 		gp.flavor = flavorSophonBuild
-		if err := buildSophonBuildPlan(ctx, p, gp, mainSlot, platApp, cats, prev, currentLocal); err != nil {
+		if err := buildSophonBuildPlan(ctx, p, gp, mainSlot, platApp, cats, prev, currentLocal, gameDir, skip); err != nil {
 			return nil, false, err
 		}
 	default:
 		gp.flavor = flavorSophonFull
-		if err := buildSophonBuildPlan(ctx, p, gp, mainSlot, platApp, cats, nil, currentLocal); err != nil {
+		if err := buildSophonBuildPlan(ctx, p, gp, mainSlot, platApp, cats, nil, currentLocal, gameDir, skip); err != nil {
 			return nil, false, err
 		}
 	}
 
 	gp.TotalBytes = sumSophonTotalBytes(gp)
+	skip.LogSummary(p.logger, "main")
 
-	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, platApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
+	predlAvail, err := buildSophonPredlPlan(ctx, p, gp, branch, gid, platApp, currentLocal, audioLangs, oldMainManifest, prev, gameDir)
 	if err != nil {
 		return nil, false, err
 	}
@@ -481,6 +529,7 @@ func buildSophonPredlPlan(
 	p *Provider,
 	gp *genshinPlan,
 	branch *sophon.BranchInfo,
+	gid core.GameID,
 	platApp string,
 	currentLocal string,
 	audioLangs []string,
@@ -514,16 +563,20 @@ func buildSophonPredlPlan(
 		sophonAssetMD5:            map[string]string{},
 		sophonRawManifests:        map[string][]byte{},
 	}
+	// The predl plan keeps its own skipper so its accounting (and log line)
+	// never double-counts assets already skipped by the main plan.
+	predlSkip := loadOnDemandSkipper(gid, gameDir, p.logger)
 	switch predlFlavor {
 	case flavorSophonPredlPatch:
-		if err := buildSophonPatchPlan(ctx, p, scratch, predlSlot, platApp, cats, currentLocal, oldMainManifest, gameDir, nil); err != nil {
+		if err := buildSophonPatchPlan(ctx, p, scratch, predlSlot, platApp, cats, currentLocal, oldMainManifest, gameDir, nil, predlSkip); err != nil {
 			return false, err
 		}
 	case flavorSophonPredlBuild:
-		if err := buildSophonBuildPlan(ctx, p, scratch, predlSlot, platApp, cats, prev, currentLocal); err != nil {
+		if err := buildSophonBuildPlan(ctx, p, scratch, predlSlot, platApp, cats, prev, currentLocal, gameDir, predlSkip); err != nil {
 			return false, err
 		}
 	}
+	predlSkip.LogSummary(p.logger, "predl")
 
 	gp.predlPlan = &predlPlanCache{
 		Flavor:         predlFlavor,

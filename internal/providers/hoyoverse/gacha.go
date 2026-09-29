@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,10 +32,21 @@ var hoyoAuthURLRe = regexp.MustCompile(`https://[^\s"\x00]*authkey=[^\s"\x00]*`)
 // (largest timestamp) first; URLs without a timestamp sort last. The full query of
 // each candidate is preserved (callers forward every param). installDir is the
 // App-resolved game dir; dataDir is "<Game>_Data".
-func extractHoyoAuthQuery(installDir, dataDir string) ([]url.Values, error) {
+//
+// Read failures on individual data files are logged, not fatal: while the game
+// runs, Chromium can hold these files with NO read sharing (live-verified on
+// HSR 2026-09-05 — even FileShare.ReadWrite opens fail), so a refresh during
+// gameplay sees sharing violations here and ends as ErrGachaURLUnavailable.
+// Silent skipping made that failure mode undiagnosable from logs.
+func (p *Provider) extractHoyoAuthQuery(installDir, dataDir string) ([]url.Values, error) {
+	logger := p.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	root := filepath.Join(installDir, dataDir, "webCaches")
 	entries, err := os.ReadDir(root)
 	if err != nil {
+		logger.Warn("gacha webCaches unreadable", "root", root, "err", err)
 		return nil, core.ErrGachaURLUnavailable
 	}
 	vers := make([]string, 0, len(entries))
@@ -55,11 +67,17 @@ func extractHoyoAuthQuery(installDir, dataDir string) ([]url.Values, error) {
 		seen int // encounter order, for stable tie-breaking
 	}
 	var cands []candidate
-	dedup := map[string]bool{}
+	dedup := map[string]int{} // key → index into cands
 	order := 0
+	readErrs := 0
 	for _, n := range []string{"data_1", "data_2", "data_3"} {
 		b, err := os.ReadFile(filepath.Join(root, newest, "Cache", "Cache_Data", n))
 		if err != nil {
+			if !os.IsNotExist(err) {
+				// Typically a sharing violation while the game is running.
+				logger.Warn("gacha cache file unreadable (game running?)", "file", n, "ver", newest, "err", err)
+				readErrs++
+			}
 			continue
 		}
 		for _, m := range hoyoAuthURLRe.FindAll(b, -1) {
@@ -72,20 +90,38 @@ func extractHoyoAuthQuery(installDir, dataDir string) ([]url.Values, error) {
 				continue
 			}
 			q := u.Query()
-			if q.Get("authkey") == "" {
+			ak := q.Get("authkey")
+			if ak == "" {
 				continue
 			}
-			key := q.Encode()
-			if dedup[key] {
-				continue
-			}
-			dedup[key] = true
+			// Dedup by authkey (+scope), NOT the full query: an in-game gacha
+			// history session caches one URL per page, all sharing a single
+			// authkey but differing in end_id/page. Deduping on q.Encode() would
+			// keep every page as a distinct candidate, so selectAuthCandidate
+			// would probe the SAME authkey against the SAME API a dozen times and
+			// trip HoYo's rate limiter (retcode -110 "visit too frequently"),
+			// failing the whole refresh. One authkey → one candidate; the chosen
+			// query's end_id/page/gacha_type are overwritten downstream anyway.
+			key := ak + "\x00" + q.Get("game_biz") + "\x00" + q.Get("region")
 			ts, _ := strconv.ParseInt(q.Get("timestamp"), 10, 64)
+			if i, ok := dedup[key]; ok {
+				// Group already represented: keep the member with the LARGEST
+				// timestamp so the freshness sort ranks the group correctly
+				// (the first-encountered member may lack the param).
+				if ts > cands[i].ts {
+					cands[i].q, cands[i].ts = q, ts
+				}
+				continue
+			}
+			dedup[key] = len(cands)
 			cands = append(cands, candidate{q: q, ts: ts, seen: order})
 			order++
 		}
 	}
 	if len(cands) == 0 {
+		if readErrs > 0 {
+			logger.Warn("gacha extract: no candidates and cache files were locked — close the game and retry", "ver", newest, "locked", readErrs)
+		}
 		return nil, core.ErrGachaURLUnavailable
 	}
 	// freshest timestamp first; missing/zero ts last; stable on ties.
@@ -349,7 +385,7 @@ func (p *Provider) FetchGacha(ctx context.Context, gid core.GameID, installDir, 
 	if m == nil {
 		return core.GachaFetchResult{}, core.ErrUnknownGame
 	}
-	cands, err := extractHoyoAuthQuery(installDir, dataDirFor(m))
+	cands, err := p.extractHoyoAuthQuery(installDir, dataDirFor(m))
 	if err != nil {
 		// No fresh candidates → fall back to a stored auth-query URL if present.
 		// The cachedURL is a getGachaLog query (endpoint+"?"+query); accept it as a
@@ -384,10 +420,6 @@ func (p *Provider) selectAuthCandidate(ctx context.Context, gid core.GameID, can
 	if endpoint == "" {
 		return nil, core.ErrUnknownGame
 	}
-	hc := p.httpClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
 	gts := gachaTypesToQuery[gid]
 	if len(gts) == 0 {
 		return nil, core.ErrUnknownGame
@@ -401,33 +433,28 @@ func (p *Provider) selectAuthCandidate(ctx context.Context, gid core.GameID, can
 		}
 		// Space out probes for rate limiting — applies to every probe after the
 		// first (incl. failing/expired candidates, the real rate-limit risk).
+		// After the authkey-dedup fix there is normally ONE candidate, so this
+		// rarely fires; requestGachaLog's -110 backoff is the real safety net.
 		if i > 0 && p.gachaPageDelay > 0 {
-			time.Sleep(p.gachaPageDelay)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(p.gachaPageDelay):
+			}
 		}
 		q := cloneValues(c)
-		q.Set("gacha_type", probeType)
-		q.Set("size", "20")
+		setGachaBannerParams(q, probeType)
+		q.Set("size", strconv.Itoa(gachaPageSize))
 		q.Set("page", "1")
 		q.Set("end_id", "0")
-		req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"?"+q.Encode(), nil)
+		r, status, err := p.requestGachaLog(ctx, endpoint, q)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, err
+			}
 			continue
 		}
-		req.Header.Set("User-Agent", UserAgent)
-		resp, err := hc.Do(req)
-		if err != nil {
-			continue
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != 200 {
-			continue
-		}
-		var r hoyoGachaLogResp
-		if err := json.Unmarshal(body, &r); err != nil {
-			continue
-		}
-		if r.Retcode != 0 || r.Data == nil {
+		if status != 200 || r.Retcode != 0 || r.Data == nil {
 			continue
 		}
 		if len(r.Data.List) > 0 {
@@ -450,16 +477,103 @@ func (p *Provider) endpointFor(gid core.GameID) string {
 	return hoyoGetGachaLogEndpoint(gid)
 }
 
+// setGachaBannerParams switches the forwarded auth query to the given banner
+// gacha_type. ZZZ's getGachaLog IGNORES gacha_type and keys the banner off
+// real_gacha_type (live-verified 2026-09-05: with real_gacha_type left at the
+// cached URL's value, every gacha_type query returns that same one banner), so
+// when the cached query carries real_gacha_type it must be overwritten in
+// lockstep. Genshin/HSR URLs don't carry the param and key off gacha_type — for
+// them this is a no-op beyond gacha_type itself (never ADD the param where the
+// game doesn't use it).
+func setGachaBannerParams(q url.Values, gt string) {
+	q.Set("gacha_type", gt)
+	if q.Has("real_gacha_type") {
+		q.Set("real_gacha_type", gt)
+	}
+}
+
+// gachaPageSize is the per-request record count REQUESTED from getGachaLog —
+// capped at 10 per query as a deliberate politeness bound (product decision
+// 2026-09-05; matches the reference exporter's size=10). The server may
+// enforce its own smaller page size regardless (ZZZ always returns 5), so
+// pagination must never infer "last page" from a short page — it walks end_id
+// until an empty page instead.
+const gachaPageSize = 10
+
+// gachaMaxPages is a per-banner runaway bound, NOT an expected limit: at
+// size=10 it allows 5000 records per banner (2500 on ZZZ's forced 5-per-page),
+// far beyond HoYo's ~6-month API retention. Exhausting it means the oldest
+// tail was NOT fetched (and never will be — refreshes restart at end_id=0),
+// so fetchHoyoGacha logs a warning when the loop ends by cap instead of by an
+// empty page.
+const gachaMaxPages = 500
+
+// retcodeVisitTooFrequently is HoYo's getGachaLog rate-limit code ("visit too
+// frequently"). It is TRANSIENT — the same authkey works again after a short
+// wait — so it must be retried with backoff, never treated as a terminal
+// authkey failure (-100/-101/-111) that would (wrongly) tell the user to
+// re-open the in-game history.
+const retcodeVisitTooFrequently = -110
+
+// gachaRateLimitBackoff is the base wait after a -110; the Nth retry waits N×
+// this. Overridable in tests.
+var gachaRateLimitBackoff = 2 * time.Second
+
+// gachaMaxRateLimitRetries caps -110 backoff attempts per request.
+const gachaMaxRateLimitRetries = 4
+
+// requestGachaLog issues one getGachaLog GET and, on a -110 "visit too
+// frequently", waits (linear backoff) and retries the SAME request up to
+// gachaMaxRateLimitRetries times. All other outcomes (transport error, non-200,
+// parse error, any other retcode) are returned to the caller unchanged. This is
+// the single throttle point for every HoYo gacha request.
+func (p *Provider) requestGachaLog(ctx context.Context, endpoint string, q url.Values) (hoyoGachaLogResp, int, error) {
+	hc := p.httpClient
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return hoyoGachaLogResp{}, 0, err
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"?"+q.Encode(), nil)
+		if err != nil {
+			return hoyoGachaLogResp{}, 0, err
+		}
+		req.Header.Set("User-Agent", UserAgent)
+		resp, err := hc.Do(req)
+		if err != nil {
+			return hoyoGachaLogResp{}, 0, err
+		}
+		body, _ := io.ReadAll(resp.Body)
+		status := resp.StatusCode
+		resp.Body.Close()
+		if status != 200 {
+			return hoyoGachaLogResp{}, status, nil
+		}
+		var r hoyoGachaLogResp
+		if err := json.Unmarshal(body, &r); err != nil {
+			return hoyoGachaLogResp{}, status, err
+		}
+		if r.Retcode == retcodeVisitTooFrequently && attempt < gachaMaxRateLimitRetries {
+			wait := gachaRateLimitBackoff * time.Duration(attempt+1)
+			select {
+			case <-ctx.Done():
+				return hoyoGachaLogResp{}, 0, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
+		return r, status, nil
+	}
+}
+
 // fetchHoyoGacha replays the auth query against getGachaLog for every banner
 // gacha_type, paginating by end_id. Caches the auth query (as URL) in the result.
 func (p *Provider) fetchHoyoGacha(ctx context.Context, gid core.GameID, auth url.Values) (core.GachaFetchResult, error) {
 	endpoint := p.endpointFor(gid)
 	if endpoint == "" {
 		return core.GachaFetchResult{}, core.ErrUnknownGame
-	}
-	hc := p.httpClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
 	}
 	out := core.GachaFetchResult{Pulls: []core.GachaPull{}}
 	// cache the auth query as a URL string for the store (token-bearing; never logged)
@@ -468,7 +582,8 @@ func (p *Provider) fetchHoyoGacha(ctx context.Context, gid core.GameID, auth url
 	gts := gachaTypesToQuery[gid]
 	for i, gt := range gts {
 		endID := "0"
-		for page := 1; page <= 100; page++ {
+		sawEnd := false // reached the empty page (true end of this banner)
+		for page := 1; page <= gachaMaxPages; page++ {
 			if err := ctx.Err(); err != nil {
 				return out, err
 			}
@@ -479,30 +594,21 @@ func (p *Provider) fetchHoyoGacha(ctx context.Context, gid core.GameID, auth url
 			// per-request pagination keys (some games, e.g. ZZZ, need the
 			// extra params the cached URL carries — see fix #1 spec).
 			q := cloneValues(auth)
-			q.Set("gacha_type", gt)
-			q.Set("size", "20")
+			setGachaBannerParams(q, gt)
+			q.Set("size", strconv.Itoa(gachaPageSize))
 			q.Set("page", strconv.Itoa(page))
 			q.Set("end_id", endID)
-			req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"?"+q.Encode(), nil)
+			r, status, err := p.requestGachaLog(ctx, endpoint, q)
 			if err != nil {
 				return out, err
 			}
-			req.Header.Set("User-Agent", UserAgent)
-			resp, err := hc.Do(req)
-			if err != nil {
-				return out, err
-			}
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if resp.StatusCode != 200 {
-				return out, fmt.Errorf("getGachaLog status %d", resp.StatusCode)
-			}
-			var r hoyoGachaLogResp
-			if err := json.Unmarshal(body, &r); err != nil {
-				return out, err
+			if status != 200 {
+				return out, fmt.Errorf("getGachaLog status %d", status)
 			}
 			if r.Retcode != 0 || r.Data == nil {
-				// -100/-101/-111 etc → expired/invalid authkey → re-open guidance
+				// -110 has already exhausted backoff in requestGachaLog; any
+				// retcode reaching here (incl. a persistent -110 or an authkey
+				// failure -100/-101/-111) is terminal → re-open guidance.
 				return out, core.ErrGachaURLUnavailable
 			}
 			for _, e := range r.Data.List {
@@ -519,12 +625,35 @@ func (p *Provider) fetchHoyoGacha(ctx context.Context, gid core.GameID, auth url
 					Time:      e.Time,
 				})
 			}
-			if len(r.Data.List) < 20 {
-				break
+			if len(r.Data.List) == 0 {
+				sawEnd = true
+				break // empty page ⇒ past the last record
 			}
+			// NEVER break on a short (non-empty) page: the server may enforce
+			// its own page size regardless of the size param (ZZZ caps every
+			// page at 5, live-verified 2026-09-05 — a "short" page there is
+			// every page, and breaking on it dropped all but the first 5
+			// records per banner). One extra empty-page request per banner is
+			// the price of correctness.
 			endID = r.Data.List[len(r.Data.List)-1].ID
+			// Inter-page interval: space successive requests so a long history
+			// (dozens of pages) never bursts into HoYo's rate limiter.
 			if p.gachaPageDelay > 0 {
-				time.Sleep(p.gachaPageDelay)
+				select {
+				case <-ctx.Done():
+					return out, ctx.Err()
+				case <-time.After(p.gachaPageDelay):
+				}
+			}
+		}
+		if !sawEnd {
+			// Loop exited by page exhaustion, not an empty page: the OLDEST
+			// tail of this banner was left behind, and because every refresh
+			// restarts at end_id=0 it would stay unreachable forever. Log
+			// loudly so the cap can be raised if anyone ever hits it.
+			if p.logger != nil {
+				p.logger.Warn("gacha pagination hit the page cap — oldest records not fetched",
+					"gid", gid, "gacha_type", gt, "cap", gachaMaxPages)
 			}
 		}
 	}
