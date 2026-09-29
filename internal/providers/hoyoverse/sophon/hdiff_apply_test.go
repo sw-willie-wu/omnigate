@@ -61,3 +61,25 @@ func TestHDiffApply_UnknownMethod(t *testing.T) {
 		t.Fatalf("expected unknown-method error mentioning the method, got %v", err)
 	}
 }
+
+func TestIsHDiff(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"hdiff13 compressed", "HDIFF13&zstd\x00abc", true},
+		{"hdiff13 plain", "HDIFF13", true},
+		{"pe header", "MZ\x90\x00", false},
+		{"empty", "", false},
+		{"truncated magic", "HDIF", false},
+		{"lowercase is not the magic", "hdiff13", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsHDiff([]byte(tc.in)); got != tc.want {
+				t.Errorf("IsHDiff(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
