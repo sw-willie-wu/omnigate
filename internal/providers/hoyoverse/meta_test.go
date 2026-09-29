@@ -32,6 +32,9 @@ func TestGameMetaAudioAndSophon(t *testing.T) {
 	if hsr.AudioRecordRel != "StarRail_Data/Persistent/AudioLaucherRecord.txt" {
 		t.Errorf("starrail AudioRecordRel = %q", hsr.AudioRecordRel)
 	}
+	if hsr.OnDemandBlacklistRel != "StarRail_Data/Persistent/DownloadBlacklist.json" {
+		t.Errorf("starrail OnDemandBlacklistRel = %q", hsr.OnDemandBlacklistRel)
+	}
 
 	gi := findByID(core.GameID("hoyoverse/genshin"))
 	if gi == nil {
@@ -47,6 +50,9 @@ func TestGameMetaAudioAndSophon(t *testing.T) {
 	if gi.AudioRecordRel != "" {
 		t.Errorf("genshin AudioRecordRel = %q, want \"\"", gi.AudioRecordRel)
 	}
+	if gi.OnDemandBlacklistRel != "" {
+		t.Errorf("genshin OnDemandBlacklistRel = %q, want \"\"", gi.OnDemandBlacklistRel)
+	}
 	// The package-level legacy table must stay in lockstep with the meta
 	// table so Genshin's Sophon plan is unchanged by the per-game lookup.
 	if !reflect.DeepEqual(audioLangToFolder, wantGI) {
@@ -60,7 +66,7 @@ func TestGameMetaAudioAndSophon(t *testing.T) {
 	if zzz.UsesSophon {
 		t.Errorf("zzz UsesSophon = true, want false (still legacy)")
 	}
-	if zzz.AudioAssetsRel != "" || len(zzz.AudioFolders) != 0 || zzz.AudioRecordRel != "" {
-		t.Errorf("zzz audio meta should be empty: %q %v %q", zzz.AudioAssetsRel, zzz.AudioFolders, zzz.AudioRecordRel)
+	if zzz.AudioAssetsRel != "" || len(zzz.AudioFolders) != 0 || zzz.AudioRecordRel != "" || zzz.OnDemandBlacklistRel != "" {
+		t.Errorf("zzz audio/on-demand meta should be empty: %q %v %q %q", zzz.AudioAssetsRel, zzz.AudioFolders, zzz.AudioRecordRel, zzz.OnDemandBlacklistRel)
 	}
 }

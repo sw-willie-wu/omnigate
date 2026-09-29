@@ -392,7 +392,7 @@ func TestBuildSophonPatchPlan_HybridPatchAndMainFallThrough(t *testing.T) {
 	mainSlot := sophon.BranchSlot{PackageID: "pkg", Tag: "6.6.0", Branch: "main",
 		Categories: []sophon.Category{{ID: "10016", MatchingField: "game"}}}
 	cats := []sophon.Category{{ID: "10016", MatchingField: "game"}}
-	if err := buildSophonPatchPlan(context.Background(), p, gp, mainSlot, "ddxf6vlr1reo", cats, "6.5.0", nil, gameDir, nil); err != nil {
+	if err := buildSophonPatchPlan(context.Background(), p, gp, mainSlot, "ddxf6vlr1reo", cats, "6.5.0", nil, gameDir, nil, nil); err != nil {
 		t.Fatalf("buildSophonPatchPlan: %v", err)
 	}
 	if len(gp.sophonPatches) != 2 {
