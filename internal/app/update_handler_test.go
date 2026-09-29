@@ -1,12 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -844,4 +846,85 @@ func TestResumeAsync_RunsPreflight(t *testing.T) {
 	if state.InFlight != nil {
 		t.Fatalf("InFlight = %+v, want nil after preflight abort", state.InFlight)
 	}
+}
+
+// TestRunUpdateWorker_LogsFailure pins spec §3.4's last bullet: a RunUpdate
+// failure must leave a line in omnigate.log. Before this, a terminal download
+// failure only reached the UI (LastError) and the log was silent, which is why
+// the 2026-09-29 incident had to be diagnosed from the UI string alone.
+// Called synchronously (production does `go a.runUpdateWorker(...)`).
+func TestRunUpdateWorker_LogsFailure(t *testing.T) {
+	newApp := func(buf *bytes.Buffer) *App {
+		return &App{
+			logger:         slog.New(slog.NewTextHandler(buf, nil)),
+			updateRegistry: NewUpdateStateRegistry(func(string, ...any) {}, realClock{}),
+		}
+	}
+	gid := core.GameID("hoyoverse/starrail")
+	plan := core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate, Version: "4.6.0"}
+	newUpdater := func(err error) *fakeUpdater {
+		return &fakeUpdater{
+			id:     "hoyoverse",
+			games:  []core.GameDescriptor{{ID: gid}},
+			runErr: err,
+		}
+	}
+
+	t.Run("failure is logged at Warn", func(t *testing.T) {
+		var buf bytes.Buffer
+		a := newApp(&buf)
+		defer a.updateRegistry.emitter.Stop()
+
+		state := a.updateRegistry.Get(gid)
+		state.mu.Lock()
+		state.InFlight = &InFlightOp{Plan: plan}
+		state.mu.Unlock()
+
+		a.runUpdateWorker(context.Background(), gid, newUpdater(errors.New("boom")), plan)
+
+		out := buf.String()
+		if !strings.Contains(out, "runUpdateWorker: update failed") {
+			t.Errorf("log does not contain %q; got:\n%s", "runUpdateWorker: update failed", out)
+		}
+		if !strings.Contains(out, "err=boom") {
+			t.Errorf("log does not contain %q; got:\n%s", "err=boom", out)
+		}
+		if !strings.Contains(out, "version=4.6.0") {
+			t.Errorf("log does not carry the plan version; got:\n%s", out)
+		}
+		if !strings.Contains(out, string(gid)) {
+			t.Errorf("log does not carry the game id; got:\n%s", out)
+		}
+
+		state.mu.RLock()
+		defer state.mu.RUnlock()
+		if state.LastError == nil || state.LastError.Code != "internal" {
+			t.Errorf("LastError = %+v, want Code=internal", state.LastError)
+		}
+		if state.InFlight != nil {
+			t.Errorf("InFlight = %+v, want nil after a terminal failure", state.InFlight)
+		}
+	})
+
+	t.Run("cancellation is not a failure", func(t *testing.T) {
+		var buf bytes.Buffer
+		a := newApp(&buf)
+		defer a.updateRegistry.emitter.Stop()
+
+		state := a.updateRegistry.Get(gid)
+		state.mu.Lock()
+		state.InFlight = &InFlightOp{Plan: plan}
+		state.mu.Unlock()
+
+		a.runUpdateWorker(context.Background(), gid, newUpdater(context.Canceled), plan)
+
+		if out := buf.String(); strings.Contains(out, "update failed") {
+			t.Errorf("cancellation logged as a failure; got:\n%s", out)
+		}
+		state.mu.RLock()
+		defer state.mu.RUnlock()
+		if state.LastError != nil {
+			t.Errorf("LastError = %+v, want nil after cancellation", state.LastError)
+		}
+	})
 }

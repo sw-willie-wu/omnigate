@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/downloader"
 	"omnigate/internal/providers/hoyoverse/sophon"
 )
 
@@ -20,15 +21,18 @@ type Settings struct {
 }
 
 type Provider struct {
-	api           *apiClient
-	settings      Settings
-	logger        *slog.Logger
-	tempRootFn    func(core.GameID) string
-	httpClient    *http.Client
-	manifestCache *manifestCache
-	apiBaseURL    string
-	branchAPIBase string // default APIBase; getGameBranches ([DEV-3])
-	sophonAPIBase string // default sophonChunkAPIBase; getBuild/getPatchBuild ([DEV-3])
+	api        *apiClient
+	settings   Settings
+	logger     *slog.Logger
+	tempRootFn func(core.GameID) string
+	httpClient *http.Client
+	// downloadClient is for BULK transfers (Sophon chunks/patch blobs/manifests):
+	// no overall timeout, stall-watchdog bounded. Set only in New().
+	downloadClient *http.Client
+	manifestCache  *manifestCache
+	apiBaseURL     string
+	branchAPIBase  string // default APIBase; getGameBranches ([DEV-3])
+	sophonAPIBase  string // default sophonChunkAPIBase; getBuild/getPatchBuild ([DEV-3])
 	// hpatchzRun is a test seam for hpatchz invocation (T20-E). nil → hpatchz.Run.
 	hpatchzRun func(ctx context.Context, oldFile, diffFile, newFile string) error
 	// gameDirFn is a test seam to bypass DetectInstall. nil → use DetectInstall.
@@ -47,15 +51,36 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 		logger = slog.Default()
 	}
 	p := &Provider{
-		api:      newAPIClient(APIBase, &http.Client{Timeout: 30 * time.Second}),
-		settings: settings,
-		logger:   logger,
+		api:            newAPIClient(APIBase, &http.Client{Timeout: 30 * time.Second}),
+		settings:       settings,
+		logger:         logger,
+		downloadClient: downloader.NewClient(),
 	}
 	p.manifestCache = newManifestCache()
 	p.branchAPIBase = APIBase
 	p.sophonAPIBase = sophonChunkAPIBase
 	p.gachaPageDelay = 400 * time.Millisecond
 	return p
+}
+
+// fallbackDownloadClient serves Providers not built by New() (zero values,
+// tests). Package-level on purpose: sophonDownloadClient must never write into
+// *Provider — one Provider serves all three HoYoverse games (genshin/starrail/
+// zzz) and updates run in goroutines, so a lazy write-back would be a race.
+var fallbackDownloadClient = downloader.NewClient()
+
+// sophonDownloadClient returns the client for BULK Sophon transfers (chunks,
+// patch blobs, 7 MB manifests): no overall http.Client.Timeout, because that
+// caps the whole body read and killed multi-GB patch blobs (2026-09-29). The
+// per-transfer bound is sophon's stall watchdog instead.
+func (p *Provider) sophonDownloadClient() *http.Client {
+	if p.httpClient != nil {
+		return p.httpClient // test seam
+	}
+	if p.downloadClient != nil {
+		return p.downloadClient
+	}
+	return fallbackDownloadClient
 }
 
 func (p *Provider) ID() core.BackendID { return BackendID }
@@ -941,7 +966,7 @@ func (p *Provider) runUpdateSophon(ctx context.Context, plan core.UpdatePlan, ga
 	if err != nil {
 		return err
 	}
-	exec := defaultSophonExecutors(p.httpClientOrDefault())
+	exec := defaultSophonExecutors(p.sophonDownloadClient())
 	if err := downloadAllSophon(ctx, store, gameDir, stagingRoot, gp.sophonChunkSources, gp.sophonPatches, 4, exec, func(b int64) {
 		emit("download", int(b), int(gp.TotalBytes))
 	}); err != nil {
@@ -959,7 +984,7 @@ func (p *Provider) runSophonPredownload(ctx context.Context, gid core.GameID, gp
 	if err != nil {
 		return err
 	}
-	exec := defaultSophonExecutors(p.httpClientOrDefault())
+	exec := defaultSophonExecutors(p.sophonDownloadClient())
 	if err := downloadAllSophon(ctx, store, gameDir, stagingRoot, pp.ChunkSources, pp.Patches, 4, exec, func(b int64) {
 		emit("download", int(b), int(gp.TotalBytes))
 	}); err != nil {

@@ -3,14 +3,20 @@ package hoyoverse
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"omnigate/internal/core"
+	"omnigate/internal/downloader"
 	"omnigate/internal/providers/hoyoverse/sophon"
 )
 
@@ -369,5 +375,137 @@ func TestDownloadAllSophon_ResumeFromPartial(t *testing.T) {
 	}
 	if maxVal != wantTotal {
 		t.Errorf("expected final cumulative progress == %d (sum of all 5 DecompSize), got %d; calls: %v", wantTotal, maxVal, snapshot)
+	}
+}
+
+// TestWrapSophonChunkErr pins spec §3.4: the four classification steps and the
+// FIXED shortCause order. The sophon-sentinel rows build their error the way
+// retry exhaustion really does — fmt.Errorf with TWO %w verbs, which yields a
+// *fmt.wrapErrors whose errors.Unwrap() returns nil, so only errors.Is/As can
+// see through it ("take the innermost cause" is not available).
+func TestWrapSophonChunkErr(t *testing.T) {
+	const name = "chunk_abc"
+
+	canceled := fmt.Errorf("%w: %s: %w", sophon.ErrDownload, name, context.Canceled)
+	pathErr := &fs.PathError{Op: "write", Path: `C:\staging\chunk_abc`, Err: errors.New("There is not enough space on the disk.")}
+	long := errors.New(strings.Repeat("x", 200))
+
+	tests := []struct {
+		name      string
+		err       error
+		raw       bool   // want the SAME error value back
+		wantCode  string // want *core.UpdateError with this code
+		detail    string // expected Params["detail"] ("" → skip; see detailLen)
+		detailLen int    // >0 → assert len(Params["detail"]) instead of equality
+	}{
+		{
+			name: "context.Canceled passes through",
+			err:  canceled,
+			raw:  true,
+		},
+		{
+			name:     "ErrChunkVerify keeps the verify code",
+			err:      fmt.Errorf("%w: %s: %w", sophon.ErrChunkVerify, name, errors.New("md5 mismatch")),
+			wantCode: "sophon_chunk_verify_failed",
+		},
+		{
+			name:     "stall exhaustion is a network error",
+			err:      fmt.Errorf("%w: c: %w", sophon.ErrDownload, fmt.Errorf("%w", downloader.ErrStalled)),
+			wantCode: "network",
+			detail:   "stream stalled",
+		},
+		{
+			name: "filesystem error passes through (→ internal, no retry)",
+			err:  pathErr,
+			raw:  true,
+		},
+		{
+			name:     "unclassified error uses its own message",
+			err:      errors.New("boom"),
+			wantCode: "network",
+			detail:   "boom",
+		},
+		{
+			name:     "DeadlineExceeded is short-named, never passed through",
+			err:      fmt.Errorf("x: %w", context.DeadlineExceeded),
+			wantCode: "network",
+			detail:   "timeout",
+		},
+		{
+			name:     "StatusError becomes http <code>",
+			err:      fmt.Errorf("%w: c: %w", sophon.ErrDownload, &downloader.StatusError{URL: "https://cdn/x", Code: 503}),
+			wantCode: "network",
+			detail:   "http 503",
+		},
+		{
+			name:     "url.Error drops the URL",
+			err:      fmt.Errorf("%w: c: %w", sophon.ErrDownload, &url.Error{Op: "Get", URL: "https://cdn/x", Err: errors.New("dial tcp: refused")}),
+			wantCode: "network",
+			detail:   "dial tcp: refused",
+		},
+		{
+			// The exact 2026-09-29 incident shape: a *url.Error whose Err is the
+			// Client.Timeout error. DeadlineExceeded must win over *url.Error,
+			// otherwise the user sees the old "context deadline exceeded
+			// (Client.Timeout or context cancellation while reading body)".
+			name:     "Client.Timeout inside url.Error is reported as timeout",
+			err:      fmt.Errorf("%w: c: %w", sophon.ErrDownload, &url.Error{Op: "Get", URL: "https://cdn/x", Err: fmt.Errorf("context deadline exceeded (Client.Timeout or context cancellation while reading body): %w", context.DeadlineExceeded)}),
+			wantCode: "network",
+			detail:   "timeout",
+		},
+		{
+			// Plain transport exhaustion with no recognised shape: the fallback
+			// branch renders the whole wrapped chain. Pinned verbatim so a future
+			// change to shortCause's fallback is visible in the diff.
+			name:     `plain transport exhaustion renders "sophon: download failed: c: unexpected EOF"`,
+			err:      fmt.Errorf("%w: c: %w", sophon.ErrDownload, io.ErrUnexpectedEOF),
+			wantCode: "network",
+			detail:   "sophon: download failed: c: unexpected EOF",
+		},
+		{
+			name:      "long messages are truncated",
+			err:       long,
+			wantCode:  "network",
+			detailLen: 120,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := wrapSophonChunkErr(name, tc.err)
+			if tc.raw {
+				if got != tc.err {
+					t.Fatalf("wrapSophonChunkErr() = %#v, want the input error unchanged (%#v)", got, tc.err)
+				}
+				return
+			}
+			var ue *core.UpdateError
+			if !errors.As(got, &ue) {
+				t.Fatalf("wrapSophonChunkErr() = %#v, want *core.UpdateError", got)
+			}
+			if ue.Code != tc.wantCode {
+				t.Errorf("Code = %q, want %q", ue.Code, tc.wantCode)
+			}
+			if !ue.Retryable {
+				t.Errorf("Retryable = false, want true")
+			}
+			if ue.Params["file"] != name {
+				t.Errorf("Params[file] = %q, want %q", ue.Params["file"], name)
+			}
+			detail := ue.Params["detail"]
+			switch {
+			case tc.detailLen > 0:
+				if len(detail) != tc.detailLen {
+					t.Errorf("len(Params[detail]) = %d, want %d (detail=%q)", len(detail), tc.detailLen, detail)
+				}
+			case tc.wantCode == "network":
+				if detail != tc.detail {
+					t.Errorf("Params[detail] = %q, want %q", detail, tc.detail)
+				}
+			}
+			if strings.Contains(detail, "https://cdn/x") {
+				t.Errorf("Params[detail] = %q, must not carry the URL", detail)
+			}
+		})
 	}
 }

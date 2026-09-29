@@ -3,6 +3,7 @@ package sophon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/proto"
 
+	"omnigate/internal/downloader"
 	pb "omnigate/internal/providers/hoyoverse/sophon/proto"
 )
 
@@ -115,6 +117,46 @@ func TestFetchManifestHTTPError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error on HTTP 500")
+	}
+}
+
+// Both exported entry points wrap the manifest ID around whatever the shared
+// downloader returns, so a stall on a 7 MB manifest is identifiable in the log.
+// One test per caller (FetchManifest goes through FetchManifestRaw).
+
+func TestFetchManifestRaw_Stall(t *testing.T) {
+	fastRetry(t)
+	srv := newStallServer(t, func(w http.ResponseWriter, r *http.Request, release <-chan struct{}) {
+		hangForever(w, release)
+	})
+
+	_, _, err := FetchManifestRaw(context.Background(), srv.Client(), ManifestIdentity{
+		Manifest:         ManifestFileInfo{ID: "M-STALL-RAW"},
+		ManifestDownload: ManifestDownloadInfo{URLPrefix: srv.URL, Compression: true},
+	})
+	if !errors.Is(err, downloader.ErrStalled) {
+		t.Fatalf("want downloader.ErrStalled, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "M-STALL-RAW") {
+		t.Fatalf("the error must name the manifest: %v", err)
+	}
+}
+
+func TestFetchPatchManifest_Stall(t *testing.T) {
+	fastRetry(t)
+	srv := newStallServer(t, func(w http.ResponseWriter, r *http.Request, release <-chan struct{}) {
+		hangForever(w, release)
+	})
+
+	_, err := FetchPatchManifest(context.Background(), srv.Client(), ManifestIdentity{
+		Manifest:         ManifestFileInfo{ID: "M-STALL-PATCH"},
+		ManifestDownload: ManifestDownloadInfo{URLPrefix: srv.URL, Compression: true},
+	})
+	if !errors.Is(err, downloader.ErrStalled) {
+		t.Fatalf("want downloader.ErrStalled, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "M-STALL-PATCH") {
+		t.Fatalf("the error must name the manifest: %v", err)
 	}
 }
 

@@ -204,7 +204,7 @@ func applyChunkAssemble(ctx context.Context, p *Provider, rec *sophonApplyRecord
 				cdnSrc := src
 				cdnSrc.Kind = sophon.SourceCDN
 				out := filepath.Join(stagingRoot, "chunks", src.ChunkName)
-				if derr := sophon.DownloadChunk(ctx, p.httpClientOrDefault(), cdnSrc, out); derr != nil {
+				if derr := sophon.DownloadChunk(ctx, p.sophonDownloadClient(), cdnSrc, out); derr != nil {
 					return nil, derr
 				}
 				return os.ReadFile(out)
@@ -249,7 +249,7 @@ func applyHDiffPatch(ctx context.Context, p *Provider, gp *genshinPlan, wal *sop
 			if md5MatchesOnDisk(out, s.ExpectMD5) {
 				continue
 			}
-			if err := sophon.DownloadChunk(ctx, p.httpClientOrDefault(), s, out); err != nil {
+			if err := sophon.DownloadChunk(ctx, p.sophonDownloadClient(), s, out); err != nil {
 				return &core.UpdateError{Code: "sophon_chunk_verify_failed", Params: map[string]string{"file": s.ChunkName}, Retryable: true}
 			}
 		}
