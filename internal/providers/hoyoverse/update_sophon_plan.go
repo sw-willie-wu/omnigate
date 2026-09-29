@@ -77,10 +77,7 @@ func fetchSophonBuild(ctx context.Context, p *Provider, slot sophon.BranchSlot, 
 		return nil, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
-	hc := p.httpClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := p.sophonAPIClient()
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", endpoint, err)
@@ -126,8 +123,11 @@ func planCategories(slot sophon.BranchSlot, audioLangs []string) []sophon.Catego
 	return out
 }
 
-// httpClientOrDefault returns p.httpClient or a default 30s-timeout client.
-func (p *Provider) httpClientOrDefault() *http.Client {
+// sophonAPIClient returns p.httpClient or a default 30s-timeout client. For
+// the small JSON Sophon API calls (getBuild/getPatchBuild) ONLY — an overall
+// timeout caps the whole body read, so bulk transfers use
+// sophonDownloadClient() instead.
+func (p *Provider) sophonAPIClient() *http.Client {
 	if p.httpClient != nil {
 		return p.httpClient
 	}
@@ -163,7 +163,7 @@ func buildSophonBuildPlan(
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		// §E.2 P2: capture the raw .pb.zst wire bytes for the dedup cache.
-		newManifest, raw, err := sophon.FetchManifestRaw(ctx, p.httpClientOrDefault(), *id)
+		newManifest, raw, err := sophon.FetchManifestRaw(ctx, p.sophonDownloadClient(), *id)
 		if err != nil {
 			p.logger.Warn("sophon plan: FetchManifestRaw failed (build)", "category", cat.MatchingField, "url", id.ManifestDownload.URLPrefix+"/"+id.Manifest.ID, "err", err)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
@@ -236,13 +236,13 @@ func buildSophonPatchPlan(
 			p.logger.Warn("sophon plan: getBuild manifest missing for category (patch)", "category", cat.MatchingField)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
-		patchProto, err := sophon.FetchPatchManifest(ctx, p.httpClientOrDefault(), *patchID)
+		patchProto, err := sophon.FetchPatchManifest(ctx, p.sophonDownloadClient(), *patchID)
 		if err != nil {
 			p.logger.Warn("sophon plan: FetchPatchManifest failed", "category", cat.MatchingField, "url", patchID.ManifestDownload.URLPrefix+"/"+patchID.Manifest.ID, "err", err)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}
 		}
 		// §E.2 P2: capture the main manifest raw .pb.zst for the dedup cache.
-		mainProto, raw, err := sophon.FetchManifestRaw(ctx, p.httpClientOrDefault(), *buildID)
+		mainProto, raw, err := sophon.FetchManifestRaw(ctx, p.sophonDownloadClient(), *buildID)
 		if err != nil {
 			p.logger.Warn("sophon plan: FetchManifestRaw failed (patch)", "category", cat.MatchingField, "url", buildID.ManifestDownload.URLPrefix+"/"+buildID.Manifest.ID, "err", err)
 			return &core.UpdateError{Code: "sophon_manifest_fetch_failed", Retryable: true}

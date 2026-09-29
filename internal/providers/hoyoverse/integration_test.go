@@ -167,6 +167,19 @@ func newFakeSophonServer(t *testing.T, branches, build, patch string) *fakeSopho
 	return fs
 }
 
+// fastRetry shrinks the sophon download retry backoff and stall window for the
+// duration of the test. A deliberate copy of sophon's own helper: the vars are
+// exported so another package can set them directly, and duplicating the four
+// lines is cheaper than exporting a test helper across the package boundary.
+// Without it, the retry-exhaustion scenarios sleep 1 s + 4 s per chunk.
+func fastRetry(t *testing.T) {
+	t.Helper()
+	oldBackoff, oldStall := sophon.RetryBackoff, sophon.StallTimeout
+	sophon.RetryBackoff = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond}
+	sophon.StallTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { sophon.RetryBackoff, sophon.StallTimeout = oldBackoff, oldStall })
+}
+
 // newSophonProvider builds a Provider wired to the fake server and a temp
 // game dir + temp root. gameVersion == "" → no config.ini (no-install).
 // Installs a mock hpatchzRun that writes deterministic bytes matching
@@ -174,6 +187,7 @@ func newFakeSophonServer(t *testing.T, branches, build, patch string) *fakeSopho
 // require a valid hpatchz diff blob in the fixture.
 func newSophonProvider(t *testing.T, fs *fakeSophonServer, gameVersion string) (*Provider, string, string) {
 	t.Helper()
+	fastRetry(t)
 	gameDir := t.TempDir()
 	tempRoot := t.TempDir()
 	if gameVersion != "" {

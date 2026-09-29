@@ -259,6 +259,17 @@ func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Upd
 		}
 	}
 	state.mu.Unlock()
+
+	// Log AFTER releasing the lock (no I/O under state.mu). Before this, a
+	// terminal RunUpdate failure only reached the UI: the 2026-09-29 Sophon
+	// timeout had to be diagnosed from the error string on screen.
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			a.logger.Debug("runUpdateWorker: update cancelled", "game", gid, "kind", plan.Kind, "version", plan.Version, "err", err)
+		} else {
+			a.logger.Warn("runUpdateWorker: update failed", "game", gid, "kind", plan.Kind, "version", plan.Version, "err", err)
+		}
+	}
 	a.updateRegistry.EmitTerminal(gid)
 }
 
