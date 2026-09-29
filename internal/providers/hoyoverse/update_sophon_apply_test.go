@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"omnigate/internal/core"
@@ -284,6 +285,11 @@ func TestRunSophonApply_CopyOverAndDelete(t *testing.T) {
 		sophonRawManifests:        map[string][]byte{},
 	}
 	p.tempRootFn = func(_ core.GameID) string { return tmp }
+	// A raw (non-HDIFF) copy_over slice must never reach hpatchz.
+	p.hpatchzRun = func(context.Context, string, string, string) error {
+		t.Fatal("hpatchz must not run for a raw copy_over slice")
+		return nil
+	}
 
 	if err := runSophonApply(ctx, p, gid, gp, tmp, gameDir, stagingRoot, func(string, int, int) {}); err != nil {
 		t.Fatalf("runSophonApply: %v", err)
@@ -321,7 +327,15 @@ func TestRunSophonApply_HDiffPatch_OldFileMatch(t *testing.T) {
 	ver := "6.6.0"
 
 	vdir := versionSidecarDir(tmp, gid, ver)
-	stagingRoot := filepath.Join(vdir, "staging", "main", "buildA")
+	// stagingRoot sits OUTSIDE <versionDir>/staging/main/<buildID> so the
+	// "hdiff_inputs is empty after use" assertion below survives
+	// finalizeSophonApply's RemoveAll of that directory (spec §4). versionDir
+	// must then be created here: apply_lock_windows.go opens apply.lock in it
+	// without MkdirAll.
+	if err := os.MkdirAll(vdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stagingRoot := filepath.Join(tmp, "stage")
 	patchesDir := filepath.Join(stagingRoot, "patches")
 	_ = os.MkdirAll(patchesDir, 0o755)
 
@@ -385,6 +399,9 @@ func TestRunSophonApply_HDiffPatch_OldFileMatch(t *testing.T) {
 	if string(got) != string(newContent) {
 		t.Errorf("new.pak = %q, want %q", got, newContent)
 	}
+
+	// The extracted hdiff slice is removed after use.
+	assertHDiffInputsEmpty(t, stagingRoot)
 }
 
 func TestRunSophonApply_HDiffPatch_DemoteToChunkAssemble(t *testing.T) {
@@ -675,4 +692,262 @@ func TestRunSophonApply_BatchedFlushCadence(t *testing.T) {
 	// The run completed successfully and the WAL was cleaned up — that's the
 	// key invariant. Flush-count introspection is internal to the flusher.
 	// A second run with a fresh WAL also succeeds (idempotent).
+}
+
+// --- copy_over slices that are actually hdiffs against an empty old file ---
+
+// ctxKey is a test-only context key: the fakes below assert the caller's ctx
+// reaches the injected hpatchz runner (i.e. HDiffApply gets Ctx threaded).
+type ctxKey struct{}
+
+// newCopyOverFixture builds a single-record copy_over apply fixture: a patch
+// blob of 3 noise bytes followed by slice (PatchOffset=3), a gameDir with
+// config.ini, and a plan whose only PatchInstr is MethodCopyOver/copied.bin
+// with ExpectMD5 == expectMD5. run is installed as p.hpatchzRun.
+//
+// stagingRoot is deliberately placed OUTSIDE <versionDir>/staging/main/<buildID>
+// so that "hdiff_inputs is empty after use" stays observable on the success path
+// — finalizeSophonApply RemoveAll's that directory (spec §4).
+func newCopyOverFixture(t *testing.T, slice []byte, expectMD5 string, run func(context.Context, string, string, string) error) (p *Provider, gp *genshinPlan, tmp, gameDir, stagingRoot string) {
+	t.Helper()
+	gid := core.GameID("hoyoverse/genshin")
+	ver := "6.6.0"
+	tmp = t.TempDir()
+
+	// apply_lock_windows.go opens <versionDir>/apply.lock without MkdirAll; with
+	// stagingRoot moved out of versionDir nothing else creates it, so do it here.
+	vdir := versionSidecarDir(tmp, gid, ver)
+	if err := os.MkdirAll(vdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stagingRoot = filepath.Join(tmp, "stage")
+	patchesDir := filepath.Join(stagingRoot, "patches")
+	if err := os.MkdirAll(patchesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	blob := append([]byte("xyz"), slice...)
+	if err := os.WriteFile(filepath.Join(patchesDir, "patch1.blob"), blob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gameDir = filepath.Join(tmp, "game")
+	if err := os.MkdirAll(gameDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gameDir, "config.ini"), []byte("[General]\r\ngame_version=6.5.0\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gp = &genshinPlan{
+		UpdatePlan:         core.UpdatePlan{GameID: gid, Version: ver},
+		flavor:             flavorSophonPatch,
+		sophonBuildID:      "buildA",
+		sophonCategories:   []sophon.Category{{MatchingField: "game"}},
+		sophonChunkSources: []sophon.ChunkSource{},
+		sophonPatches: []sophon.PatchInstr{
+			{
+				Method:      sophon.MethodCopyOver,
+				Asset:       "copied.bin",
+				PatchName:   "patch1.blob",
+				PatchOffset: 3,
+				PatchLength: int64(len(slice)),
+				ExpectMD5:   expectMD5,
+			},
+		},
+		sophonDeletes:             []sophon.DeleteInstr{},
+		sophonAssetMD5:            map[string]string{},
+		sophonPatchAssetsFromMain: map[string][]sophon.ChunkSource{},
+		sophonRawManifests:        map[string][]byte{},
+	}
+
+	p = makeProvider(t)
+	p.hpatchzRun = run
+	p.tempRootFn = func(_ core.GameID) string { return tmp }
+	return p, gp, tmp, gameDir, stagingRoot
+}
+
+// assertHDiffInputsEmpty asserts <stagingRoot>/hdiff_inputs is gone or empty:
+// the extracted slice must be removed after use (spec §2, disk-footprint).
+func assertHDiffInputsEmpty(t *testing.T, stagingRoot string) {
+	t.Helper()
+	dir := filepath.Join(stagingRoot, "hdiff_inputs")
+	ents, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", dir, err)
+	}
+	if len(ents) != 0 {
+		names := make([]string, 0, len(ents))
+		for _, e := range ents {
+			names = append(names, e.Name())
+		}
+		t.Errorf("hdiff_inputs should be empty after use, got %v", names)
+	}
+}
+
+// assertHDiffFakeArgs is the shared part of every copy_over hdiff fake: the
+// caller ctx must arrive, oldFile must be "" (patch against an empty old file),
+// and the diff input must be the raw slice.
+func assertHDiffFakeArgs(t *testing.T, rctx context.Context, oldFile, diffFile string, slice []byte) {
+	t.Helper()
+	if got := rctx.Value(ctxKey{}); got != "v" {
+		t.Errorf("hpatchzRun ctx.Value(ctxKey{}) = %v, want \"v\" (caller ctx must reach HDiffApply)", got)
+	}
+	if oldFile != "" {
+		t.Errorf("hpatchzRun oldFile = %q, want \"\" (hdiff against an empty old file)", oldFile)
+	}
+	gotDiff, err := os.ReadFile(diffFile)
+	if err != nil {
+		t.Errorf("hpatchzRun read diffFile: %v", err)
+		return
+	}
+	if string(gotDiff) != string(slice) {
+		t.Errorf("hpatchzRun diffFile = %q, want the patch slice %q", gotDiff, slice)
+	}
+}
+
+func TestRunSophonApply_CopyOverHDiff(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxKey{}, "v")
+	slice := []byte("HDIFF13&fake-diff-bytes")
+	newContent := []byte("NEWFILE!")
+
+	calls := 0
+	run := func(rctx context.Context, oldFile, diffFile, newFile string) error {
+		calls++
+		assertHDiffFakeArgs(t, rctx, oldFile, diffFile, slice)
+		return os.WriteFile(newFile, newContent, 0o644)
+	}
+
+	p, gp, tmp, gameDir, stagingRoot := newCopyOverFixture(t, slice, md5Hex(newContent), run)
+	gid := core.GameID("hoyoverse/genshin")
+	if err := runSophonApply(ctx, p, gid, gp, tmp, gameDir, stagingRoot, func(string, int, int) {}); err != nil {
+		t.Fatalf("runSophonApply: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(gameDir, "copied.bin"))
+	if err != nil {
+		t.Fatalf("copied.bin not written: %v", err)
+	}
+	if string(got) != string(newContent) {
+		t.Errorf("copied.bin = %q, want the hpatchz output %q", got, newContent)
+	}
+	if calls != 1 {
+		t.Errorf("hpatchzRun calls = %d, want 1", calls)
+	}
+	assertHDiffInputsEmpty(t, stagingRoot)
+}
+
+func TestRunSophonApply_CopyOverHDiff_FallsBackToRaw(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxKey{}, "v")
+	slice := []byte("HDIFF13&fake-diff-bytes")
+
+	calls := 0
+	run := func(rctx context.Context, oldFile, diffFile, newFile string) error {
+		calls++
+		assertHDiffFakeArgs(t, rctx, oldFile, diffFile, slice)
+		return os.WriteFile(newFile, []byte("WRONG"), 0o644)
+	}
+
+	// ExpectMD5 matches the RAW slice: the hdiff branch produces the wrong bytes,
+	// so apply must fall back to writing the slice verbatim and verify again.
+	p, gp, tmp, gameDir, stagingRoot := newCopyOverFixture(t, slice, md5Hex(slice), run)
+	gid := core.GameID("hoyoverse/genshin")
+	if err := runSophonApply(ctx, p, gid, gp, tmp, gameDir, stagingRoot, func(string, int, int) {}); err != nil {
+		t.Fatalf("runSophonApply: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(gameDir, "copied.bin"))
+	if err != nil {
+		t.Fatalf("copied.bin not written: %v", err)
+	}
+	if string(got) != string(slice) {
+		t.Errorf("copied.bin = %q, want the raw slice %q", got, slice)
+	}
+	if calls != 1 {
+		t.Errorf("hpatchzRun calls = %d, want 1", calls)
+	}
+	assertHDiffInputsEmpty(t, stagingRoot)
+}
+
+func TestRunSophonApply_CopyOverHDiff_BothBranchesFail(t *testing.T) {
+	buf := captureSlog(t)
+	ctx := context.WithValue(context.Background(), ctxKey{}, "v")
+	slice := []byte("HDIFF13&fake-diff-bytes")
+
+	calls := 0
+	run := func(rctx context.Context, oldFile, diffFile, newFile string) error {
+		calls++
+		assertHDiffFakeArgs(t, rctx, oldFile, diffFile, slice)
+		return os.WriteFile(newFile, []byte("WRONG"), 0o644)
+	}
+
+	// Neither the hdiff output nor the raw slice matches ExpectMD5.
+	p, gp, tmp, gameDir, stagingRoot := newCopyOverFixture(t, slice, md5Hex([]byte("something-else")), run)
+	gid := core.GameID("hoyoverse/genshin")
+	err := runSophonApply(ctx, p, gid, gp, tmp, gameDir, stagingRoot, func(string, int, int) {})
+	if err == nil {
+		t.Fatalf("runSophonApply: want error, got nil")
+	}
+	var ue *core.UpdateError
+	if !errors.As(err, &ue) {
+		t.Fatalf("err = %v (%T), want *core.UpdateError", err, err)
+	}
+	if ue.Code != "sophon_apply_failed" {
+		t.Errorf("Code = %q, want sophon_apply_failed", ue.Code)
+	}
+	if ue.Retryable {
+		t.Errorf("Retryable = true, want false")
+	}
+	if ue.Params["file"] != "copied.bin" {
+		t.Errorf("Params[file] = %q, want copied.bin", ue.Params["file"])
+	}
+	if calls != 1 {
+		t.Errorf("hpatchzRun calls = %d, want 1", calls)
+	}
+	if _, serr := os.Stat(filepath.Join(stagingRoot, "assembled", "copied.bin.tmp")); !errors.Is(serr, os.ErrNotExist) {
+		t.Errorf("assembled/copied.bin.tmp should have been removed, stat err = %v", serr)
+	}
+	if _, serr := os.Stat(filepath.Join(gameDir, "copied.bin")); !errors.Is(serr, os.ErrNotExist) {
+		t.Errorf("gameDir/copied.bin should not exist, stat err = %v", serr)
+	}
+	assertHDiffInputsEmpty(t, stagingRoot)
+
+	logged := buf.String()
+	for _, want := range []string{"apply record failed", "hdiff:", "raw:"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("slog output missing %q; got: %s", want, logged)
+		}
+	}
+	if strings.Contains(logged, "<nil>") {
+		t.Errorf("slog output must not contain <nil> (hcause must be a real cause); got: %s", logged)
+	}
+}
+
+func TestSophonApplyFailed_LogsCause(t *testing.T) {
+	buf := captureSlog(t)
+	err := sophonApplyFailed("a/b.bin", errors.New("boom"))
+
+	var ue *core.UpdateError
+	if !errors.As(err, &ue) {
+		t.Fatalf("err = %v (%T), want *core.UpdateError", err, err)
+	}
+	if ue.Code != "sophon_apply_failed" {
+		t.Errorf("Code = %q, want sophon_apply_failed", ue.Code)
+	}
+	if ue.Retryable {
+		t.Errorf("Retryable = true, want false")
+	}
+	if ue.Params["file"] != "a/b.bin" {
+		t.Errorf("Params[file] = %q, want a/b.bin", ue.Params["file"])
+	}
+
+	logged := buf.String()
+	for _, want := range []string{"apply record failed", "file=a/b.bin", "err=boom"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("slog output missing %q; got: %s", want, logged)
+		}
+	}
 }

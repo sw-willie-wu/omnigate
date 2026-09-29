@@ -11,6 +11,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/proto"
 
+	"omnigate/internal/downloader"
 	pb "omnigate/internal/providers/hoyoverse/sophon/proto"
 )
 
@@ -20,26 +21,20 @@ import (
 // ManifestDownload.Compression is set the wire body is zstd-compressed and
 // decoded is its decompression; otherwise decoded == wire. The manifest
 // checksum is NOT verified (Collapse parity).
+//
+// The transfer goes through the shared downloader, so a 7 MB manifest is bounded
+// by a zero-bytes stall window rather than an overall timeout. Errors come back
+// as the downloader produced them (*downloader.StatusError, ErrStalled, …); the
+// exported callers below wrap the manifest ID around them. There is no retry
+// here — the planner already maps this to a retryable condition.
 func fetchManifestWire(ctx context.Context, hc *http.Client, id ManifestIdentity) (wire, decoded []byte, err error) {
-	if hc == nil {
-		hc = http.DefaultClient
-	}
 	u := id.ManifestDownload.URLPrefix + "/" + id.Manifest.ID
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
+	if err := downloader.Fetch(ctx, hc, u, downloader.Options{Stall: StallTimeout}, func(r io.Reader) error {
+		b, rerr := io.ReadAll(r)
+		wire = b
+		return rerr
+	}); err != nil {
 		return nil, nil, err
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("sophon: fetch manifest %q: http %d", id.Manifest.ID, resp.StatusCode)
-	}
-	wire, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("sophon: read manifest %q: %w", id.Manifest.ID, err)
 	}
 	decoded = wire
 	if bool(id.ManifestDownload.Compression) {
@@ -64,7 +59,7 @@ func fetchManifestWire(ctx context.Context, hc *http.Client, id ManifestIdentity
 func FetchManifestRaw(ctx context.Context, hc *http.Client, id ManifestIdentity) (*pb.SophonManifestProto, []byte, error) {
 	wire, decoded, err := fetchManifestWire(ctx, hc, id)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("sophon: fetch manifest %q: %w", id.Manifest.ID, err)
 	}
 	var m pb.SophonManifestProto
 	if err := proto.Unmarshal(decoded, &m); err != nil {
@@ -89,7 +84,7 @@ func FetchManifest(ctx context.Context, hc *http.Client, id ManifestIdentity) (*
 func FetchPatchManifest(ctx context.Context, hc *http.Client, id ManifestIdentity) (*pb.SophonPatchProto, error) {
 	_, decoded, err := fetchManifestWire(ctx, hc, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sophon: fetch manifest %q: %w", id.Manifest.ID, err)
 	}
 	var m pb.SophonPatchProto
 	if err := proto.Unmarshal(decoded, &m); err != nil {

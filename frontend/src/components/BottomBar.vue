@@ -102,12 +102,44 @@ const stageLabel = computed<string>(() => {
   const ifl = inFlight.value;
   const stage = ifl?.stage;
   if (!stage) return '';
+  const cur = Number((ifl as any)?.current ?? 0);
+  const total = Number((ifl as any)?.total ?? 0);
   // update.stage.patching interpolates {x}/{y} (current/total file counts).
   // InFlightOp has no `.params` field, so the generic fallback below always
   // rendered blank numbers during the whole patch phase — mirror
   // SidebarRow.vue's approach and feed the snapshot's current/total in directly.
-  if (stage === 'patching') return t('update.stage.patching', { x: (ifl as any)?.current, y: (ifl as any)?.total });
-  return t(`update.stage.${stage}`, (ifl as any)?.params || {});
+  if (stage === 'patching') return t('update.stage.patching', { x: cur, y: total });
+  // Sophon per-record apply progress (legacy "applying" carries done/total too).
+  // No phase check needed: resolvePhase('applying') is always PhaseApply.
+  if (stage === 'applying' && total > 0) {
+    return t('update.applying_progress', { pct: progressPct.value, x: cur, y: total });
+  }
+  // Unknown stage (e.g. Sophon's "download") → '' so the template falls back to
+  // the phase-based percentage label instead of rendering a raw i18n key.
+  // NOTE: that fallback formats current/total as BYTES; a future count-based
+  // stage shipped without a locale key would render bogus MB/GB — add its key
+  // to i18n_parity's required list when adding stages.
+  const key = `update.stage.${stage}`;
+  if (!te(key)) return '';
+  return t(key, (ifl as any)?.params || {});
+});
+
+// Phase-based download labels: with a known total show "下載中 45% (1.4 GB /
+// 3.1 GB)" (download-stage current/total are always BYTES — all five provider
+// emit points agree), otherwise the plain percentage.
+const downloadLabel = computed<string>(() => {
+  const ifl = inFlight.value;
+  const total = Number(ifl?.total ?? 0);
+  const cur = Number(ifl?.current ?? 0);
+  if (total > 0) return t('update.downloading_progress', { pct: progressPct.value, done: formatSize(cur), total: formatSize(total) });
+  return t('update.downloading', { pct: progressPct.value });
+});
+const predlLabel = computed<string>(() => {
+  const ifl = inFlight.value;
+  const total = Number(ifl?.total ?? 0);
+  const cur = Number(ifl?.current ?? 0);
+  if (total > 0) return t('update.predl_downloading_progress', { pct: progressPct.value, done: formatSize(cur), total: formatSize(total) });
+  return t('update.predl_downloading', { pct: progressPct.value });
 });
 
 // Cancel tooltip when in apply phase — shows ETA if available
@@ -270,7 +302,7 @@ async function onCancel() {
     <div v-else-if="inFlight && inFlight.kind === 'predownload'" class="predl-area">
       <button class="progress-btn predl">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || t('update.predl_downloading', { pct: progressPct })) }}</span>
+        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || predlLabel) }}</span>
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
     </div>
@@ -296,7 +328,7 @@ async function onCancel() {
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'download'" class="progress-btn update">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || t('update.downloading', { pct: progressPct })) }}</span>
+        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || downloadLabel) }}</span>
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'apply'" class="progress-btn update apply">

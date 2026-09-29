@@ -179,12 +179,28 @@ func applySophonRecord(ctx context.Context, p *Provider, gp *genshinPlan, wal *s
 	case "hdiff_patch":
 		return applyHDiffPatch(ctx, p, gp, wal, rec, gameDir, stagingRoot, versionDir)
 	case "copy_over":
-		return applyCopyOver(rec, gameDir, stagingRoot)
+		return applyCopyOver(ctx, p, rec, gameDir, stagingRoot)
 	case "delete":
 		return applyDelete(rec, gameDir)
 	default:
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, fmt.Errorf("unknown record kind %q", rec.Kind))
 	}
+}
+
+// errMD5Mismatch is the cause reported when an assembled/patched/copied file's
+// whole-file MD5 does not match the manifest's expected value.
+var errMD5Mismatch = errors.New("whole-file md5 mismatch")
+
+// sophonApplyFailed logs the underlying cause and returns the user-facing
+// sophon_apply_failed error. The returned *core.UpdateError is byte-identical to
+// what every call site used to construct inline (same Code / Params / Retryable,
+// so UI + error classification are unchanged); the only new behaviour is that
+// the cause now reaches the log, which was previously discarded at all 10 sites.
+// Uses package slog (not p.logger) so it is callable from helpers without a
+// Provider and so tests can capture it via slog.SetDefault.
+func sophonApplyFailed(path string, cause error) error {
+	slog.Warn("hoyoverse/sophon: apply record failed", "file", path, "err", cause)
+	return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": path}, Retryable: false}
 }
 
 // applyChunkAssemble implements §6.3.
@@ -204,7 +220,7 @@ func applyChunkAssemble(ctx context.Context, p *Provider, rec *sophonApplyRecord
 				cdnSrc := src
 				cdnSrc.Kind = sophon.SourceCDN
 				out := filepath.Join(stagingRoot, "chunks", src.ChunkName)
-				if derr := sophon.DownloadChunk(ctx, p.httpClientOrDefault(), cdnSrc, out); derr != nil {
+				if derr := sophon.DownloadChunk(ctx, p.sophonDownloadClient(), cdnSrc, out); derr != nil {
 					return nil, derr
 				}
 				return os.ReadFile(out)
@@ -215,11 +231,11 @@ func applyChunkAssemble(ctx context.Context, p *Provider, rec *sophonApplyRecord
 	}
 	if err := sophon.AssembleFile(outTmp, totalSize, srcs, readChunk); err != nil {
 		_ = os.Remove(outTmp)
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, err)
 	}
 	if rec.AssetMD5 != "" && !md5MatchesOnDisk(outTmp, rec.AssetMD5) {
 		_ = os.Remove(outTmp)
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, errMD5Mismatch)
 	}
 	return sophonRenameIntoGame(outTmp, gameDir, rec.Path)
 }
@@ -239,7 +255,7 @@ func applyHDiffPatch(ctx context.Context, p *Provider, gp *genshinPlan, wal *sop
 			sources = gp.sophonPatchAssetsFromMain[rec.Path]
 		}
 		if len(sources) == 0 {
-			return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+			return sophonApplyFailed(rec.Path, errors.New("no chunk sources for demotion"))
 		}
 		for _, s := range sources {
 			if s.Kind != sophon.SourceCDN {
@@ -249,7 +265,7 @@ func applyHDiffPatch(ctx context.Context, p *Provider, gp *genshinPlan, wal *sop
 			if md5MatchesOnDisk(out, s.ExpectMD5) {
 				continue
 			}
-			if err := sophon.DownloadChunk(ctx, p.httpClientOrDefault(), s, out); err != nil {
+			if err := sophon.DownloadChunk(ctx, p.sophonDownloadClient(), s, out); err != nil {
 				return &core.UpdateError{Code: "sophon_chunk_verify_failed", Params: map[string]string{"file": s.ChunkName}, Retryable: true}
 			}
 		}
@@ -272,7 +288,7 @@ func applyHDiffPatch(ctx context.Context, p *Provider, gp *genshinPlan, wal *sop
 	// Match path: extract slice → hdiff input → HDiffApply.
 	slice, err := readPatchSlice(stagingRoot, rec.PatchName, rec.PatchOff, rec.PatchLen)
 	if err != nil {
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, err)
 	}
 	hdiffInput := filepath.Join(stagingRoot, "hdiff_inputs", fmt.Sprintf("%s_%d.bin", rec.PatchName, rec.PatchOff))
 	if err := os.MkdirAll(filepath.Dir(hdiffInput), 0o755); err != nil {
@@ -281,6 +297,9 @@ func applyHDiffPatch(ctx context.Context, p *Provider, gp *genshinPlan, wal *sop
 	if err := os.WriteFile(hdiffInput, slice, 0o644); err != nil {
 		return err
 	}
+	// Extracted slices are large (0.7 GiB across a real Star Rail 4.6 patch) and
+	// resume never needs them — drop as soon as this record is done either way.
+	defer os.Remove(hdiffInput)
 	outTmp := filepath.Join(stagingRoot, "assembled", rec.Path+".tmp")
 	if err := os.MkdirAll(filepath.Dir(outTmp), 0o755); err != nil {
 		return err
@@ -294,32 +313,87 @@ func applyHDiffPatch(ctx context.Context, p *Provider, gp *genshinPlan, wal *sop
 		OutTmp:    outTmp,
 	}); err != nil {
 		_ = os.Remove(outTmp)
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, err)
 	}
 	if rec.AssetMD5 != "" && !md5MatchesOnDisk(outTmp, rec.AssetMD5) {
 		_ = os.Remove(outTmp)
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, errMD5Mismatch)
 	}
 	return sophonRenameIntoGame(outTmp, gameDir, rec.Path)
 }
 
-// applyCopyOver implements §6.5.
-func applyCopyOver(rec *sophonApplyRecord, gameDir, stagingRoot string) error {
+// applyCopyOver implements §6.5. A copy_over slice is NOT necessarily the raw
+// file: the Sophon patch CDN delivers new files as hdiffs against an EMPTY old
+// file (349/349 records in a real Star Rail 4.6 patch start with "HDIFF"), which
+// is what Collapse's IsChunkActuallyHDiff detects too. So: hdiff-looking slices
+// go through hpatchz with an empty OldFile; if that fails (hpatchz error OR
+// whole-file MD5 mismatch) we fall back to writing the slice verbatim and verify
+// again, so a raw file that merely happens to start with "HDIFF" still applies.
+// Both branches end in the same whole-file MD5 check + rename.
+func applyCopyOver(ctx context.Context, p *Provider, rec *sophonApplyRecord, gameDir, stagingRoot string) error {
+	// 1. Extract the slice.
 	slice, err := readPatchSlice(stagingRoot, rec.PatchName, rec.PatchOff, rec.PatchLen)
 	if err != nil {
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, err)
 	}
+
+	// 2. Destination temp path.
 	outTmp := filepath.Join(stagingRoot, "assembled", rec.Path+".tmp")
 	if err := os.MkdirAll(filepath.Dir(outTmp), 0o755); err != nil {
 		return err
 	}
+
+	// 3. hdiff branch (patch against an empty old file).
+	var hcause error
+	if sophon.IsHDiff(slice) {
+		hdiffInput := filepath.Join(stagingRoot, "hdiff_inputs", fmt.Sprintf("%s_%d.bin", rec.PatchName, rec.PatchOff))
+		if err := os.MkdirAll(filepath.Dir(hdiffInput), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(hdiffInput, slice, 0o644); err != nil {
+			return err
+		}
+		// copy_over slices total 2.27 GiB on a real Star Rail 4.6 patch; resume
+		// never needs them, so drop this one whichever branch wins.
+		defer os.Remove(hdiffInput)
+
+		herr := sophon.HDiffApply(sophon.HDiffOpts{
+			Ctx:       ctx,
+			Run:       p.hpatchzRunOrDefault(),
+			Method:    sophon.MethodPatch,
+			OldFile:   "", // empty old file — copy_over hdiffs have oldSize==0
+			DiffInput: hdiffInput,
+			OutTmp:    outTmp,
+		})
+		if herr == nil && (rec.AssetMD5 == "" || md5MatchesOnDisk(outTmp, rec.AssetMD5)) {
+			return sophonRenameIntoGame(outTmp, gameDir, rec.Path) // step 6
+		}
+		// Compute the cause once so the Debug line and the step-5 composite agree
+		// and neither can print "hdiff: <nil>".
+		hcause = herr
+		if hcause == nil {
+			hcause = errMD5Mismatch
+		}
+		slog.Debug("hoyoverse/sophon: copy_over hdiff branch failed, falling back to raw", "file", rec.Path, "err", hcause)
+		_ = os.Remove(outTmp)
+	}
+
+	// 4. raw branch: the slice IS the file.
 	if err := os.WriteFile(outTmp, slice, 0o644); err != nil {
 		return err
 	}
+
+	// 5. Whole-file MD5 (both branches).
 	if rec.AssetMD5 != "" && !md5MatchesOnDisk(outTmp, rec.AssetMD5) {
 		_ = os.Remove(outTmp)
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		cause := error(errMD5Mismatch)
+		if hcause != nil {
+			cause = fmt.Errorf("hdiff: %v; raw: %w", hcause, errMD5Mismatch)
+		}
+		return sophonApplyFailed(rec.Path, cause)
 	}
+
+	// 6. Move into the game dir.
 	return sophonRenameIntoGame(outTmp, gameDir, rec.Path)
 }
 
@@ -330,7 +404,7 @@ func applyDelete(rec *sophonApplyRecord, gameDir string) error {
 		slog.Warn("hoyoverse/sophon: delete MD5 mismatch (continuing)", "file", rec.Path)
 	}
 	if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return &core.UpdateError{Code: "sophon_apply_failed", Params: map[string]string{"file": rec.Path}, Retryable: false}
+		return sophonApplyFailed(rec.Path, err)
 	}
 	return nil
 }

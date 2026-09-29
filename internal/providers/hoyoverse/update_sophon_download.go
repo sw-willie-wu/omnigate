@@ -3,12 +3,15 @@ package hoyoverse
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"omnigate/internal/core"
+	"omnigate/internal/downloader"
 	"omnigate/internal/providers/hoyoverse/sophon"
 )
 
@@ -38,7 +41,7 @@ type sophonExecutors struct {
 }
 
 // defaultSophonExecutors wires the three real sophon-layer functions.
-// Task 21 passes p.httpClientOrDefault() here.
+// Production passes p.sophonDownloadClient() here (no overall timeout).
 func defaultSophonExecutors(hc *http.Client) sophonExecutors {
 	return sophonExecutors{
 		downloadChunk: func(ctx context.Context, src sophon.ChunkSource, out string) error {
@@ -242,10 +245,24 @@ func markPatchDone(store *sophonProgressStore, mu *sync.Mutex, name string) erro
 	return store.MarkPatchDone(name)
 }
 
-// wrapSophonChunkErr converts a verify-exhausted error into the user-facing
-// retryable code; ctx errors and stale errors pass through unchanged.
+// wrapSophonChunkErr turns a download/verify failure into the user-facing code
+// (spec §3.4). Four steps, in order:
+//
+//  1. user cancellation → unchanged (the caller recognises context.Canceled);
+//  2. local filesystem fault (disk full, locked handle) → unchanged, so
+//     asUpdateError reports "internal" — retrying will not help;
+//  3. content verification (md5/xxh/CRC/zstd decode) → sophon_chunk_verify_failed;
+//  4. everything else is a transport failure → "network" with a SHORT detail.
+//
+// context.DeadlineExceeded is deliberately NOT passed through (it used to be):
+// that is exactly how "context deadline exceeded (Client.Timeout or context
+// cancellation while reading body)" reached the UI as an "internal" error on
+// 2026-09-29.
 func wrapSophonChunkErr(name string, err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	if downloader.IsFilesystemErr(err) {
 		return err
 	}
 	if errors.Is(err, sophon.ErrChunkVerify) {
@@ -255,5 +272,48 @@ func wrapSophonChunkErr(name string, err error) error {
 			Retryable: true,
 		}
 	}
-	return err
+	return &core.UpdateError{
+		Code:      "network",
+		Retryable: true,
+		Params:    map[string]string{"detail": shortCause(err), "file": name},
+	}
+}
+
+// shortCauseMaxLen bounds the fallback detail: the UI renders it inline in one
+// line (BottomBar), and raw transport errors can be arbitrarily long.
+const shortCauseMaxLen = 120
+
+// shortCause renders err as a short, human-readable cause for the UI. The order
+// is FIXED and matters: sophon's exhausted errors are built with two %w verbs,
+// so errors.Unwrap returns nil and "walk to the innermost cause" is impossible —
+// only errors.Is/As see through them, and several of the shapes below nest
+// inside each other (a *url.Error whose Err wraps context.DeadlineExceeded is
+// the 2026-09-29 incident shape, and must read "timeout", not the raw sentence).
+func shortCause(err error) string {
+	if errors.Is(err, downloader.ErrStalled) {
+		return "stream stalled"
+	}
+	var se *downloader.StatusError
+	if errors.As(err, &se) {
+		return fmt.Sprintf("http %d", se.Code)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		// Drop the URL: it belongs in the log, not in a UI line.
+		return truncateCause(ue.Err.Error())
+	}
+	return truncateCause(err.Error())
+}
+
+// truncateCause caps s at shortCauseMaxLen runes, so a multi-byte message is
+// never cut mid-character.
+func truncateCause(s string) string {
+	r := []rune(s)
+	if len(r) <= shortCauseMaxLen {
+		return s
+	}
+	return string(r[:shortCauseMaxLen])
 }
