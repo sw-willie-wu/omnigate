@@ -132,6 +132,9 @@ func (a *App) constructProviders() error {
 
 	kuro := kurogames.New(kurogames.Settings{}, a.logger.With("backend", "kurogames"))
 	kuro.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(kurogames.BackendID, gid) })
+	if a.store != nil {
+		kuro.SetKV(a.store)
+	}
 	if err := a.registerProvider(kuro); err != nil {
 		return err
 	}

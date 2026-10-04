@@ -28,6 +28,7 @@ type Provider struct {
 	convLogPathsFn func(installDir string) []string
 	recordDelay    time.Duration
 	tempRootFn     func(core.GameID) string
+	kv             KV // config store (bundle catalog / active bundle / launch opts); memKV until SetKV
 
 	krsdkCachePathFn     func() (string, error)         // locate KRSDKUserCache.json (injectable)
 	localStorageDBPathFn func(installDir string) string // locate LocalStorage.db (injectable)
@@ -62,6 +63,7 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 			},
 		},
 		clock: realRetryClock{},
+		kv:    newMemKV(),
 	}
 	p.recordAPIBase = "https://gmserver-api.aki-game2.net"
 	p.convLogPathsFn = defaultConvLogPaths
@@ -208,6 +210,7 @@ func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.Launch
 	if err != nil {
 		return 0, err
 	}
+	opts.ExtraArgs = p.launchArgsFor(ctx, gid, installPath)
 	return Launch(ctx, installPath, gid, opts)
 }
 
