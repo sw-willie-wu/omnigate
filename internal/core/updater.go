@@ -98,6 +98,10 @@ type UpdatePlan struct {
 	// PeakTempBytes is the provider-computed worst-case temp usage of the
 	// apply phase (spec §5). 0 = no patch phase; preflight uses TotalBytes only.
 	PeakTempBytes int64 `json:"peak_temp_bytes,omitempty"`
+	// Bundle is non-empty for a resource-bundle install plan (WuWa quality
+	// level); "" for a normal update. Persisted into progress.json/apply.wal
+	// so an interrupted install resumes as an install (spec §6.5).
+	Bundle string `json:"bundle,omitempty"`
 }
 
 // FileTask is one file to download + apply during an update run.
