@@ -1,0 +1,2819 @@
+{
+  "resource": [
+    {
+      "dest": "Client/Content/HD/pakchunk104-HD-WindowsNoEditor.pak",
+      "md5": "5f59e01af7c72edef34bf9d15f886876",
+      "size": 19308271
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk1-HD-WindowsNoEditor.sig",
+      "md5": "e580f5a437d64da37db3e6dc26ec8453",
+      "size": 632
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk106-HD-WindowsNoEditor.pak",
+      "md5": "8f7437239e4fff2afe39b63d1792df7d",
+      "size": 4644719
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk1-HD-WindowsNoEditor.pak",
+      "md5": "9ff2631f9eedc10c8f134afd70703f4d",
+      "size": 1657999
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk104-HD-WindowsNoEditor.sig",
+      "md5": "46c8e2726514c76ed30420fb0b78eae3",
+      "size": 1708
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk103-HD-WindowsNoEditor.sig",
+      "md5": "99102a64ee55346de635aa21dcf60180",
+      "size": 13620
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk102-HD-WindowsNoEditor.pak",
+      "md5": "82fe2f95e408b6900dcc21983c903b5b",
+      "size": 27288255
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk101-HD-WindowsNoEditor.sig",
+      "md5": "fc59f6ed7b5e8ff6d71d7dec1cd629e1",
+      "size": 17508
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk102-HD-WindowsNoEditor.sig",
+      "md5": "ac2db669336101e98cef765ef7f73471",
+      "size": 2196
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk105-HD-WindowsNoEditor.sig",
+      "md5": "26fee4e5777d5c6f2ec8d59ab3645093",
+      "size": 3024
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk107-HD-WindowsNoEditor.sig",
+      "md5": "00c640f54b44cbe3f9738e6a14223105",
+      "size": 55860
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk108-HD-WindowsNoEditor.pak",
+      "md5": "f6eb0d78911dc1a68b5166d2d95120e6",
+      "size": 10806975
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk108-HD-WindowsNoEditor.sig",
+      "md5": "51d01b9f3b80244c4077ec6672f1b511",
+      "size": 1188
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk109-HD-WindowsNoEditor.sig",
+      "md5": "8db7eb9e230a6c80b29e59a93de3ac90",
+      "size": 25344
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk110-HD-WindowsNoEditor.pak",
+      "md5": "3d18c14246aa8bd62c3a1951fa776350",
+      "size": 44102079
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk105-HD-WindowsNoEditor.pak",
+      "md5": "4fc15f67524d5136ea871bf85dfa1ad0",
+      "size": 40867743
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk110-HD-WindowsNoEditor.sig",
+      "md5": "213d25d6bcdaf6988170a211a234ef14",
+      "size": 3220
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk106-HD-WindowsNoEditor.sig",
+      "md5": "4e66eac7f309efdec532c3eace7b7aa7",
+      "size": 812
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk111-HD-WindowsNoEditor.sig",
+      "md5": "c718924ece57684595d529e2f4c3f3c1",
+      "size": 35576
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk112-HD-WindowsNoEditor.sig",
+      "md5": "777e1a50aca028c2ece1dff87889bc26",
+      "size": 10992
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk21-HD-WindowsNoEditor.sig",
+      "md5": "1f5beffce5de548ec4964d44c1a7f9a8",
+      "size": 22412
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk113-HD-WindowsNoEditor.sig",
+      "md5": "7d35fba450400b958d771100e157338e",
+      "size": 8028
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk20-HD-WindowsNoEditor.sig",
+      "md5": "e5446aac3844382b0a5b7589265b1ccc",
+      "size": 58492
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk22-HD-WindowsNoEditor.sig",
+      "md5": "80ffd59df4b4a2bdef201639c16cf31d",
+      "size": 25152
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk23-HD-WindowsNoEditor.sig",
+      "md5": "75b317f429e2a612ccec03001000b5d4",
+      "size": 25476
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk113-HD-WindowsNoEditor.pak",
+      "md5": "12850f7a9e01189feec4297a27f26092",
+      "size": 122841199,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "e55b5170f90a5a1dfc605dcac92ce414"
+        },
+        {
+          "start": 104857600,
+          "end": 122841198,
+          "md5": "dbe9b4b81225ac02eb99009ddc66b996"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk26-HD-WindowsNoEditor.sig",
+      "md5": "f78a57a696c6951b6aca624841a22121",
+      "size": 52204
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk27-HD-WindowsNoEditor.pak",
+      "md5": "12ef730dbc94537c4c61cdca9d27b2e2",
+      "size": 8246758
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk27-HD-WindowsNoEditor.sig",
+      "md5": "1ed74c6df1d83975d3dac9151c8f3c33",
+      "size": 1032
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk112-HD-WindowsNoEditor.pak",
+      "md5": "dde7d7237fd5aa71edefbbebe171746f",
+      "size": 171388639,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "fdbb499cc370eb45e6e91f90825ba31f"
+        },
+        {
+          "start": 104857600,
+          "end": 171388638,
+          "md5": "a8b0b1d59a0e5485161c15e54fd7b158"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk28-HD-WindowsNoEditor.sig",
+      "md5": "9c704882e43a3734699ab534a75423f8",
+      "size": 7460
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk103-HD-WindowsNoEditor.pak",
+      "md5": "5adcc54180f9ffc0a96922d015a6d8f8",
+      "size": 214485791,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "16bd540e8ff7ed0b1d7311ab492145f2"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "286793ec40f25ee860a225eab400df23"
+        },
+        {
+          "start": 209715200,
+          "end": 214485790,
+          "md5": "158bde3d753fc8bc48b74b0e4d65bf6a"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk31-HD-WindowsNoEditor.sig",
+      "md5": "99a42a27a37e03ebcdc472f2af464b6f",
+      "size": 17400
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk32-HD-WindowsNoEditor.pak",
+      "md5": "9f85b93878b4b25f6de0a255885757a2",
+      "size": 12385247
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk32-HD-WindowsNoEditor.sig",
+      "md5": "25e0725522f48227def20ad6ae03b26b",
+      "size": 1284
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk33-HD-WindowsNoEditor.pak",
+      "md5": "84459cea25ec900bc0ba25ef234f136f",
+      "size": 34646038
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk33-HD-WindowsNoEditor.sig",
+      "md5": "38f19609e4b6ad06d7aefb6404f5d625",
+      "size": 2644
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk28-HD-WindowsNoEditor.pak",
+      "md5": "29dc03c08fa3b44bd2a892c869adcc06",
+      "size": 113551983,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "23a73c7cc4aa170d503a423221cbc059"
+        },
+        {
+          "start": 104857600,
+          "end": 113551982,
+          "md5": "32a24b40e5c0ab1b7cca971055fa1187"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk34-HD-WindowsNoEditor.sig",
+      "md5": "8dfe34f62b19baa81c070fa9a453f260",
+      "size": 11928
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk35-HD-WindowsNoEditor.pak",
+      "md5": "a66c7d44bd9d3a5f9d75b2c4e152e13a",
+      "size": 27732486
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk35-HD-WindowsNoEditor.sig",
+      "md5": "dd324b244020804394d3fae840239e05",
+      "size": 2224
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk36-HD-WindowsNoEditor.pak",
+      "md5": "4f11daea97694707502fe9f367c26378",
+      "size": 64903830
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk36-HD-WindowsNoEditor.sig",
+      "md5": "bef3335b56afd942851b77ae114c72c9",
+      "size": 4492
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk101-HD-WindowsNoEditor.pak",
+      "md5": "ab2a62af3292dabe879b57d3ec570f95",
+      "size": 278196991,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "4cc9e076b5841dc3ac66c5f04526f09e"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "6de15a854d5781c2e6b81b00b084d777"
+        },
+        {
+          "start": 209715200,
+          "end": 278196990,
+          "md5": "bcc16a8077a9f7ee756185cae81fd904"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk39-HD-WindowsNoEditor.sig",
+      "md5": "328fe2f0150fceb15afd990458f4db92",
+      "size": 9368
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk21-HD-WindowsNoEditor.pak",
+      "md5": "c1cfe438609fcbe0063d25a861f39368",
+      "size": 358502662,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "b2875921085b362cea4973b072fb3fe5"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "635cd3bfee68b0b4ecdda6122269a6db"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "11ac8570ccac3e3f5d9ed7338466a474"
+        },
+        {
+          "start": 314572800,
+          "end": 358502661,
+          "md5": "5eb5757404c43d49b7d76eacd8d9af58"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk4-HD-WindowsNoEditor.sig",
+      "md5": "edbce17b616334e90914bad21e95cb7e",
+      "size": 31548
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk39-HD-WindowsNoEditor.pak",
+      "md5": "70deeb841148b43895e0ea4eacf3be53",
+      "size": 144778598,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "ade5bd78e3f79ac55b1e90f3b6d5cccc"
+        },
+        {
+          "start": 104857600,
+          "end": 144778597,
+          "md5": "b4852f673f02f77e3e30c54e581aaba7"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk40-HD-WindowsNoEditor.sig",
+      "md5": "8f86b7a7301f851adb56b7a84dacb14a",
+      "size": 8824
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk34-HD-WindowsNoEditor.pak",
+      "md5": "06405baaec19774a744f26da5e500184",
+      "size": 186743286,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "48757def29811ba03e67c58702a19e3a"
+        },
+        {
+          "start": 104857600,
+          "end": 186743285,
+          "md5": "ef884f93394d45f337b901ab3201f0bf"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk41-HD-WindowsNoEditor.sig",
+      "md5": "cf93fbf8171cfc70ab415c32a08b5822",
+      "size": 42888
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk22-HD-WindowsNoEditor.pak",
+      "md5": "0c9d1f11e36fd8daa4fd8d2438120338",
+      "size": 403417270,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "0ec9a94bf47f8c2e9aec68015ecdd440"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "b8772badbc73c3b2d9d03c2dcd658567"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "7a7393c195a989b8f0e8e5e62bf4285f"
+        },
+        {
+          "start": 314572800,
+          "end": 403417269,
+          "md5": "6831d9a0f7c68e72ef290319a8b2132e"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk42-HD-WindowsNoEditor.sig",
+      "md5": "55780285107d1cfdb6eb8c186529160b",
+      "size": 16656
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk45-HD-WindowsNoEditor.pak",
+      "md5": "b74cf7ae727b8920cd924a5f54d02077",
+      "size": 86316735
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk45-HD-WindowsNoEditor.sig",
+      "md5": "145c8d782f891fc243895e86cbc75af2",
+      "size": 5800
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk46-HD-WindowsNoEditor.pak",
+      "md5": "0fc11f3ea2c124931a1e79be514428fd",
+      "size": 81454950
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk46-HD-WindowsNoEditor.sig",
+      "md5": "cc55e1069c12c593b6e8095b3c6f2eec",
+      "size": 5500
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk23-HD-WindowsNoEditor.pak",
+      "md5": "e13121e9ae3b4b9471736475fba0d68c",
+      "size": 408685078,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "1c98421b2d6861062efce4d43a7dad38"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "b2a16dcc0b5bd1a81e5d04b6ed355cef"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "80903d7fa3c2b45d310b429dd2ad3c5a"
+        },
+        {
+          "start": 314572800,
+          "end": 408685077,
+          "md5": "dd04c9155f26a9bc2da710eaa55c07bc"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk47-HD-WindowsNoEditor.sig",
+      "md5": "17bf9a616a874cba083191b666ded800",
+      "size": 76740
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk109-HD-WindowsNoEditor.pak",
+      "md5": "e93fe3cc833bfb78efd55680e0fd4d9d",
+      "size": 406541935,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "85e229501b46ed4ab25a952f98fc4530"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "f8e3de3d32d3a046721b1ef9beac7204"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "aef4fd5fee3938cc63de66e3f285f9dc"
+        },
+        {
+          "start": 314572800,
+          "end": 406541934,
+          "md5": "055dc51cc27819d00724de8b9b788292"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk48-HD-WindowsNoEditor.sig",
+      "md5": "d446efcbb9d2d493e6e842519e7077f9",
+      "size": 72460
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk31-HD-WindowsNoEditor.pak",
+      "md5": "85fa3ad2c57013ed76883c34e6adc92e",
+      "size": 276370095,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "8577fb79641d82511fb4b3a6f9205975"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "45a6a4c700db423f14e3af22a37f460f"
+        },
+        {
+          "start": 209715200,
+          "end": 276370094,
+          "md5": "2a9a8c4c5f8b1310773dbe584aa289a8"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk49-HD-WindowsNoEditor.sig",
+      "md5": "1ce3f2c0f1d6fcbee0bb50fbb5aa7874",
+      "size": 57820
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk5-HD-WindowsNoEditor.pak",
+      "md5": "ed1c5a4233b97865f35570f943876d93",
+      "size": 66260431
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk5-HD-WindowsNoEditor.sig",
+      "md5": "24c84f3258b7bff23f164c2218480cdf",
+      "size": 4576
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk40-HD-WindowsNoEditor.pak",
+      "md5": "9da12d4a882814e0c8141ad312b27c6e",
+      "size": 135876047,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "4f654014762516c2edc3006e932f8755"
+        },
+        {
+          "start": 104857600,
+          "end": 135876046,
+          "md5": "08a3416298c464d8f2e84d969eca7b2d"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk50-HD-WindowsNoEditor.sig",
+      "md5": "7a7a749df46f042085159e1c2c978186",
+      "size": 8152
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk50-HD-WindowsNoEditor.pak",
+      "md5": "b18a38422fefc82a2419be78e4a55c37",
+      "size": 124874182,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "625ef1939e1f21bcfbde5c31fd3cf28b"
+        },
+        {
+          "start": 104857600,
+          "end": 124874181,
+          "md5": "1c5b8708bff785bafd1f7310656d42a2"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk51-HD-WindowsNoEditor.sig",
+      "md5": "d3dfb2d3f5030f0cef3e0e640900d5eb",
+      "size": 9156
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk111-HD-WindowsNoEditor.pak",
+      "md5": "ac1070abc6cd0a7dc5d01e4022037962",
+      "size": 574165423,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "cb2f925faa11c5a5cb0b73bc615d557f"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "82886aec463c921abadf5783f6778172"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "2ad380788a0857e90f755656283b9929"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "3355505bea2f406f2e8225004074b3a7"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "6cb7203632af2d0e10e48b14b10c6b44"
+        },
+        {
+          "start": 524288000,
+          "end": 574165422,
+          "md5": "e7130b937b413b9b6dc896bc041d7f96"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk52-HD-WindowsNoEditor.sig",
+      "md5": "3f56acddae3db96162e20515e02b6869",
+      "size": 13684
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk51-HD-WindowsNoEditor.pak",
+      "md5": "e0a6add47d2255c2ec620c2f56ad4053",
+      "size": 141336271,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "71839d35b58cf02996d2bc2fc30cf23e"
+        },
+        {
+          "start": 104857600,
+          "end": 141336270,
+          "md5": "f835da3710ce5860f4a80d74010bb678"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk53-HD-WindowsNoEditor.sig",
+      "md5": "70b454a579a1ab5fdce6d20795e12409",
+      "size": 271352
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk42-HD-WindowsNoEditor.pak",
+      "md5": "bd2fcbde2c9ab397abaf3bba208fa673",
+      "size": 264194047,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "4333455e125228caddf30dacb0c145ed"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "a7f8600b500df63a85ade936774f9a1f"
+        },
+        {
+          "start": 209715200,
+          "end": 264194046,
+          "md5": "8d5135146476d4ca99f7659bad801328"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk54-HD-WindowsNoEditor.sig",
+      "md5": "88ac4a9910d53dff71c99e44858f69ff",
+      "size": 71856
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk52-HD-WindowsNoEditor.pak",
+      "md5": "e9425e0c187937fa32dd781e4a6ba521",
+      "size": 215547318,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "e1aebb3549584403a0669ceffb29c55b"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "c648e7e1eef80f99508fd97dfa2f28ca"
+        },
+        {
+          "start": 209715200,
+          "end": 215547317,
+          "md5": "4581ce9fca7cf8145b8398db2d0779fc"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk55-HD-WindowsNoEditor.sig",
+      "md5": "915fa100a68a0a9c11bd25c92dd16ccd",
+      "size": 65320
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk4-HD-WindowsNoEditor.pak",
+      "md5": "d3821ac4087644f335f91cd9922b2ac3",
+      "size": 508190079,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "6ea9fa980d9210208d3dd550bdeb05f2"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "d5061c1b01741fbb7e0566471d73a6f4"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "5dc7b2b2c9d3efd278dcd55c096457ef"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "3d57d5e3e26f3d19eb852791ed1a8cff"
+        },
+        {
+          "start": 419430400,
+          "end": 508190078,
+          "md5": "269f1dfbdc5dd45470cd756c45f873df"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk56-HD-WindowsNoEditor.sig",
+      "md5": "182b077b0b8680d54dd0a72aa019f5fe",
+      "size": 61868
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk26-HD-WindowsNoEditor.pak",
+      "md5": "8ec07d0f8e9f43443e3ae647f059b266",
+      "size": 846636536,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "14385d6087519de23e262c0ea361f473"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "774bbec7d1802e837e5d45f70e0098e0"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "d365bb98ca075cbc8982b59190ad12d8"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "7b157261aeb1507518a987278e89e651"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "6b8d3e67847e234fa25c19f9f2324fa8"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "b1a5096589e41e501e0db99ba6b970aa"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "e90e6d670b709a7d874fb599a0591b52"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "327c2bb06cfa84516691f3e5ce7592a8"
+        },
+        {
+          "start": 838860800,
+          "end": 846636535,
+          "md5": "8e75c4853fc8bedc346a16583ecc3bc2"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk57-HD-WindowsNoEditor.sig",
+      "md5": "d9018429c755599d6670944e9d0f472b",
+      "size": 53956
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk107-HD-WindowsNoEditor.pak",
+      "md5": "7beb6d49a73c54ff8606663062100855",
+      "size": 906553087,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "1492b4cbe0b3210f8bed4496e5344212"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "0d8dc2bed9074524956b514ab12bb544"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "5aae5d47d2f0a07b46532465df5fb8f6"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "5ae938ac07eea4c45e882d81f260e30b"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "d55fbf329fa93e8f6f11a0c065acc7b3"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "ba94ed5ff141e599517213ac6d5b71da"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "e2c88f3fb3724985d921ed4df6cbb08c"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "a1fbbd582dd19b25ec280d4fd879149d"
+        },
+        {
+          "start": 838860800,
+          "end": 906553086,
+          "md5": "938675f5158c2845c5ea0ae6eb644261"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk7-HD-WindowsNoEditor.sig",
+      "md5": "fb660e8a7f615cbd67dc813fd455e011",
+      "size": 258676
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk20-HD-WindowsNoEditor.pak",
+      "md5": "ef8451f4c69a62c3798385e6679c2efd",
+      "size": 949628415,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "a2c171069016f1836809cb63ceda6760"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "c49f53651d24ae1a0281711a3723ab05"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "ba87f70ff665d9198b395e30541d172c"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "ff6d095c488bbaa3cca7680d78360149"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "6339a40361078a8498f56fa724f6228b"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "d945b45af19ba690a8f488ad8eb2a650"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "12c90f3f13fe3bbb5c1b2903703c9ddb"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "56ce007a17a3c6576d769182c5f35d0c"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "d7972ea4c043534b8df7d48df04faa64"
+        },
+        {
+          "start": 943718400,
+          "end": 949628414,
+          "md5": "66fd3c96a5a2ea11a094f318aa71d3e3"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk70-HD-WindowsNoEditor.sig",
+      "md5": "a3dbeea4ec4088176840788e6615e86e",
+      "size": 1189824
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk41-HD-WindowsNoEditor.pak",
+      "md5": "4a1136465ab394705ab9889cf1b137d1",
+      "size": 693993887,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "d4e494c7f6e83e66d3c8bb89e2e7ed09"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "b28602b56b20870d493e6cbd15bd614e"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "a0bca9e95a78c3a9bec03a8be9f758a9"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "6d08ebc19a74ef393ee100f0df2101f3"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "2312aef05eae658cf4e00145c93f1bc0"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "db8f47109b3ef2251c9acf9c79285c0c"
+        },
+        {
+          "start": 629145600,
+          "end": 693993886,
+          "md5": "48f4129aba7b097816c1a2663dc8de01"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk8-HD-WindowsNoEditor.sig",
+      "md5": "5603954775e21459f9f8bea943f0a697",
+      "size": 25648
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk49-HD-WindowsNoEditor.pak",
+      "md5": "077df1e099c0ebcd7bab1f064dd3478d",
+      "size": 938642159,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "6073756393a96d48f89d6838a36fe2b6"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "bf557477acf96d6bf9c65e21cff21ce9"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "63fe2a582585247a59b3171f664a1d21"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "213f360f8de9878fb8366ce9b29a328a"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "678f692c401e7dbf2f2b833bcdc96f0d"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "cfd0afca9d30415e2efd5510543a3e5e"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "6ddd19bff9dd6730fb9b1e1c9b7d7e23"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "baff7913005abe29e5b2684fd26fee96"
+        },
+        {
+          "start": 838860800,
+          "end": 938642158,
+          "md5": "216b732f618c9bf657b4dc5f4873476f"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk9-HD-WindowsNoEditor.sig",
+      "md5": "01caa5dbcf990c7544a1a953a821f272",
+      "size": 42876
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk8-HD-WindowsNoEditor.pak",
+      "md5": "3c12c2cac77232e063d39c53cdbede09",
+      "size": 411523190,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "b8c236c0872c7fff0353403554cfd649"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "6a0c85ed1c58ab0cbdd11e5384c937ee"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "749dce7ea8d0b962e094227c1e782584"
+        },
+        {
+          "start": 314572800,
+          "end": 411523189,
+          "md5": "bc58e03400ad6c8418cdcbe9cf9f642b"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk48-HD-WindowsNoEditor.pak",
+      "md5": "c13b3a50f9252e13d506599ec1597e21",
+      "size": 1178514582,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "43309776799b65bbff7b1c83ce296f2c"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "4269a052760a1142b793122525d08b43"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "1810ee2a0c0c9634d6bedeb5c27fa88d"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "a0d8587ca349c953ab32e8c04304cedf"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "0565cbdae170b549103714e95345ae2d"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "4fae86292c2faa7cd12dc649155362ed"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "a8bf6063aaa8c0e9a4cbe72fcbb2a3b4"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "505cab69dd62db5095dbf9a538c423b8"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "2fc1c738c5f0a97a6bfc1ec5256e9bc0"
+        },
+        {
+          "start": 943718400,
+          "end": 1048575999,
+          "md5": "163b0f948be9828c349159ce42fc1c42"
+        },
+        {
+          "start": 1048576000,
+          "end": 1153433599,
+          "md5": "2419d5897aa1c5332809a4c204a4dfc5"
+        },
+        {
+          "start": 1153433600,
+          "end": 1178514581,
+          "md5": "ed16ec2dd24f6663a746e5e70a5b6b3e"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk47-HD-WindowsNoEditor.pak",
+      "md5": "19c225c94053326be04feadb99dfb841",
+      "size": 1248648390,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "986c29db697daef7b6f968dbfadf0243"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "4a09bbe5bded651ab0dffc53e63367e7"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "f86038e33c7ad6e60ff28a792f9ae1c8"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "b859cc67ef3c2599363f37873b7ba0de"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "a3046c69f0e2cc41a0b38b608e4fd6a8"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "f478cc7b8570cca3895ef7804e7b3ec5"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "2a02a1000fdabfeec04e7ffb0cf49a44"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "bb70ae6ca2d602c2fb91f547e0d3cbef"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "dd159bc355e22c56a8dd771d0374e8e8"
+        },
+        {
+          "start": 943718400,
+          "end": 1048575999,
+          "md5": "f5025a175de2a33482e12ef5f66290a4"
+        },
+        {
+          "start": 1048576000,
+          "end": 1153433599,
+          "md5": "846ddb88f25de1d45a7c0f07f1959835"
+        },
+        {
+          "start": 1153433600,
+          "end": 1248648389,
+          "md5": "b27983ee3536ee979e85bb7f47d353e1"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk57-HD-WindowsNoEditor.pak",
+      "md5": "45fd3d48d53ec05167ca7fa7a203028f",
+      "size": 875322831,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "46915334e1db6c66d6eed31e041a7ffb"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "aacfcc5a93da7278959e469070b1490a"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "6f775588bdbaae4399fe0f4c76e2800b"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "0e74d4dedfc373b4799746d8850352be"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "c020a96aeca5d9d037d6d884ba68c9a7"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "0c2af695b52ff73badcbb2435a140108"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "9b17740e974074c35b2530ec52bbe033"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "4fee44c7bdcbef6950ebaa860ccca006"
+        },
+        {
+          "start": 838860800,
+          "end": 875322830,
+          "md5": "21c8af627f65b028ec938d3188fcd04d"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk55-HD-WindowsNoEditor.pak",
+      "md5": "0f9470f24f4606d62f87831bddfc2bf4",
+      "size": 1061508543,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "9db947de8c9383ea558bf1f1ff9c68f0"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "27d670dd438d1cbb63931e8fe20c269a"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "9440378f2919fb3c68ccec3129b7676c"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "ae000b73a3c51dce94056fd163d03d52"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "e680b49daf5467aee4584696be9dc450"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "0cf472110e99f99ac30f1649a6a83cf8"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "b6898fb2dded5e64d0348437a3316c02"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "bf5e5953070a418f576bbc0cb192fc79"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "40ecea6babf1ab19bd34916831527e86"
+        },
+        {
+          "start": 943718400,
+          "end": 1048575999,
+          "md5": "18201970cdf883ff4988f009561b430b"
+        },
+        {
+          "start": 1048576000,
+          "end": 1061508542,
+          "md5": "04b3a24c32939d53e5b34b02044dd451"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk9-HD-WindowsNoEditor.pak",
+      "md5": "a306b9e335d8ef521319c83960018af9",
+      "size": 693773631,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "5d86def91e6053f2c0091e31d9300e98"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "745cd8264270c99704db322dd884b640"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "fbafebf88a1f39b1642aa65becdaede9"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "a60798bc0e88f1515161c6e681cfb1d5"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "1138241293ee69d734bd7e4e10043384"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "02d3a3de235c5b878268470eba34165a"
+        },
+        {
+          "start": 629145600,
+          "end": 693773630,
+          "md5": "961741cfb5367afb63ccd08a1e64dc62"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk56-HD-WindowsNoEditor.pak",
+      "md5": "ebd2aba04e19829042d957a442767eaa",
+      "size": 1004985030,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "52305679457e657407ef4f0760908219"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "6f5ae3f6fe811054ab872636c0f9991a"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "88948a1caf5e9a74c0e4321d346723b4"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "8ea2123e9cc8fd124758f695f8b65132"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "f3b4c809709b37d0e8efb5af88fac276"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "b8a412d54145533783fb46d6f2841325"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "e07e64d1d1736eb8516fdf8519151717"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "9371ca031c146b603fa7968bb9a1ba33"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "654c770e18e84bf5610f364de17b737e"
+        },
+        {
+          "start": 943718400,
+          "end": 1004985029,
+          "md5": "90acdebf8dbcd9ff715fc8d785a9a99a"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk54-HD-WindowsNoEditor.pak",
+      "md5": "676c1684e836556e334b3764f05844ac",
+      "size": 1168610255,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "ec71965409731bd1fb93b362ffd067d7"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "d96cb88de40ef7d90a249651029641ae"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "0bf0cc84f9fb2f76a6539ac45a2fc5b9"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "04d5eb99c0c8aa194c1e41918d01db89"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "98bfcfd1afd2e7017086eb01a2d5ad69"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "cf73fa2ce6f02be17e6ff8d5e3b0c5ec"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "1657a28de4dbcba34d738fcfb0182f7c"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "61acf13824e2b18b4f70c1150824e390"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "af8ba1055f525f3a3ae2f82222ce01df"
+        },
+        {
+          "start": 943718400,
+          "end": 1048575999,
+          "md5": "354749e232dd2eb29e5d702a6746e716"
+        },
+        {
+          "start": 1048576000,
+          "end": 1153433599,
+          "md5": "3d82115b6cfe9d5d5e2c76039e7be250"
+        },
+        {
+          "start": 1153433600,
+          "end": 1168610254,
+          "md5": "2d9f02135031cd38129f4f441212dd63"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk53-HD-WindowsNoEditor.pak",
+      "md5": "dfe33207b5c3cdb5dba14c7f7cb1bd96",
+      "size": 4437123135,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "733092217243657ba67b2fdb3be66ee6"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "8e1b8db2007f79a352a292769a25dd7c"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "2450326db003e027415837ce05a69f2b"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "f164ee18d7946133a120069d2b55d651"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "540855d44d4b5ddbfd611dc764ce9c04"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "ea1254b9e00178ea02beb86c19eef957"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "3a63c472532ddbe9b185ed1e08043dc1"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "3959df8e159ede276df92e6ebe0175f5"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "17d8a1c0507090beaaf38bc3f8c5b942"
+        },
+        {
+          "start": 943718400,
+          "end": 1048575999,
+          "md5": "157db323a27a02e1bc602e9fe226edbf"
+        },
+        {
+          "start": 1048576000,
+          "end": 1153433599,
+          "md5": "e3347995373d04376cc0e6dfaa613e83"
+        },
+        {
+          "start": 1153433600,
+          "end": 1258291199,
+          "md5": "b7ff710f146c2a226c7a6bcdc29bf75b"
+        },
+        {
+          "start": 1258291200,
+          "end": 1363148799,
+          "md5": "da69fe53495fb03812236bab4bbf9c8e"
+        },
+        {
+          "start": 1363148800,
+          "end": 1468006399,
+          "md5": "75768069877020f4cb0eadffca8d295d"
+        },
+        {
+          "start": 1468006400,
+          "end": 1572863999,
+          "md5": "b9fdec2e4e077778e96d77e24c30149d"
+        },
+        {
+          "start": 1572864000,
+          "end": 1677721599,
+          "md5": "0b66dfaeced2c5758c817f0a7da6332d"
+        },
+        {
+          "start": 1677721600,
+          "end": 1782579199,
+          "md5": "3057972026d11b9d6f50a968a1fa70ec"
+        },
+        {
+          "start": 1782579200,
+          "end": 1887436799,
+          "md5": "b3489481439bd8f0c5712eab62b976b9"
+        },
+        {
+          "start": 1887436800,
+          "end": 1992294399,
+          "md5": "36609adbafcae141dcb4824999ebde0d"
+        },
+        {
+          "start": 1992294400,
+          "end": 2097151999,
+          "md5": "98a1f3a1f723ce0f03ddb143f36a28a6"
+        },
+        {
+          "start": 2097152000,
+          "end": 2202009599,
+          "md5": "fc9c06aedb793598c92bc5f76d839fd6"
+        },
+        {
+          "start": 2202009600,
+          "end": 2306867199,
+          "md5": "13f0644c6204972deeac61b8c1b1a2ce"
+        },
+        {
+          "start": 2306867200,
+          "end": 2411724799,
+          "md5": "19a042d647beeb884d02d9560ca58351"
+        },
+        {
+          "start": 2411724800,
+          "end": 2516582399,
+          "md5": "fa7f23effdada43d792683998bf02e9a"
+        },
+        {
+          "start": 2516582400,
+          "end": 2621439999,
+          "md5": "7493b7a8ff8193169f58a7e5e73a6a21"
+        },
+        {
+          "start": 2621440000,
+          "end": 2726297599,
+          "md5": "ae361a0cb3575730694e787bd47a976e"
+        },
+        {
+          "start": 2726297600,
+          "end": 2831155199,
+          "md5": "0c277b5c7a48c8efb96a0e459cbcd656"
+        },
+        {
+          "start": 2831155200,
+          "end": 2936012799,
+          "md5": "edd06bbb547d97c08169d73e07530a7a"
+        },
+        {
+          "start": 2936012800,
+          "end": 3040870399,
+          "md5": "28bed8d86eeb791f1984fdeda8b0786a"
+        },
+        {
+          "start": 3040870400,
+          "end": 3145727999,
+          "md5": "45c1bbd9977dd2aa7be1ef7177b20545"
+        },
+        {
+          "start": 3145728000,
+          "end": 3250585599,
+          "md5": "d2c30e635dd5448d2318f496b35e6387"
+        },
+        {
+          "start": 3250585600,
+          "end": 3355443199,
+          "md5": "1a30ca58ecc225538aebd1711082e5f2"
+        },
+        {
+          "start": 3355443200,
+          "end": 3460300799,
+          "md5": "894c86748dce1ce9e2e3be471f3be33c"
+        },
+        {
+          "start": 3460300800,
+          "end": 3565158399,
+          "md5": "2422596b31f1fb911a8bb325bc7c3ee8"
+        },
+        {
+          "start": 3565158400,
+          "end": 3670015999,
+          "md5": "e044b929d9735e657a129bda5ac203d6"
+        },
+        {
+          "start": 3670016000,
+          "end": 3774873599,
+          "md5": "b9bdcfc3efa6f1c21a7fbf9d514857ae"
+        },
+        {
+          "start": 3774873600,
+          "end": 3879731199,
+          "md5": "376f125e651bd318dfffcc32ca083040"
+        },
+        {
+          "start": 3879731200,
+          "end": 3984588799,
+          "md5": "14183056f769ac05efc688fb5e232c33"
+        },
+        {
+          "start": 3984588800,
+          "end": 4089446399,
+          "md5": "ed645f31fffc94c8d442438722f4fc1f"
+        },
+        {
+          "start": 4089446400,
+          "end": 4194303999,
+          "md5": "b20e68fd00cf7cd992ed4388ab829e0e"
+        },
+        {
+          "start": 4194304000,
+          "end": 4299161599,
+          "md5": "46be0a36f6c2f692e87b758e8b11b42f"
+        },
+        {
+          "start": 4299161600,
+          "end": 4404019199,
+          "md5": "e3b6b8731e64658c587c7baaee934e45"
+        },
+        {
+          "start": 4404019200,
+          "end": 4437123134,
+          "md5": "5ed387cab997b6bc29923959d2fac6a5"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk7-HD-WindowsNoEditor.pak",
+      "md5": "67ab6afd45da86508ee0ba022ea2ddd0",
+      "size": 4229451375,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "baaff8020c55998290a8e2060f480051"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "638487e5b8faab531deecdf52f5db664"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "fd93373b01fac331fdcdbb5b2779b297"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "4c0ac45e0a0cdb49ea535ff4b63c8629"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "efff2302ba9a9b47934538bc2157e29a"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "5b68e573e0b41f9d11e90058b76eec85"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "0b2fd2a216c476ba39fd18c05916efec"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "6bb5d0ee050ef42e990d02d459bc436a"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "d140be0896f56eef86f0963d177994fb"
+        },
+        {
+          "start": 943718400,
+          "end": 1048575999,
+          "md5": "aee3f5cab7852e4a8d4d5907fe93493e"
+        },
+        {
+          "start": 1048576000,
+          "end": 1153433599,
+          "md5": "ead8ccbefe864f0141e1a471ab91f8b7"
+        },
+        {
+          "start": 1153433600,
+          "end": 1258291199,
+          "md5": "5227391dd28b7b1b99c99efa023f792b"
+        },
+        {
+          "start": 1258291200,
+          "end": 1363148799,
+          "md5": "a6a90fd35ec113f5c813341d30a361ab"
+        },
+        {
+          "start": 1363148800,
+          "end": 1468006399,
+          "md5": "0455c9dfc1dc42df6cb8ad9698240364"
+        },
+        {
+          "start": 1468006400,
+          "end": 1572863999,
+          "md5": "24f6c1123bceaed95a99cfd928062223"
+        },
+        {
+          "start": 1572864000,
+          "end": 1677721599,
+          "md5": "ebf2f10d5f3b9f8d26ac9b9f88ed74aa"
+        },
+        {
+          "start": 1677721600,
+          "end": 1782579199,
+          "md5": "80dfc89ede9c8cab4e2f668421cfc88e"
+        },
+        {
+          "start": 1782579200,
+          "end": 1887436799,
+          "md5": "ffe7a5ddf16a2212271a25fda8f5b4f8"
+        },
+        {
+          "start": 1887436800,
+          "end": 1992294399,
+          "md5": "7a0ecb35e0794ab3f0c53202aa399bec"
+        },
+        {
+          "start": 1992294400,
+          "end": 2097151999,
+          "md5": "a246383b3c41222b5ed048d791173517"
+        },
+        {
+          "start": 2097152000,
+          "end": 2202009599,
+          "md5": "4789e8a17dff92bb93f25b89fb7c4860"
+        },
+        {
+          "start": 2202009600,
+          "end": 2306867199,
+          "md5": "7681f3a1e88ec794a86ee9763f704ddc"
+        },
+        {
+          "start": 2306867200,
+          "end": 2411724799,
+          "md5": "cf2bd991d3374c2bf37f30ebcd67c9e9"
+        },
+        {
+          "start": 2411724800,
+          "end": 2516582399,
+          "md5": "e11629e67861b63c3a5c84442544d105"
+        },
+        {
+          "start": 2516582400,
+          "end": 2621439999,
+          "md5": "861afc3d4b0575938cff7b4d6f41b645"
+        },
+        {
+          "start": 2621440000,
+          "end": 2726297599,
+          "md5": "57b1e5ff30aff1f2e1633b5cf951a87c"
+        },
+        {
+          "start": 2726297600,
+          "end": 2831155199,
+          "md5": "6e643a02bdf16435596b0171e1851543"
+        },
+        {
+          "start": 2831155200,
+          "end": 2936012799,
+          "md5": "80d5593a916be6eb0cb5801f8af751e7"
+        },
+        {
+          "start": 2936012800,
+          "end": 3040870399,
+          "md5": "bae6e76de4f7f80e4fd44bf48e0e59c2"
+        },
+        {
+          "start": 3040870400,
+          "end": 3145727999,
+          "md5": "77b19f8280817088137b14d9befe0e82"
+        },
+        {
+          "start": 3145728000,
+          "end": 3250585599,
+          "md5": "4ade40a28c3b775a398a2b70b5f5ac7c"
+        },
+        {
+          "start": 3250585600,
+          "end": 3355443199,
+          "md5": "cc5c0e1be1a521ae62fd40775af67646"
+        },
+        {
+          "start": 3355443200,
+          "end": 3460300799,
+          "md5": "9272b31d7e41e64de51d1ced68723772"
+        },
+        {
+          "start": 3460300800,
+          "end": 3565158399,
+          "md5": "d51a088d47b060148106b948e8950429"
+        },
+        {
+          "start": 3565158400,
+          "end": 3670015999,
+          "md5": "b12d92d4c31c9d9685b8d7decf7abc49"
+        },
+        {
+          "start": 3670016000,
+          "end": 3774873599,
+          "md5": "00da24ded9873ac0cb67b3dbdf8b8f58"
+        },
+        {
+          "start": 3774873600,
+          "end": 3879731199,
+          "md5": "dc864a0ddac8b7a6c7c08650a71dd5fa"
+        },
+        {
+          "start": 3879731200,
+          "end": 3984588799,
+          "md5": "ee4016c309fe02f518c0cc09f88cdc55"
+        },
+        {
+          "start": 3984588800,
+          "end": 4089446399,
+          "md5": "18b945af2127a21445f05f791ac30813"
+        },
+        {
+          "start": 4089446400,
+          "end": 4194303999,
+          "md5": "e465a0f143d238ebaac5c0be08a17f90"
+        },
+        {
+          "start": 4194304000,
+          "end": 4229451374,
+          "md5": "0a298bd476ab00039d36f789c6f5bf32"
+        }
+      ]
+    },
+    {
+      "dest": "Client/Content/HD/pakchunk70-HD-WindowsNoEditor.pak",
+      "md5": "f783d1922c0a3dfe56b009b16e773580",
+      "size": 19485404911,
+      "chunkInfos": [
+        {
+          "start": 0,
+          "end": 104857599,
+          "md5": "ec67e8b361955ab5096fd753392cee1d"
+        },
+        {
+          "start": 104857600,
+          "end": 209715199,
+          "md5": "e23b82c3418e3ef2bce84c9ee0617414"
+        },
+        {
+          "start": 209715200,
+          "end": 314572799,
+          "md5": "d038eb59512062a4e7ffc9d698c8ce95"
+        },
+        {
+          "start": 314572800,
+          "end": 419430399,
+          "md5": "b30643444084d0fc4e274b1fdabc337f"
+        },
+        {
+          "start": 419430400,
+          "end": 524287999,
+          "md5": "d3d3effe89d885116d08280604c1d5a0"
+        },
+        {
+          "start": 524288000,
+          "end": 629145599,
+          "md5": "3f29a41857d273ca86cf1191c1a823ac"
+        },
+        {
+          "start": 629145600,
+          "end": 734003199,
+          "md5": "20476ec9c400ad9ce3019ae51ddca419"
+        },
+        {
+          "start": 734003200,
+          "end": 838860799,
+          "md5": "a02950af10d0e394f606a64d35fb1d55"
+        },
+        {
+          "start": 838860800,
+          "end": 943718399,
+          "md5": "71fee6cb4fdae31d93cde28d0e93c13a"
+        },
+        {
+          "start": 943718400,
+          "end": 1048575999,
+          "md5": "f028d9160c9830a8e3a680c8c31f3f1e"
+        },
+        {
+          "start": 1048576000,
+          "end": 1153433599,
+          "md5": "ddc5501ef011c7d414653c97535caa39"
+        },
+        {
+          "start": 1153433600,
+          "end": 1258291199,
+          "md5": "c52c8e58280cb9452fadddafd36215bb"
+        },
+        {
+          "start": 1258291200,
+          "end": 1363148799,
+          "md5": "7381acedd5aef13e8242575bd274ea29"
+        },
+        {
+          "start": 1363148800,
+          "end": 1468006399,
+          "md5": "3d2b21d6d44d47d6e78cd1fe4db4790c"
+        },
+        {
+          "start": 1468006400,
+          "end": 1572863999,
+          "md5": "de93219916c21df152b000f42b32599d"
+        },
+        {
+          "start": 1572864000,
+          "end": 1677721599,
+          "md5": "2d170009c226fa500f96c3f429ff14ec"
+        },
+        {
+          "start": 1677721600,
+          "end": 1782579199,
+          "md5": "f88477a2e2a982be162b2f47f1b8fd00"
+        },
+        {
+          "start": 1782579200,
+          "end": 1887436799,
+          "md5": "47f36807bb5bff99951cfdd7b3c90143"
+        },
+        {
+          "start": 1887436800,
+          "end": 1992294399,
+          "md5": "ce28181e7cd07158eb63e3a3c4f1385e"
+        },
+        {
+          "start": 1992294400,
+          "end": 2097151999,
+          "md5": "596863ecce4ca017898c141f5574f0b8"
+        },
+        {
+          "start": 2097152000,
+          "end": 2202009599,
+          "md5": "abdfcfe94dc3079e3c02b87c8642092d"
+        },
+        {
+          "start": 2202009600,
+          "end": 2306867199,
+          "md5": "78a179b51f6a8e6058b4738f4643edcc"
+        },
+        {
+          "start": 2306867200,
+          "end": 2411724799,
+          "md5": "fcd55c9cc58aa317f5ada2c9aa899ff1"
+        },
+        {
+          "start": 2411724800,
+          "end": 2516582399,
+          "md5": "9e1780079d41063fffeaeaf2a525e87f"
+        },
+        {
+          "start": 2516582400,
+          "end": 2621439999,
+          "md5": "0affb94ddfc397559ef0b8ef7d3f5a63"
+        },
+        {
+          "start": 2621440000,
+          "end": 2726297599,
+          "md5": "9f2f496e418699084f295e5b77163e50"
+        },
+        {
+          "start": 2726297600,
+          "end": 2831155199,
+          "md5": "552b1a9826358cee5bed8fb05afb798a"
+        },
+        {
+          "start": 2831155200,
+          "end": 2936012799,
+          "md5": "a25072499567b2635502f97129732b02"
+        },
+        {
+          "start": 2936012800,
+          "end": 3040870399,
+          "md5": "0e148a4ed49e1b4e32dd2936ea527f77"
+        },
+        {
+          "start": 3040870400,
+          "end": 3145727999,
+          "md5": "412f474524b0ea2b74bb5a2d4c61931d"
+        },
+        {
+          "start": 3145728000,
+          "end": 3250585599,
+          "md5": "deae7b70131085ede02e55c7e6ee11c8"
+        },
+        {
+          "start": 3250585600,
+          "end": 3355443199,
+          "md5": "4193ef51d3266ba3e9b8e706bc45edb0"
+        },
+        {
+          "start": 3355443200,
+          "end": 3460300799,
+          "md5": "1c0791ab548608f617b85c07e53bd6de"
+        },
+        {
+          "start": 3460300800,
+          "end": 3565158399,
+          "md5": "844efd7c99376f0c320028ae9e74966e"
+        },
+        {
+          "start": 3565158400,
+          "end": 3670015999,
+          "md5": "a48f563cee73e6587a9d2b99e94e9319"
+        },
+        {
+          "start": 3670016000,
+          "end": 3774873599,
+          "md5": "a5c9227fe7e0b8065fc05279f67feda9"
+        },
+        {
+          "start": 3774873600,
+          "end": 3879731199,
+          "md5": "183a8512d1e7e5a088eb80af6ffaa3ec"
+        },
+        {
+          "start": 3879731200,
+          "end": 3984588799,
+          "md5": "681cf90aa89324343d8a5f1c7c34cacd"
+        },
+        {
+          "start": 3984588800,
+          "end": 4089446399,
+          "md5": "53c30d172e1cc40d382dacbf5abc105f"
+        },
+        {
+          "start": 4089446400,
+          "end": 4194303999,
+          "md5": "c019cbde0a10bf11c37dd72b93c5849d"
+        },
+        {
+          "start": 4194304000,
+          "end": 4299161599,
+          "md5": "19c43ac3ac3d678ec88819ac38be8585"
+        },
+        {
+          "start": 4299161600,
+          "end": 4404019199,
+          "md5": "7c4635ac486dab61155e71c691253403"
+        },
+        {
+          "start": 4404019200,
+          "end": 4508876799,
+          "md5": "5c5cacc0c788341c3d48d605ab694311"
+        },
+        {
+          "start": 4508876800,
+          "end": 4613734399,
+          "md5": "66281d75d02e649ba3df98271463dc61"
+        },
+        {
+          "start": 4613734400,
+          "end": 4718591999,
+          "md5": "5d1845242c6a8c0c8d7a5b6295f11034"
+        },
+        {
+          "start": 4718592000,
+          "end": 4823449599,
+          "md5": "3fda475b150b986b22362f96af3f0604"
+        },
+        {
+          "start": 4823449600,
+          "end": 4928307199,
+          "md5": "67bdf80dfca5a5dbba2b9dbb2faeea34"
+        },
+        {
+          "start": 4928307200,
+          "end": 5033164799,
+          "md5": "d951c8375dc301db18a2f0e9c5a619e8"
+        },
+        {
+          "start": 5033164800,
+          "end": 5138022399,
+          "md5": "f6204c473156ca1696eb0e97fd8bec73"
+        },
+        {
+          "start": 5138022400,
+          "end": 5242879999,
+          "md5": "f29c01643ea9a64418e3b94ac76e510f"
+        },
+        {
+          "start": 5242880000,
+          "end": 5347737599,
+          "md5": "4dd5a7d288915ccc937de1cd76e5db22"
+        },
+        {
+          "start": 5347737600,
+          "end": 5452595199,
+          "md5": "386222c8074ab69c5f205541f6cdd925"
+        },
+        {
+          "start": 5452595200,
+          "end": 5557452799,
+          "md5": "2dda14c80207a7d5ee0a89ea7c526e2e"
+        },
+        {
+          "start": 5557452800,
+          "end": 5662310399,
+          "md5": "6199cce2aaee801b3affdbd71c15bec2"
+        },
+        {
+          "start": 5662310400,
+          "end": 5767167999,
+          "md5": "f110cfc9039abf9efcdf10ac52d07a1d"
+        },
+        {
+          "start": 5767168000,
+          "end": 5872025599,
+          "md5": "003323703ca9f8078c4ca1f5f54b3b27"
+        },
+        {
+          "start": 5872025600,
+          "end": 5976883199,
+          "md5": "0cc3aa850372d358eaf69554ea4d8dce"
+        },
+        {
+          "start": 5976883200,
+          "end": 6081740799,
+          "md5": "f3da2b7452cc3e3242ca2a207378c483"
+        },
+        {
+          "start": 6081740800,
+          "end": 6186598399,
+          "md5": "71cd83073993f10bf1669ede87542a5a"
+        },
+        {
+          "start": 6186598400,
+          "end": 6291455999,
+          "md5": "62e6103abbe5daf7c3ff1ab3c48cc659"
+        },
+        {
+          "start": 6291456000,
+          "end": 6396313599,
+          "md5": "c38c3a16ea8ba4a574906ec9a3a9f3b9"
+        },
+        {
+          "start": 6396313600,
+          "end": 6501171199,
+          "md5": "8349bb3e6424413bec8eb43d49bca6f4"
+        },
+        {
+          "start": 6501171200,
+          "end": 6606028799,
+          "md5": "2c54ed77f4e73510b971bd30dbaf0865"
+        },
+        {
+          "start": 6606028800,
+          "end": 6710886399,
+          "md5": "7a5ae0b232c30f67141109c3076d5fc4"
+        },
+        {
+          "start": 6710886400,
+          "end": 6815743999,
+          "md5": "c9b18aa56d3dd64f31662e36988fc8a4"
+        },
+        {
+          "start": 6815744000,
+          "end": 6920601599,
+          "md5": "6de0705cb4d2a52f3e753ad4910174de"
+        },
+        {
+          "start": 6920601600,
+          "end": 7025459199,
+          "md5": "329787af4ec31bb7ba766b24fee09b8a"
+        },
+        {
+          "start": 7025459200,
+          "end": 7130316799,
+          "md5": "8cf0ea25ad3b86bbdd05e686891aa861"
+        },
+        {
+          "start": 7130316800,
+          "end": 7235174399,
+          "md5": "93c507939d669d087c71610fe9467760"
+        },
+        {
+          "start": 7235174400,
+          "end": 7340031999,
+          "md5": "8ff86f2ce3800a5bf178a8bd474fc1ee"
+        },
+        {
+          "start": 7340032000,
+          "end": 7444889599,
+          "md5": "1fe38b67b0b3b8be4ed445e8b76043e5"
+        },
+        {
+          "start": 7444889600,
+          "end": 7549747199,
+          "md5": "07f9c56b9087d26a9bd6fd790d7a62b5"
+        },
+        {
+          "start": 7549747200,
+          "end": 7654604799,
+          "md5": "16e3cf314a13049653815d6473ce11bf"
+        },
+        {
+          "start": 7654604800,
+          "end": 7759462399,
+          "md5": "7240626f612b4715e00399de3318803e"
+        },
+        {
+          "start": 7759462400,
+          "end": 7864319999,
+          "md5": "02862ecfb71e6faa3623ab411a597b70"
+        },
+        {
+          "start": 7864320000,
+          "end": 7969177599,
+          "md5": "880e4ad5475ffee29f3db47116114b70"
+        },
+        {
+          "start": 7969177600,
+          "end": 8074035199,
+          "md5": "80d93ab7fb1a604f006b69e2e63efcfe"
+        },
+        {
+          "start": 8074035200,
+          "end": 8178892799,
+          "md5": "5e5c24e8562d142bba2b8c35e12dfffe"
+        },
+        {
+          "start": 8178892800,
+          "end": 8283750399,
+          "md5": "83c10d57dc03584c8ab038dd58fec687"
+        },
+        {
+          "start": 8283750400,
+          "end": 8388607999,
+          "md5": "372641b709d6418e4fca53b1e992afc0"
+        },
+        {
+          "start": 8388608000,
+          "end": 8493465599,
+          "md5": "796ea7626c84ee32ce0456d88ee4aac3"
+        },
+        {
+          "start": 8493465600,
+          "end": 8598323199,
+          "md5": "1284209bddf1801fcb489132c2b06dfa"
+        },
+        {
+          "start": 8598323200,
+          "end": 8703180799,
+          "md5": "8df327e7b434d00dae5f6e6f8bce4cee"
+        },
+        {
+          "start": 8703180800,
+          "end": 8808038399,
+          "md5": "32e825ddf3599eaa1e30407996569f11"
+        },
+        {
+          "start": 8808038400,
+          "end": 8912895999,
+          "md5": "04dcaa1b00f45d2c28b7237fccce4cb9"
+        },
+        {
+          "start": 8912896000,
+          "end": 9017753599,
+          "md5": "880cf8d6600fdeb7cef081d088a74583"
+        },
+        {
+          "start": 9017753600,
+          "end": 9122611199,
+          "md5": "f4b330c60dff99ceff81b7a1f9e6dcce"
+        },
+        {
+          "start": 9122611200,
+          "end": 9227468799,
+          "md5": "ed2c3f573a54e277df29e35cf953b147"
+        },
+        {
+          "start": 9227468800,
+          "end": 9332326399,
+          "md5": "0a77b529115ed168c441c1a58c07f7f8"
+        },
+        {
+          "start": 9332326400,
+          "end": 9437183999,
+          "md5": "b6242a4747e7b3785fe988354abe20be"
+        },
+        {
+          "start": 9437184000,
+          "end": 9542041599,
+          "md5": "a0dce1d2342d25d2ea0ad8e958cacaa3"
+        },
+        {
+          "start": 9542041600,
+          "end": 9646899199,
+          "md5": "bfdda220eecb0b0536a0c1b40ebe5cf9"
+        },
+        {
+          "start": 9646899200,
+          "end": 9751756799,
+          "md5": "bf5cb55258dfb9a059de29b64242f6ec"
+        },
+        {
+          "start": 9751756800,
+          "end": 9856614399,
+          "md5": "607f58f9cce745802ebfe9b052fc6f9f"
+        },
+        {
+          "start": 9856614400,
+          "end": 9961471999,
+          "md5": "a74afc42d927f61586c35a8818d58023"
+        },
+        {
+          "start": 9961472000,
+          "end": 10066329599,
+          "md5": "5053f0b01ddcdc9d3773883d818be06d"
+        },
+        {
+          "start": 10066329600,
+          "end": 10171187199,
+          "md5": "e9c933644fe90ff787edebdfc1400112"
+        },
+        {
+          "start": 10171187200,
+          "end": 10276044799,
+          "md5": "d65142ff18cb4cc2f98e885c161c5c3f"
+        },
+        {
+          "start": 10276044800,
+          "end": 10380902399,
+          "md5": "98775a14b40fcfffe5940df636bf655e"
+        },
+        {
+          "start": 10380902400,
+          "end": 10485759999,
+          "md5": "387f048661729b5dd210a54569567322"
+        },
+        {
+          "start": 10485760000,
+          "end": 10590617599,
+          "md5": "a8a0fd8249bba022b3ddd0b62f7cab08"
+        },
+        {
+          "start": 10590617600,
+          "end": 10695475199,
+          "md5": "0cf5b70faa00fc4602b110de997d956e"
+        },
+        {
+          "start": 10695475200,
+          "end": 10800332799,
+          "md5": "e4dc72140b0951b89dbe2f0ed93f4da4"
+        },
+        {
+          "start": 10800332800,
+          "end": 10905190399,
+          "md5": "2ec5be2f2db4de0c407e30225ac748d9"
+        },
+        {
+          "start": 10905190400,
+          "end": 11010047999,
+          "md5": "7847c19b6ce13d98f6959796f6fb04f9"
+        },
+        {
+          "start": 11010048000,
+          "end": 11114905599,
+          "md5": "2e25bbcc4b54df26da9e6d88a90e888d"
+        },
+        {
+          "start": 11114905600,
+          "end": 11219763199,
+          "md5": "3128060c67095ed774180c2f9023578c"
+        },
+        {
+          "start": 11219763200,
+          "end": 11324620799,
+          "md5": "02dae79d7a9e614d2f44621337267345"
+        },
+        {
+          "start": 11324620800,
+          "end": 11429478399,
+          "md5": "80686a0215859a00625b3ed69cb904d5"
+        },
+        {
+          "start": 11429478400,
+          "end": 11534335999,
+          "md5": "624db98ebdf92d76a9b78a78b13023a2"
+        },
+        {
+          "start": 11534336000,
+          "end": 11639193599,
+          "md5": "17f98e987f9c98096891fbdb25126e22"
+        },
+        {
+          "start": 11639193600,
+          "end": 11744051199,
+          "md5": "11ecd599631c0e220154e05b0ddfb3d6"
+        },
+        {
+          "start": 11744051200,
+          "end": 11848908799,
+          "md5": "e37da2c201d69d35e1ca442fbbf8338d"
+        },
+        {
+          "start": 11848908800,
+          "end": 11953766399,
+          "md5": "46d3fe83f89533614109ef88edbfab27"
+        },
+        {
+          "start": 11953766400,
+          "end": 12058623999,
+          "md5": "7b92ee019acc1f6d7c66df18da6fac77"
+        },
+        {
+          "start": 12058624000,
+          "end": 12163481599,
+          "md5": "15b6e6b9a1e3946078f9c1c0ba6ca9c7"
+        },
+        {
+          "start": 12163481600,
+          "end": 12268339199,
+          "md5": "b8cf7af24e3f130d31363c7ce59e78fc"
+        },
+        {
+          "start": 12268339200,
+          "end": 12373196799,
+          "md5": "d1c4fd420db35d41ca67ed88f5d8b327"
+        },
+        {
+          "start": 12373196800,
+          "end": 12478054399,
+          "md5": "6417bf7409eedc9252bb06264f2299ec"
+        },
+        {
+          "start": 12478054400,
+          "end": 12582911999,
+          "md5": "9e292bc6914eb04b256a94f71bdc6eb3"
+        },
+        {
+          "start": 12582912000,
+          "end": 12687769599,
+          "md5": "5045d3e1082d2b58399bf242ea2fe79f"
+        },
+        {
+          "start": 12687769600,
+          "end": 12792627199,
+          "md5": "4065990d7d0289f09d17e0b3e4b8ebaa"
+        },
+        {
+          "start": 12792627200,
+          "end": 12897484799,
+          "md5": "3818013e2c1ab4b1b9c1f5b161fd1187"
+        },
+        {
+          "start": 12897484800,
+          "end": 13002342399,
+          "md5": "5b1dc128b0eacf6818949b4d6f0cece2"
+        },
+        {
+          "start": 13002342400,
+          "end": 13107199999,
+          "md5": "b5d6921849781ef573ec58d9d76d21b2"
+        },
+        {
+          "start": 13107200000,
+          "end": 13212057599,
+          "md5": "269449631387552fea1b77f3baa4cf86"
+        },
+        {
+          "start": 13212057600,
+          "end": 13316915199,
+          "md5": "ff36dee72beab9854ad2650255924e6c"
+        },
+        {
+          "start": 13316915200,
+          "end": 13421772799,
+          "md5": "f8dd6abeecc97a561aa2bf3bfd80a0c7"
+        },
+        {
+          "start": 13421772800,
+          "end": 13526630399,
+          "md5": "b59ca524346261f41cc5571826e6690e"
+        },
+        {
+          "start": 13526630400,
+          "end": 13631487999,
+          "md5": "ea2b66beb4c048da17b204ccb5a060c4"
+        },
+        {
+          "start": 13631488000,
+          "end": 13736345599,
+          "md5": "3d7bf95b9b074c4a207b06a9000aeb32"
+        },
+        {
+          "start": 13736345600,
+          "end": 13841203199,
+          "md5": "cd2a0f15295412afa6d249d91dd700e3"
+        },
+        {
+          "start": 13841203200,
+          "end": 13946060799,
+          "md5": "c90bf0822eebb1f22dfdd29a9bc5aa09"
+        },
+        {
+          "start": 13946060800,
+          "end": 14050918399,
+          "md5": "4cb152504f3f7361ddcfb2444aa8f75d"
+        },
+        {
+          "start": 14050918400,
+          "end": 14155775999,
+          "md5": "a976c030f8a73a62ac689db6f0b0f8c5"
+        },
+        {
+          "start": 14155776000,
+          "end": 14260633599,
+          "md5": "3daebafda917396d403ea602fab016ed"
+        },
+        {
+          "start": 14260633600,
+          "end": 14365491199,
+          "md5": "030972d871d0b0b2005504e33966a8ad"
+        },
+        {
+          "start": 14365491200,
+          "end": 14470348799,
+          "md5": "3ed1241dd4ca03acef013894677bc037"
+        },
+        {
+          "start": 14470348800,
+          "end": 14575206399,
+          "md5": "8acaf5966516e1f8d2c2b9fa436a8a59"
+        },
+        {
+          "start": 14575206400,
+          "end": 14680063999,
+          "md5": "ffb2c9b0d7614548d9876a0b4e627b77"
+        },
+        {
+          "start": 14680064000,
+          "end": 14784921599,
+          "md5": "3d815105c2b81e61e409d76e023adfcd"
+        },
+        {
+          "start": 14784921600,
+          "end": 14889779199,
+          "md5": "69121bbb3c61e5e65057c49cf164ce9a"
+        },
+        {
+          "start": 14889779200,
+          "end": 14994636799,
+          "md5": "ec11c14d2b87646560ae1c33364a6777"
+        },
+        {
+          "start": 14994636800,
+          "end": 15099494399,
+          "md5": "62ff9561c4e243b158f3a1647d3c7e71"
+        },
+        {
+          "start": 15099494400,
+          "end": 15204351999,
+          "md5": "9ef31080770b80b9b02cceeb58fed4c2"
+        },
+        {
+          "start": 15204352000,
+          "end": 15309209599,
+          "md5": "471135b2502e69ae0fc50204dafb7170"
+        },
+        {
+          "start": 15309209600,
+          "end": 15414067199,
+          "md5": "d11df494d96fa9bef780e9c572bf511f"
+        },
+        {
+          "start": 15414067200,
+          "end": 15518924799,
+          "md5": "443a018d293c2f76cff34323d7706dea"
+        },
+        {
+          "start": 15518924800,
+          "end": 15623782399,
+          "md5": "7ee1b1845462ef4df18b24d3b86f80d6"
+        },
+        {
+          "start": 15623782400,
+          "end": 15728639999,
+          "md5": "35aa32645f5a5c9b322e8744d70c02d0"
+        },
+        {
+          "start": 15728640000,
+          "end": 15833497599,
+          "md5": "889b3dd186ad9c8e1d1b6ebabcef445a"
+        },
+        {
+          "start": 15833497600,
+          "end": 15938355199,
+          "md5": "31820c573af233be82f813c77735372b"
+        },
+        {
+          "start": 15938355200,
+          "end": 16043212799,
+          "md5": "6606fcee2a5932c2fc94c8d6d3d0b973"
+        },
+        {
+          "start": 16043212800,
+          "end": 16148070399,
+          "md5": "b20a8f0e6f3962bb012a2286b107d3f7"
+        },
+        {
+          "start": 16148070400,
+          "end": 16252927999,
+          "md5": "00beecd6420ddf0f96612ee6ae9c9fed"
+        },
+        {
+          "start": 16252928000,
+          "end": 16357785599,
+          "md5": "4e32d0828b161f6392c74fa44c8b7d17"
+        },
+        {
+          "start": 16357785600,
+          "end": 16462643199,
+          "md5": "409ca77305e002865da27469df44a9fb"
+        },
+        {
+          "start": 16462643200,
+          "end": 16567500799,
+          "md5": "0b13b7f7639222d77c82959ab5d955a9"
+        },
+        {
+          "start": 16567500800,
+          "end": 16672358399,
+          "md5": "2b9a766c12a51b7ca45300b20c43e9da"
+        },
+        {
+          "start": 16672358400,
+          "end": 16777215999,
+          "md5": "3ab58b216a422f13880f2c74b3b7d80f"
+        },
+        {
+          "start": 16777216000,
+          "end": 16882073599,
+          "md5": "ca1efda8493b1e76f985443da326f5e2"
+        },
+        {
+          "start": 16882073600,
+          "end": 16986931199,
+          "md5": "3a4971d8e07b31c86d8adc81eec312b2"
+        },
+        {
+          "start": 16986931200,
+          "end": 17091788799,
+          "md5": "dc78e73f69b245f5c902e307b8ba5537"
+        },
+        {
+          "start": 17091788800,
+          "end": 17196646399,
+          "md5": "889285d85526397f15f61088ace83307"
+        },
+        {
+          "start": 17196646400,
+          "end": 17301503999,
+          "md5": "6bd7d75dbc218db47b2d9092a20f89fa"
+        },
+        {
+          "start": 17301504000,
+          "end": 17406361599,
+          "md5": "c927af1c8859b87def6592afc58eb922"
+        },
+        {
+          "start": 17406361600,
+          "end": 17511219199,
+          "md5": "f1f36153af8b6440ad67879d62519231"
+        },
+        {
+          "start": 17511219200,
+          "end": 17616076799,
+          "md5": "7d8f1bd5e319d9b7e29cbe4ff570134b"
+        },
+        {
+          "start": 17616076800,
+          "end": 17720934399,
+          "md5": "307ac10f27eb5c324a528705f27d37ab"
+        },
+        {
+          "start": 17720934400,
+          "end": 17825791999,
+          "md5": "6e701e7255093646eea8c2a5db5a4f78"
+        },
+        {
+          "start": 17825792000,
+          "end": 17930649599,
+          "md5": "bde0a7d93d338993a417e9de0bcebc3d"
+        },
+        {
+          "start": 17930649600,
+          "end": 18035507199,
+          "md5": "1ce35ea16019e64d70ce0a80ab59acda"
+        },
+        {
+          "start": 18035507200,
+          "end": 18140364799,
+          "md5": "1a4f6b3b004619db9a28b288f10d278d"
+        },
+        {
+          "start": 18140364800,
+          "end": 18245222399,
+          "md5": "929381aad19e3c05cc432e4a00f1a5ff"
+        },
+        {
+          "start": 18245222400,
+          "end": 18350079999,
+          "md5": "1d4d38552d5f034dd8a9aa35de98884d"
+        },
+        {
+          "start": 18350080000,
+          "end": 18454937599,
+          "md5": "16b70eecb0da9d06ca4407cbb0d85e9f"
+        },
+        {
+          "start": 18454937600,
+          "end": 18559795199,
+          "md5": "4b0168fae3ad83b079cbfebffcdea7ad"
+        },
+        {
+          "start": 18559795200,
+          "end": 18664652799,
+          "md5": "892be0ac925a4c9b7aab1d0c87aa604c"
+        },
+        {
+          "start": 18664652800,
+          "end": 18769510399,
+          "md5": "d9e670d1d3c55d2d60f31d77824a15b0"
+        },
+        {
+          "start": 18769510400,
+          "end": 18874367999,
+          "md5": "3dd3d2f274b8db034954937f6e7275f1"
+        },
+        {
+          "start": 18874368000,
+          "end": 18979225599,
+          "md5": "36799853d8674905bdafc41da29879d9"
+        },
+        {
+          "start": 18979225600,
+          "end": 19084083199,
+          "md5": "57c94cfe65c2f2edb05324a3da89d54f"
+        },
+        {
+          "start": 19084083200,
+          "end": 19188940799,
+          "md5": "f3eba7bf90cdbad8f3cf9772e77ec7a1"
+        },
+        {
+          "start": 19188940800,
+          "end": 19293798399,
+          "md5": "1b7e0c31b9b071a007ecb249f8a9e36f"
+        },
+        {
+          "start": 19293798400,
+          "end": 19398655999,
+          "md5": "a30fce625bf8219f961cf9da5fc0a8dc"
+        },
+        {
+          "start": 19398656000,
+          "end": 19485404910,
+          "md5": "d6efb5e2c1629ec71f603836618c9375"
+        }
+      ]
+    }
+  ]
+}
