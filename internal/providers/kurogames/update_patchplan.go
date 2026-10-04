@@ -24,11 +24,11 @@ import (
 // and 1:1 groups that degrade to a full download): dstFiles metadata never
 // carries FromFolder, and the patch config's baseUrl directory does not
 // serve full-file content (2026-08-24 real-CDN HEAD: patchBase+dest→404,
-// fullBase(zip/)+dest→200 — fix round 1 finding C1). Callers bind both
-// cdn/baseURL and fullCDN/fullBaseURL from the SAME config mkFetchFull uses
-// (CheckForUpdateWithProgress → idx.Default; CheckForPredownload →
-// idx.Predownload) — never hardcode idx.Default here, or the predownload
-// path's fallback would mix in live-version files (plan gate B1).
+// fullBase(zip/)+dest→200 — fix round 1 finding C1). The v3 caller
+// (buildPackPlan) binds fullCDN/fullBaseURL and fetchFull (mkFetchFullPack)
+// to the SAME resource pack's full config — never another pack's, or a
+// fallback would mix in foreign files. (Predownload, which once had its own
+// binding, is disabled for v3 — spec N1.)
 //
 // fetchFull lazily fetches the FULL indexFile for WHOLE-PLAN fallback (step
 // 0 unknown applyTypes, or a multi-file group with an uncovered src-only
@@ -316,20 +316,4 @@ func (p *Provider) fullFallback(
 		deleteFiles = patchDeleteFiles
 	}
 	return files, nil, deleteFiles, 0, nil
-}
-
-// mkFetchFull binds the FULL (fresh-install) indexFile source for one entry
-// point. CheckForUpdateWithProgress passes (idx.Default.Config,
-// pickCDN(idx.Default.CDNList)); CheckForPredownload passes
-// (idx.Predownload.Config, pickCDN(idx.Predownload.CDNList)) — each entry
-// point must bind its OWN config+CDN so a predownload's whole-plan fallback
-// never fetches the live (Default) manifest (plan gate B1). Callers also
-// pass this SAME (fullCfg.BaseURL, fullCDN) pair directly to
-// buildFileAndPatchPlan's fullCDN/fullBaseURL params (per-group dst
-// fallback URLs; fix round 1 finding C1).
-func (p *Provider) mkFetchFull(fullCfg indexConfigRaw, fullCDN string) func(ctx context.Context) (*indexFileRaw, string, string, error) {
-	return func(ctx context.Context) (*indexFileRaw, string, string, error) {
-		f, _, err := fetchIndexFile(ctx, p.httpClient, fullCDN+fullCfg.IndexFile)
-		return f, fullCDN, fullCfg.BaseURL, err
-	}
 }

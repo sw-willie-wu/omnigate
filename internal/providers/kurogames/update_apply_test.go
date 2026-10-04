@@ -882,18 +882,18 @@ func TestRunUpdate_ProcessGuardBlocksDuringPatchPhase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// index.json stub for RunUpdate's ETag re-verify. A 404 makes
-	// fetchIndex return a non-nil error, which short-circuits the
-	// manifest_changed check entirely (RunUpdate only compares ETags when
+	// game index stub for RunUpdate's plan-token re-verify. A 404 makes
+	// fetchGameIndexV3 return a non-nil error, which short-circuits the
+	// manifest_changed check entirely (RunUpdate only compares tokens when
 	// err == nil) — simplest way to make this test indifferent to the
-	// exact ETag value.
+	// exact token value.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
-	origURL := indexJSONURL
-	indexJSONURL = func() string { return srv.URL + "/index.json" }
-	defer func() { indexJSONURL = origURL }()
+	origURL := gameIndexURLs
+	gameIndexURLs = func() []string { return []string{srv.URL + "/index.json"} }
+	defer func() { gameIndexURLs = origURL }()
 
 	var callCount int
 	origIsProcessRunning := isProcessRunning

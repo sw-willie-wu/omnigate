@@ -23,18 +23,18 @@ import (
 // .superpowers/sdd/2026-08-24-wuwa-krpdiff-patch-update/task-10-brief.md
 // for the case rationale.
 //
-// Shared helpers below build a synthetic two-step kurogames manifest
-// (index.json → indexFile.json) and a small httptest-backed CDN file host,
-// mirroring the real protocol closely enough that CheckForUpdateWithProgress
-// / CheckForPredownload's actual parsing + buildFileAndPatchPlan
+// Shared helpers below build a synthetic two-step kurogames v3 manifest
+// (game index → per-pack indexFile.json) and a small httptest-backed CDN file
+// host, mirroring the real protocol closely enough that
+// CheckForUpdateWithProgress's actual parsing + buildFileAndPatchPlan
 // classification run unmodified, then RunUpdate drives the real
-// download/apply/patch code paths.
+// download/apply/patch code paths. (Predownload cases were removed with the
+// v3 migration: predownload is disabled, spec N1.)
 
 const (
 	e2eGID           core.GameID = "kurogames/wutheringwaves"
 	e2eLocalVersion              = "3.4.0" // launcherDownloadConfig.json's pre-update value
-	e2eTargetVersion             = "3.5.0" // idx.Default.Version (live/update target)
-	e2ePredlVersion              = "3.5.0" // idx.Predownload.Version (predl target)
+	e2eTargetVersion             = "3.5.0" // common pack version (update target)
 
 	// chunkBPath mirrors chunkAPath (defined in update_apply_test.go) — the
 	// game-dir-relative path the "b" krpdiff fixture pair embeds (see
@@ -131,65 +131,45 @@ type patchRoute struct {
 	baseURL      string
 }
 
-// e2eIndexOpts configures buildE2EIndexJSON's index.json body — a stand-in
-// for the real kurogames launcher index.json two-tier (default +
-// predownload) manifest.
+// e2eIndexOpts configures buildE2EIndexJSON's v3 game index body. The
+// "default" fields describe the common pack (the only pack these cases
+// exercise); an empty hd pack is always published alongside it.
 type e2eIndexOpts struct {
 	cdnURL string
 
-	defaultVersion      string // idx.Default.Version
-	defaultIndexFileURL string // idx.Default.Config.IndexFile (FULL/fresh-install manifest)
-	defaultBaseURL      string // idx.Default.Config.BaseURL (FULL download base)
+	defaultVersion      string // resourcePacks.common.version
+	defaultIndexFileURL string // common FULL/fresh-install indexFile
+	defaultBaseURL      string // common FULL download base
 	defaultPatch        *patchRoute
-
-	predlVersion      string // "" = no predownload section published
-	predlIndexFileURL string
-	predlBaseURL      string
-	predlPatch        *patchRoute
 }
 
 func buildE2EIndexJSON(o e2eIndexOpts) []byte {
-	defaultCfg := map[string]any{
+	common := map[string]any{
 		"version":   o.defaultVersion,
 		"indexFile": o.defaultIndexFileURL,
 		"baseUrl":   o.defaultBaseURL,
 	}
 	if o.defaultPatch != nil {
-		defaultCfg["patchType"] = "patch"
-		defaultCfg["patchConfig"] = []map[string]any{{
+		common["patchType"] = "patch"
+		common["patchConfig"] = []map[string]any{{
 			"version":   o.defaultPatch.fromVersion,
 			"indexFile": o.defaultPatch.indexFileURL,
 			"baseUrl":   o.defaultPatch.baseURL,
-			"patchType": "patch",
 		}}
 	}
+	// indexFileMd5 is omitted on purpose: fetchPackIndexFile skips the md5
+	// check when it is empty, so the cases' dynamic indexFile bodies need no
+	// hashing. cdnURL has no trailing slash; indexFile paths start with "/".
 	doc := map[string]any{
-		"default": map[string]any{
-			"version": o.defaultVersion,
-			"cdnList": []map[string]any{{"url": o.cdnURL, "P": 0}},
-			"config":  defaultCfg,
+		"cdnList": []map[string]any{{"url": o.cdnURL, "P": 0}},
+		"resourcePacks": map[string]any{
+			"common": common,
+			"hd":     map[string]any{"version": o.defaultVersion, "indexFile": "/e2e-empty-hd.json", "baseUrl": o.defaultBaseURL},
 		},
-	}
-	if o.predlVersion != "" {
-		predlCfg := map[string]any{
-			"version":   o.predlVersion,
-			"indexFile": o.predlIndexFileURL,
-			"baseUrl":   o.predlBaseURL,
-		}
-		if o.predlPatch != nil {
-			predlCfg["patchType"] = "patch"
-			predlCfg["patchConfig"] = []map[string]any{{
-				"version":   o.predlPatch.fromVersion,
-				"indexFile": o.predlPatch.indexFileURL,
-				"baseUrl":   o.predlPatch.baseURL,
-				"patchType": "patch",
-			}}
-		}
-		doc["predownload"] = map[string]any{
-			"version": o.predlVersion,
-			"cdnList": []map[string]any{{"url": o.cdnURL, "P": 0}},
-			"config":  predlCfg,
-		}
+		"bundles": map[string]any{
+			"HD": map[string]any{"resourcePacks": []string{"common", "hd"}, "config": map[string]any{}},
+		},
+		"predownload": nil,
 	}
 	body, err := json.Marshal(doc)
 	if err != nil {
@@ -209,7 +189,7 @@ func mountIndexJSON(mux *http.ServeMux, body []byte) {
 // mountEmptyFullManifest wires a defensive, always-valid but empty full
 // (fresh-install) indexFile.json at the given path — none of this suite's 8
 // cases actually needs the whole-plan fallback (fetchFull) to fire, but
-// every synthetic index.json's Default.Config.IndexFile must resolve to
+// every synthetic index's common full indexFile must resolve to
 // *something* in case a latent bug causes an unexpected fallback; hitting
 // this handler makes that bug loudly visible (empty resource list → the
 // test's own assertions fail) instead of a nil-pointer panic.
@@ -238,9 +218,12 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	origIdxURL := indexJSONURL
-	t.Cleanup(func() { indexJSONURL = origIdxURL })
-	indexJSONURL = func() string { return srv.URL + "/index.json" }
+	origURLs := gameIndexURLs
+	t.Cleanup(func() { gameIndexURLs = origURLs })
+	gameIndexURLs = func() []string { return []string{srv.URL + "/index.json"} }
+	// The hd pack's full indexFile (buildE2EIndexJSON): empty → 0 hd files,
+	// so the legacy-HD record's hd pack never perturbs these cases' counts.
+	mountEmptyFullManifest(mux, "/e2e-empty-hd.json")
 
 	origProcRunning := isProcessRunning
 	t.Cleanup(func() { isProcessRunning = origProcRunning })
@@ -879,231 +862,6 @@ func TestE2E_MultiGroupFullDownload(t *testing.T) {
 }
 
 // ===========================================================================
-// Case 6: TestE2E_PredlThenApply
-// ===========================================================================
-//
-// The e2e (real patch) version of Task 9's TestRunUpdate_AdoptsPredlStaged:
-// CheckForPredownload (full manifest fetch, real patch groups) → RunUpdate
-// stages (incl. the Ephemeral krpdiff diffs) → RenameToPredlReady → the SAME
-// plan, Kind flipped to PlanUpdate, is re-run through RunUpdate — this must
-// adopt every staged byte (zero re-download, asserted via the CDN hit
-// counters) and then run the real patch phase to completion. Per the task
-// brief, driving the "predl → apply" transition at the provider layer
-// (reusing the plan) rather than via a second CheckForUpdateWithProgress
-// call mirrors Task 9 test 3 and is the accepted shortcut for this case.
-func TestE2E_PredlThenApply(t *testing.T) {
-	a := loadKrpdiffPair(t, "a")
-	b := loadKrpdiffPair(t, "b")
-
-	env := newE2EEnv(t)
-	tempDir := t.TempDir()
-	gameDir := t.TempDir()
-
-	seedGameFile(t, gameDir, chunkAPath, a.old)
-	seedGameFile(t, gameDir, chunkBPath, b.old)
-	writeLauncherVersion(t, gameDir, e2eLocalVersion)
-
-	env.patchFS.set("a.krpdiff", a.diff)
-	env.patchFS.set("b.krpdiff", b.diff)
-
-	idxFile := &indexFileRaw{
-		ApplyTypes: []string{"group"},
-		Resource: []manifestFileRaw{
-			{Dest: "a.krpdiff", MD5: md5hexBytes(a.diff), Size: int64(len(a.diff))},
-			{Dest: "b.krpdiff", MD5: md5hexBytes(b.diff), Size: int64(len(b.diff))},
-		},
-		GroupInfos: []groupInfoRaw{
-			{
-				Dest:     "a.krpdiff",
-				SrcFiles: []manifestFileRaw{{Dest: chunkAPath, MD5: md5hexBytes(a.old), Size: int64(len(a.old))}},
-				DstFiles: []manifestFileRaw{{Dest: chunkAPath, MD5: md5hexBytes(a.new_), Size: int64(len(a.new_))}},
-			},
-			{
-				Dest:     "b.krpdiff",
-				SrcFiles: []manifestFileRaw{{Dest: chunkBPath, MD5: md5hexBytes(b.old), Size: int64(len(b.old))}},
-				DstFiles: []manifestFileRaw{{Dest: chunkBPath, MD5: md5hexBytes(b.new_), Size: int64(len(b.new_))}},
-			},
-		},
-	}
-	mountJSON(env.mux, "/predl/indexFile.json", idxFile)
-	mountEmptyFullManifest(env.mux, "/predl-full/indexFile.json")
-	mountEmptyFullManifest(env.mux, "/full/indexFile.json")
-	mountIndexJSON(env.mux, buildE2EIndexJSON(e2eIndexOpts{
-		cdnURL:              env.srv.URL,
-		defaultVersion:      e2eLocalVersion, // live version hasn't moved yet — this is a predownload
-		defaultIndexFileURL: "/full/indexFile.json",
-		defaultBaseURL:      "/full-files/",
-		predlVersion:        e2ePredlVersion,
-		predlIndexFileURL:   "/predl-full/indexFile.json",
-		predlBaseURL:        "/full-files/",
-		predlPatch:          &patchRoute{fromVersion: e2eLocalVersion, indexFileURL: "/predl/indexFile.json", baseURL: "/patch-files/"},
-	}))
-
-	p := newE2EProvider(tempDir, gameDir)
-	ctx := context.Background()
-
-	predlPlan, err := p.CheckForPredownload(ctx, e2eGID, nil)
-	if err != nil {
-		t.Fatalf("CheckForPredownload: %v", err)
-	}
-	if predlPlan.Kind != core.PlanPredownload {
-		t.Fatalf("predlPlan.Kind = %v, want PlanPredownload", predlPlan.Kind)
-	}
-	if len(predlPlan.PatchGroups) != 2 {
-		t.Fatalf("predlPlan.PatchGroups = %+v, want 2 real patch groups", predlPlan.PatchGroups)
-	}
-
-	if err := p.RunUpdate(ctx, predlPlan, func(core.UpdateEvent) {}); err != nil {
-		t.Fatalf("predl RunUpdate: %v", err)
-	}
-	hitsAAfterPredl := env.patchFS.hitCount("a.krpdiff")
-	hitsBAfterPredl := env.patchFS.hitCount("b.krpdiff")
-	if hitsAAfterPredl != 1 || hitsBAfterPredl != 1 {
-		t.Fatalf("post-predl diff download counts = a:%d b:%d, want 1/1", hitsAAfterPredl, hitsBAfterPredl)
-	}
-	// gameDir must be untouched by a predownload. A top-level entry COUNT
-	// has zero discrimination here — both chunk_a.pak and chunk_b.pak live
-	// under the shared Client/ subtree, so even an (erroneous) in-place
-	// apply during predl would leave the count unchanged. Assert content
-	// directly instead: both chunk files must still read as their OLD
-	// (pre-update) bytes, and the staged predl must have landed as
-	// predl_ready.json (not progress.json) in the version dir.
-	if got := readGameFile(t, gameDir, chunkAPath); string(got) != string(a.old) {
-		t.Errorf("chunk_a.pak must still be the OLD content after a predownload (got patched/new content)")
-	}
-	if got := readGameFile(t, gameDir, chunkBPath); string(got) != string(b.old) {
-		t.Errorf("chunk_b.pak must still be the OLD content after a predownload (got patched/new content)")
-	}
-	predlReadyPath := filepath.Join(tempDir, "kurogames-wutheringwaves", e2ePredlVersion, "predl_ready.json")
-	if _, err := os.Stat(predlReadyPath); err != nil {
-		t.Errorf("predl_ready.json missing after predl RunUpdate: %v", err)
-	}
-
-	updatePlan := predlPlan
-	updatePlan.Kind = core.PlanUpdate
-
-	if err := p.RunUpdate(ctx, updatePlan, func(core.UpdateEvent) {}); err != nil {
-		t.Fatalf("apply RunUpdate: %v", err)
-	}
-
-	if got := env.patchFS.hitCount("a.krpdiff"); got != hitsAAfterPredl {
-		t.Errorf("a.krpdiff re-downloaded during apply (staged bytes must be adopted): hits went from %d to %d", hitsAAfterPredl, got)
-	}
-	if got := env.patchFS.hitCount("b.krpdiff"); got != hitsBAfterPredl {
-		t.Errorf("b.krpdiff re-downloaded during apply (staged bytes must be adopted): hits went from %d to %d", hitsBAfterPredl, got)
-	}
-
-	if got := readGameFile(t, gameDir, chunkAPath); string(got) != string(a.new_) {
-		t.Errorf("chunk_a.pak content mismatch after predl-then-apply patch")
-	}
-	if got := readGameFile(t, gameDir, chunkBPath); string(got) != string(b.new_) {
-		t.Errorf("chunk_b.pak content mismatch after predl-then-apply patch")
-	}
-	noKrpdiffLeaked(t, gameDir)
-}
-
-// ===========================================================================
-// Case 7: TestE2E_PredlManifestDrift
-// ===========================================================================
-//
-// Offline simulation of go-live ETag/content drift: after a predl stages 2
-// plain files, one file's content changes on the "CDN" and its manifest md5
-// is updated to match (the other file is untouched). The adopting
-// RunUpdate must re-download ONLY the drifted file (ConsumePredlStaged's
-// per-file Hash comparison, spec §2.5) and adopt the other from staged
-// bytes.
-func TestE2E_PredlManifestDrift(t *testing.T) {
-	oldX := []byte("OLD_X_CONTENT_V0")
-	v1X := []byte("X_CONTENT_V1")
-	v2X := []byte("X_CONTENT_V2_DRIFTED")
-	oldY := []byte("OLD_Y_CONTENT_V0")
-	v1Y := []byte("Y_CONTENT_V1")
-
-	env := newE2EEnv(t)
-	tempDir := t.TempDir()
-	gameDir := t.TempDir()
-
-	seedGameFile(t, gameDir, "x.dll", oldX)
-	seedGameFile(t, gameDir, "y.dll", oldY)
-	writeLauncherVersion(t, gameDir, e2eLocalVersion)
-
-	env.patchFS.set("x.dll", v1X)
-	env.patchFS.set("y.dll", v1Y)
-
-	idxFile := &indexFileRaw{
-		Resource: []manifestFileRaw{
-			{Dest: "x.dll", MD5: md5hexBytes(v1X), Size: int64(len(v1X))},
-			{Dest: "y.dll", MD5: md5hexBytes(v1Y), Size: int64(len(v1Y))},
-		},
-	}
-	mountJSON(env.mux, "/predl/indexFile.json", idxFile)
-	mountEmptyFullManifest(env.mux, "/full/indexFile.json")
-	mountIndexJSON(env.mux, buildE2EIndexJSON(e2eIndexOpts{
-		cdnURL:              env.srv.URL,
-		defaultVersion:      e2eLocalVersion,
-		defaultIndexFileURL: "/full/indexFile.json",
-		defaultBaseURL:      "/full-files/",
-		predlVersion:        e2ePredlVersion,
-		predlIndexFileURL:   "/predl/indexFile.json",
-		predlBaseURL:        "/patch-files/",
-	}))
-
-	p := newE2EProvider(tempDir, gameDir)
-	ctx := context.Background()
-
-	predlPlan, err := p.CheckForPredownload(ctx, e2eGID, nil)
-	if err != nil {
-		t.Fatalf("CheckForPredownload: %v", err)
-	}
-	if len(predlPlan.Files) != 2 {
-		t.Fatalf("predlPlan.Files = %+v, want 2", predlPlan.Files)
-	}
-
-	if err := p.RunUpdate(ctx, predlPlan, func(core.UpdateEvent) {}); err != nil {
-		t.Fatalf("predl RunUpdate: %v", err)
-	}
-	if got := env.patchFS.hitCount("x.dll"); got != 1 {
-		t.Fatalf("post-predl x.dll hits = %d, want 1", got)
-	}
-	if got := env.patchFS.hitCount("y.dll"); got != 1 {
-		t.Fatalf("post-predl y.dll hits = %d, want 1", got)
-	}
-
-	// Simulate manifest drift: x.dll's content (and hash) changed on the
-	// CDN after the predl staged the old bytes; y.dll is untouched.
-	env.patchFS.set("x.dll", v2X)
-
-	updatePlan := predlPlan
-	updatePlan.Kind = core.PlanUpdate
-	filesCopy := make([]core.FileTask, len(predlPlan.Files))
-	copy(filesCopy, predlPlan.Files)
-	for i := range filesCopy {
-		if filesCopy[i].Path == "x.dll" {
-			filesCopy[i].Hash = md5hexBytes(v2X)
-			filesCopy[i].Size = int64(len(v2X))
-		}
-	}
-	updatePlan.Files = filesCopy
-
-	if err := p.RunUpdate(ctx, updatePlan, func(core.UpdateEvent) {}); err != nil {
-		t.Fatalf("apply RunUpdate: %v", err)
-	}
-
-	if got := env.patchFS.hitCount("x.dll"); got != 2 {
-		t.Errorf("x.dll hits after drift+apply = %d, want 2 (predl + re-download)", got)
-	}
-	if got := env.patchFS.hitCount("y.dll"); got != 1 {
-		t.Errorf("y.dll hits after drift+apply = %d, want 1 (adopted from staged bytes, not re-downloaded)", got)
-	}
-	if got := readGameFile(t, gameDir, "x.dll"); string(got) != string(v2X) {
-		t.Errorf("x.dll content = %q, want drifted v2 content %q", got, v2X)
-	}
-	if got := readGameFile(t, gameDir, "y.dll"); string(got) != string(v1Y) {
-		t.Errorf("y.dll content = %q, want staged v1 content %q", got, v1Y)
-	}
-}
-
-// ===========================================================================
 // Case 8: TestE2E_LegacyManifestUnchanged
 // ===========================================================================
 //
@@ -1194,8 +952,8 @@ func TestE2E_LegacyManifestUnchanged(t *testing.T) {
 }
 
 // TestE2E_LegacyPatchConfigPresentButNoGroupInfos is MINOR-1's variant leg:
-// index.json's default.config DOES have a matching patchType="patch"
-// patchConfig entry (so pickIndexFileForVersion picks the patch route), but
+// the common pack DOES have a matching patchType="patch"
+// patchConfig entry (so resolvePackSource picks the patch route), but
 // the indexFile.json actually fetched from that route carries no
 // groupInfos/applyTypes at all — a real-world shape for "a patch update
 // with zero binary diffs, just plain file replacements". The

@@ -19,7 +19,8 @@ func TestFetchVersion_ReadsLauncherDownloadConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := readLauncherDownloadConfigVersion(filepath.Join(gameDir, "launcherDownloadConfig.json"))
+	st, err := readInstallState(filepath.Join(gameDir, "launcherDownloadConfig.json"))
+	got := st.packVersion("common")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +31,8 @@ func TestFetchVersion_ReadsLauncherDownloadConfig(t *testing.T) {
 }
 
 func TestFetchVersion_MissingFileReturnsEmpty(t *testing.T) {
-	got, err := readLauncherDownloadConfigVersion(filepath.Join(t.TempDir(), "nope.json"))
+	st, err := readInstallState(filepath.Join(t.TempDir(), "nope.json"))
+	got := st.packVersion("common")
 	if err != nil {
 		t.Fatalf("expected nil error on missing file, got %v", err)
 	}
@@ -45,7 +47,8 @@ func TestFetchVersion_MalformedJSONReturnsEmpty(t *testing.T) {
 	if err := os.WriteFile(p, []byte("not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := readLauncherDownloadConfigVersion(p)
+	st, err := readInstallState(p)
+	got := st.packVersion("common")
 	if err == nil {
 		t.Errorf("expected error on malformed json, got nil; got version=%q", got)
 	}

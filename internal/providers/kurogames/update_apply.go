@@ -289,17 +289,24 @@ func (a *applier) runApply(ctx context.Context) error {
 		}
 	}
 
-	// Persist new version to launcherDownloadConfig.json so subsequent
+	// Persist the new version to the install record so subsequent
 	// CheckVersion sees Current = Latest. Without this, even a 0-file apply
-	// (already-up-to-date) leaves the config showing the stale local version
+	// (already-up-to-date) leaves the record showing the stale local version
 	// → Refresh re-flags AvailableUpdate and BottomBar bounces back to
-	// [更新遊戲]. Failure is non-fatal — files are already in place.
-	configPath := filepath.Join(a.gameDir, "launcherDownloadConfig.json")
-	a.logger.Debug("runApply: writing launcherDownloadConfig.json", "path", configPath, "new_version", a.plan.Version)
-	if err := writeLauncherConfigVersion(configPath, a.plan.Version); err != nil {
-		a.logger.Warn("runApply: update launcherDownloadConfig.json failed (apply otherwise succeeded)", "err", err, "path", configPath)
+	// [更新遊戲]. A legacy v2 record is upgraded to the v3 shape (spec §3).
+	// Failure is non-fatal — files are already in place.
+	configPath := filepath.Join(a.gameDir, installStateFile)
+	if err := writeInstallState(configPath, func(s *installState) {
+		s.Version = a.plan.Version
+		for _, n := range s.installedKnown() {
+			b := s.Bundles[n]
+			b.Version = a.plan.Version
+			s.Bundles[n] = b
+		}
+	}); err != nil {
+		a.logger.Warn("runApply: install record write-back failed (apply otherwise succeeded)", "err", err, "path", configPath)
 	} else {
-		a.logger.Info("runApply: launcherDownloadConfig.json written", "path", configPath, "version", a.plan.Version)
+		a.logger.Info("runApply: install record written", "path", configPath, "version", a.plan.Version)
 	}
 
 	// All applied; remove WAL
@@ -317,33 +324,6 @@ func (a *applier) runApply(ctx context.Context) error {
 		a.logger.Warn("cleanup version dir post-apply", "dir", a.progress.dir(), "err", err)
 	}
 	return nil
-}
-
-// writeLauncherConfigVersion reads the existing launcherDownloadConfig.json
-// (if any), overwrites only the `version` field, and atomic-renames the
-// updated JSON back. Preserves any other fields KRLauncher writes (we only
-// know about `version` from research). Creates a minimal `{"version":...}`
-// file if none exists.
-func writeLauncherConfigVersion(path, newVersion string) error {
-	doc := map[string]any{}
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if uerr := json.Unmarshal(data, &doc); uerr != nil {
-			doc = map[string]any{}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	doc["version"] = newVersion
-	out, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
 
 // resumeApply replays apply.wal: re-applies any Pending entries that

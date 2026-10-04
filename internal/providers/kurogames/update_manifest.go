@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,10 +18,10 @@ import (
 	"omnigate/internal/core"
 )
 
-// AppCred is the hardcoded `appId_appKey` for WuWa Global / live channel.
-// Verified per .claude/research/m3a-kuro-update-protocol.md (2026-05-05);
-// identical on every install (NOT per-machine, NOT extracted from cache).
-const AppCred = "50004_obOHXFrFanqsaIEOmuKroCcbZkQRBC7c"
+// AppCred is the hardcoded `appId_appKey` of the WuWa Global v3 game index
+// (gameIndexPath in manifest_v3.go; .claude/specs/2026-10-01-wuwa-v3-bundles-design.md).
+// Identical on every install (NOT per-machine, NOT extracted from cache).
+const AppCred = "50004_P7xcUZnEr1AXIGON25E6KjpOgTlVrg6e"
 
 // accountIDRe matches Kuro accountID format `50004_<alnum>` for sanitization.
 var accountIDRe = regexp.MustCompile(`50004_[a-zA-Z0-9]+`)
@@ -39,30 +38,7 @@ func sanitizeURL(s string) string {
 	return s
 }
 
-// indexJSONURL is the entrypoint for kurogames update protocol — the catalog
-// of CDNs + the per-version indexFile.json pointer. WuWa Global / live channel.
-// A var (not func) so tests can point the manifest fetch at an httptest server.
-var indexJSONURL = func() string {
-	return "https://prod-alicdn-gamestarter.kurogame.com/launcher/game/G153/" + AppCred + "/index.json"
-}
-
 // --- JSON shapes (two-step manifest per research) ---
-
-// indexRaw is the top-level launcher index.
-type indexRaw struct {
-	Default struct {
-		Version string         `json:"version"`
-		CDNList []cdnEntry     `json:"cdnList"`
-		Config  indexConfigRaw `json:"config"`
-	} `json:"default"`
-	Predownload *struct {
-		Version string         `json:"version"`
-		CDNList []cdnEntry     `json:"cdnList"`
-		Config  indexConfigRaw `json:"config"`
-	} `json:"predownload,omitempty"` // present only when active predl is published
-	PredownloadSwitch int      `json:"predownloadSwitch"`
-	KeyFileCheckList  []string `json:"keyFileCheckList"`
-}
 
 type cdnEntry struct {
 	URL string `json:"url"`
@@ -125,38 +101,8 @@ type chunkInfo struct {
 
 // --- HTTP fetchers ---
 
-// fetchIndex GETs index.json and returns parsed body + an ETag-equivalent.
-// index.json doesn't ship a real ETag — uses Last-Modified header as the
-// drift token (falls back to body-MD5 if absent).
-func fetchIndex(ctx context.Context, client *http.Client, url string) (*indexRaw, string, error) {
-	body, etag, err := fetchJSON(ctx, client, url)
-	if err != nil {
-		return nil, "", err
-	}
-	var idx indexRaw
-	if err := json.Unmarshal(body, &idx); err != nil {
-		return nil, "", fmt.Errorf("index json parse: %w", err)
-	}
-	return &idx, etag, nil
-}
-
-// fetchIndexFile GETs the indexFile.json discovered from index.json.
-// Response's ETag header IS the indexFileMd5 (per research) — caller can
-// validate against indexConfigRaw.IndexFileMD5 from the parent index.
-func fetchIndexFile(ctx context.Context, client *http.Client, url string) (*indexFileRaw, string, error) {
-	body, etag, err := fetchJSON(ctx, client, url)
-	if err != nil {
-		return nil, "", err
-	}
-	var idxFile indexFileRaw
-	if err := json.Unmarshal(body, &idxFile); err != nil {
-		return nil, "", fmt.Errorf("indexFile json parse: %w", err)
-	}
-	return &idxFile, etag, nil
-}
-
 // fetchJSON shares the status-code → core.UpdateError mapping between
-// fetchIndex and fetchIndexFile. Returns (body, etagOrLastModified, err).
+// fetchGameIndexV3 and fetchPackIndexFile. Returns (body, etagOrLastModified, err).
 // 4xx: manifest_not_found / auth_failed; 5xx: network (retryable).
 func fetchJSON(ctx context.Context, client *http.Client, url string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -225,35 +171,6 @@ func pickCDN(list []cdnEntry) string {
 		}
 	}
 	return best.URL
-}
-
-// pickIndexFileForVersion returns the indexConfigRaw matching the current
-// install version (patch path), or default.config (full install) if no
-// patchConfig entry matches. Returns (config, isPatch).
-func pickIndexFileForVersion(idx *indexRaw, currentVersion string) (indexConfigRaw, bool) {
-	if idx.Default.Config.PatchType == "patch" && currentVersion != "" {
-		for _, p := range idx.Default.Config.PatchConfig {
-			if p.Version == currentVersion {
-				return p, true
-			}
-		}
-	}
-	return idx.Default.Config, false
-}
-
-// pickPredownloadIndexFile returns the predl indexConfig matching the current
-// install version (patch path), or the predl default config (full) if no
-// patchConfig entry matches. Predl mirror of pickIndexFileForVersion; takes the
-// predl config directly (idx.Predownload.Config).
-func pickPredownloadIndexFile(predlCfg indexConfigRaw, currentVersion string) indexConfigRaw {
-	if predlCfg.PatchType == "patch" && currentVersion != "" {
-		for _, p := range predlCfg.PatchConfig {
-			if p.Version == currentVersion {
-				return p
-			}
-		}
-	}
-	return predlCfg
 }
 
 // fileURL constructs the download URL for an entry. Per-entry FromFolder

@@ -39,69 +39,40 @@ func TestSanitizeURL(t *testing.T) {
 	}
 }
 
-func TestFetchIndex_404(t *testing.T) {
+func TestFetchJSON_404(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
-	_, _, err := fetchIndex(context.Background(), srv.Client(), srv.URL)
+	_, _, err := fetchJSON(context.Background(), srv.Client(), srv.URL)
 	if err == nil || !strings.Contains(err.Error(), "manifest_not_found") {
 		t.Errorf("err = %v, want manifest_not_found", err)
 	}
 }
 
-func TestFetchIndex_401(t *testing.T) {
+func TestFetchJSON_401(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
-	_, _, err := fetchIndex(context.Background(), srv.Client(), srv.URL)
+	_, _, err := fetchJSON(context.Background(), srv.Client(), srv.URL)
 	if err == nil || !strings.Contains(err.Error(), "auth_failed") {
 		t.Errorf("err = %v, want auth_failed", err)
 	}
 }
 
-func TestFetchIndex_5xx(t *testing.T) {
+func TestFetchJSON_5xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
-	_, _, err := fetchIndex(context.Background(), srv.Client(), srv.URL)
+	_, _, err := fetchJSON(context.Background(), srv.Client(), srv.URL)
 	if err == nil || !strings.Contains(err.Error(), "network") {
 		t.Errorf("err = %v, want network", err)
 	}
 }
 
-func TestFetchIndex_OK_AndETagFallback(t *testing.T) {
-	body := `{"default":{"version":"3.3.0","cdnList":[{"url":"https://cdn.example/","P":0,"K1":1,"K2":1}],"config":{"version":"3.3.0","indexFile":"a/indexFile.json","indexFileMd5":"abc","baseUrl":"a/zip/","size":100,"patchType":"patch","patchConfig":[{"version":"3.2.2","indexFile":"a/3.2.2/indexFile.json","baseUrl":"a/3.2.2/resources/","size":50}]}},"predownloadSwitch":1,"keyFileCheckList":["Wuthering Waves.exe"]}`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Last-Modified", "Wed, 29 Apr 2026 20:10:00 GMT")
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(body))
-	}))
-	defer srv.Close()
-	idx, etag, err := fetchIndex(context.Background(), srv.Client(), srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if etag != "Wed, 29 Apr 2026 20:10:00 GMT" {
-		t.Errorf("etag = %q, want Last-Modified value", etag)
-	}
-	if idx.Default.Version != "3.3.0" {
-		t.Errorf("version = %q", idx.Default.Version)
-	}
-	if idx.Default.Config.PatchType != "patch" || len(idx.Default.Config.PatchConfig) != 1 {
-		t.Errorf("patchConfig not parsed: %+v", idx.Default.Config)
-	}
-	if idx.Default.Config.PatchConfig[0].Version != "3.2.2" {
-		t.Errorf("patch version: %q", idx.Default.Config.PatchConfig[0].Version)
-	}
-	if len(idx.KeyFileCheckList) != 1 || idx.KeyFileCheckList[0] != "Wuthering Waves.exe" {
-		t.Errorf("keyFileCheckList: %+v", idx.KeyFileCheckList)
-	}
-}
-
-func TestFetchIndexFile_OK_AndETag(t *testing.T) {
+func TestFetchPackIndexFile_ParsesResourceAndChunks(t *testing.T) {
 	body := `{"resource":[{"dest":"Wuthering Waves.exe","md5":"abc","size":1},{"dest":"big.pak","md5":"def","size":200000000,"chunkInfos":[{"start":0,"end":104857599,"md5":"chunk1"},{"start":104857600,"end":199999999,"md5":"chunk2"}]}]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("ETag", `"abc-md5"`)
@@ -109,12 +80,9 @@ func TestFetchIndexFile_OK_AndETag(t *testing.T) {
 		w.Write([]byte(body))
 	}))
 	defer srv.Close()
-	idxFile, etag, err := fetchIndexFile(context.Background(), srv.Client(), srv.URL)
+	idxFile, err := fetchPackIndexFile(context.Background(), srv.Client(), srv.URL+"/", indexConfigRaw{IndexFile: "indexFile.json"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if etag != `"abc-md5"` {
-		t.Errorf("etag = %q", etag)
 	}
 	if len(idxFile.Resource) != 2 {
 		t.Fatalf("resource count = %d, want 2", len(idxFile.Resource))
@@ -141,34 +109,6 @@ func TestPickCDN_LowestPWins(t *testing.T) {
 	}
 	if pickCDN(nil) != "https://hw-pcdownload-qcloud.aki-game.net/" {
 		t.Errorf("empty pickCDN should return safe default")
-	}
-}
-
-func TestPickIndexFileForVersion(t *testing.T) {
-	idx := &indexRaw{}
-	idx.Default.Config = indexConfigRaw{
-		Version:   "3.3.0",
-		IndexFile: "full/indexFile.json",
-		PatchType: "patch",
-		PatchConfig: []indexConfigRaw{
-			{Version: "3.2.2", IndexFile: "patch/3.2.2/indexFile.json"},
-			{Version: "3.0.0", IndexFile: "patch/3.0.0/indexFile.json"},
-		},
-	}
-
-	cfg, isPatch := pickIndexFileForVersion(idx, "3.2.2")
-	if !isPatch || cfg.IndexFile != "patch/3.2.2/indexFile.json" {
-		t.Errorf("3.2.2 install: cfg = %+v, isPatch = %v", cfg, isPatch)
-	}
-
-	cfg, isPatch = pickIndexFileForVersion(idx, "1.5.0") // not in patchConfig
-	if isPatch || cfg.IndexFile != "full/indexFile.json" {
-		t.Errorf("unknown version: cfg = %+v, isPatch = %v", cfg, isPatch)
-	}
-
-	cfg, isPatch = pickIndexFileForVersion(idx, "") // fresh install
-	if isPatch || cfg.IndexFile != "full/indexFile.json" {
-		t.Errorf("empty version: cfg = %+v, isPatch = %v", cfg, isPatch)
 	}
 }
 
