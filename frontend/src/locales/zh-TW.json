@@ -317,6 +317,10 @@
     "resume": "繼續安裝",
     "later": "稍後",
     "discard": "放棄",
+    "discard_failed": "放棄失敗：{detail}",
+    "confirm_discard": "放棄會刪除已下載的部分，之後需要重新下載。確定放棄？",
+    "permission_denied_install": "安裝畫質 {bundle} 需要系統管理員權限",
+    "permission_denied_remove": "刪除畫質 {bundle} 需要系統管理員權限",
     "stale": "（離線資料）"
   }
 }

@@ -20,6 +20,7 @@ type fakeBundleProv struct {
 	version     core.VersionInfo
 	updatePlan  core.UpdatePlan // generic CheckForUpdate result
 	checkCalls  atomic.Int32
+	runCalls    atomic.Int32
 	runErr      error
 	cat         core.BundleCatalog
 	st          core.BundleInstallState
@@ -64,6 +65,7 @@ func (f *fakeBundleProv) CheckForUpdate(context.Context, core.GameID) (core.Upda
 	return f.updatePlan, nil
 }
 func (f *fakeBundleProv) RunUpdate(context.Context, core.UpdatePlan, func(core.UpdateEvent)) error {
+	f.runCalls.Add(1)
 	return f.runErr
 }
 
@@ -74,6 +76,7 @@ func (f *fakeBundleProv) CheckForPredownload(context.Context, core.GameID, func(
 }
 
 func (f *fakeBundleProv) checkForUpdateCalls() int32 { return f.checkCalls.Load() }
+func (f *fakeBundleProv) runUpdateCalls() int32      { return f.runCalls.Load() }
 
 // core.BundleManager
 func (f *fakeBundleProv) BundleState(context.Context, core.GameID) (core.BundleCatalog, core.BundleInstallState, bool, error) {

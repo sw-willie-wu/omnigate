@@ -139,6 +139,16 @@ func (a *App) withState(gid core.GameID, bm core.BundleManager, e error) (Bundle
 	return st, err
 }
 
+// interruptedBundle returns the bundle of an interrupted install awaiting
+// resume/discard, or "" when there is none (or it was a plain update).
+func (a *App) interruptedBundle(gid core.GameID) string {
+	s := a.updateRegistry.Get(gid).Snapshot()
+	if s.InFlight == nil && s.LastError != nil && s.LastError.Code == "interrupted_resume" {
+		return s.LastError.Params["bundle"]
+	}
+	return ""
+}
+
 // busy: an op is in flight, or an interrupted update awaits resume/discard.
 // Other LastErrors do not block (startUpdateFlowWith clears them).
 func (a *App) busy(gid core.GameID) bool {
@@ -196,6 +206,14 @@ func (a *App) InstallBundle(gameID, name string) (BundleState, error) {
 	}
 	if a.gameRunning(p, gid) {
 		return fail(processBlocked(gameID))
+	}
+	// Installing the bundle whose install was interrupted continues it (this
+	// is also how the elevated relaunch of spec §6.9 picks it back up).
+	if a.interruptedBundle(gid) == name {
+		if err := a.ResumeInterrupted(gameID); err != nil {
+			return a.withState(gid, bm, err)
+		}
+		return a.buildBundleState(gid, bm)
 	}
 	if a.busy(gid) {
 		return fail(&core.UpdateError{Code: "bundle_busy", Retryable: true})
@@ -261,6 +279,12 @@ func (a *App) RemoveBundle(gameID, name string) (BundleState, error) {
 	}
 	if a.busy(gid) {
 		return fail(&core.UpdateError{Code: "bundle_busy", Retryable: true})
+	}
+	// Deleting from Program Files needs admin; say so instead of failing
+	// later with bundle_remove_failed.
+	if ue := a.ensureGameDirWritable(gid, a.gameInstallDir(gid, p)); ue != nil {
+		ue.Params["bundle"], ue.Params["op"] = name, "remove"
+		return fail(ue)
 	}
 	_, st, _, err := bm.BundleState(context.Background(), gid)
 	if err != nil {

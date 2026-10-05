@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useGamesStore } from '../stores/games';
 import { useUpdatesStore } from '../stores/updates';
 import { useAccountStore, accountPrimary } from '../stores/account';
+import { errorText as bundleErrorText, relaunchForBundle } from '../stores/bundles';
 import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
 import { pushToast } from '../composables/useToast';
@@ -69,6 +70,7 @@ const errorLabel = computed<string>(() => {
   if (!err || !err.code) return '';
   if (err.code === 'interrupted_resume') return '';
   const params = (err.params as any) || {};
+  if (err.code === 'permission_denied' && params.bundle) return bundleErrorText(err);
   // Codes live in two locale blocks: update.error.* (newer) and update.errors.*
   // (M3.A-era). Try both, then fall back to the generic internal template with
   // the raw code as detail so an unknown code never leaks as a raw i18n key.
@@ -89,6 +91,13 @@ const showElevateButton = computed(() => lastError.value?.code === 'permission_d
 async function onRelaunchElevated() {
   const gid = games.selected?.id;
   if (!gid) return;
+  // An interrupted bundle install continues as that bundle install (spec §6.9);
+  // --elevate-update would plan a generic update over its sidecar.
+  const bundle = lastError.value?.params?.bundle as string | undefined;
+  if (bundle) {
+    await relaunchForBundle(gid, bundle);
+    return;
+  }
   try {
     await updates.relaunchElevated(gid);
   } catch (e) {

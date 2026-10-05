@@ -99,6 +99,22 @@ func (a *App) RelaunchElevated(gameID string) error {
 	return nil
 }
 
+// RelaunchAsAdmin is a Wails RPC: relaunch omnigate elevated with no
+// follow-up action (e.g. to remove a quality bundle from Program Files),
+// then quit this instance.
+func (a *App) RelaunchAsAdmin() error {
+	if isElevatedFn() {
+		return errors.New("already_elevated")
+	}
+	if err := relaunchElevatedFn(nil); err != nil {
+		return err
+	}
+	if a.ctx != nil {
+		wruntime.Quit(a.ctx)
+	}
+	return nil
+}
+
 // RelaunchElevatedForBundle is a Wails RPC: relaunch omnigate elevated with
 // `--elevate-install-bundle <gameID> <bundle>` so the new instance continues
 // the bundle install, then quit this instance (spec §6.9). It never emits

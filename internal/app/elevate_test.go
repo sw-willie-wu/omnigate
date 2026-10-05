@@ -153,3 +153,18 @@ func TestPendingElevatedGame_returnsOnce(t *testing.T) {
 		t.Fatalf("second call = %q; want empty (consumed once)", got)
 	}
 }
+
+// RelaunchAsAdmin relaunches with no auto-start argument (bundle removal).
+func TestRelaunchAsAdmin_noArgs(t *testing.T) {
+	a, _ := newBundleApp(t)
+	calls := stubElevation(t, false)
+	if err := a.RelaunchAsAdmin(); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(*calls) != 1 || len((*calls)[0]) != 0 {
+		t.Fatalf("relaunch args = %v; want one call with no args", *calls)
+	}
+	if err := (func() error { stubElevation(t, true); return a.RelaunchAsAdmin() })(); err == nil || err.Error() != "already_elevated" {
+		t.Fatalf("elevated: err = %v", err)
+	}
+}

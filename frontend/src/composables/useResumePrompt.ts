@@ -2,6 +2,7 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useUpdatesStore } from '../stores/updates';
 import { useBundlesStore } from '../stores/bundles';
+import { confirm } from './useDialog';
 
 // Spec §3.5 row 4 — surface "上次更新中斷" notifications whenever a game's
 // LastError is set to interrupted_resume. The Topbar bell-icon dropdown
@@ -51,7 +52,9 @@ export function useResumePrompt() {
   async function dismiss(gameID: string) {
     await updates.dismissError(gameID);
   }
+  // Discard deletes the partial download (can be tens of GB): confirm first.
   async function discard(gameID: string) {
+    if ((await confirm(t('bundle.confirm_discard'), t('bundle.discard'), t('buttons.cancel'))) !== 'ok') return;
     await useBundlesStore().discardInterrupted(gameID);
   }
 

@@ -129,3 +129,23 @@ func ScanRecovery(dir string) RecoveryState {
 		return RecoveryState{Phase: RecoveryNone}
 	}
 }
+
+// SidecarBundle reports the quality bundle recorded by an interrupted v1
+// sidecar in dir (apply.wal header, else progress.json), or "" if none. Unlike
+// ScanRecovery it never deletes anything, so it is safe to call before a
+// regular update.
+func SidecarBundle(dir string) string {
+	if body, err := os.ReadFile(filepath.Join(dir, "apply.wal")); err == nil {
+		var hdr struct {
+			Bundle string `json:"bundle"`
+		}
+		if json.Unmarshal(body, &hdr) == nil {
+			return hdr.Bundle
+		}
+		return ""
+	}
+	if pf, err := loadProgressFile(filepath.Join(dir, "progress.json")); err == nil {
+		return pf.Bundle
+	}
+	return ""
+}

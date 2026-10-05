@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import {
   GetBundleState, SetActiveBundle, InstallBundle, RemoveBundle, SetLaunchOption, DiscardInterrupted,
-  IsElevated, RelaunchElevatedForBundle,
+  IsElevated, RelaunchElevatedForBundle, RelaunchAsAdmin,
 } from '../../wailsjs/go/app/App';
 import { pushToast } from '../composables/useToast';
 import { i18n } from '../i18n';
@@ -43,20 +43,44 @@ export function errorText(e: UpdateError): string {
       : t('update.errors.bundle_busy_residual_update');
   }
   const params = e.params ?? {};
+  if (e.code === 'permission_denied' && params.bundle) {
+    return t(params.op === 'remove' ? 'bundle.permission_denied_remove' : 'bundle.permission_denied_install', params);
+  }
   if (te(`update.error.${e.code}`)) return t(`update.error.${e.code}`, params);
   if (te(`update.errors.${e.code}`)) return t(`update.errors.${e.code}`, params);
   return t('update.errors.internal', { detail: params.detail || e.code });
 }
 
-// relaunchForBundle: restart omnigate elevated to continue installing `name`.
-// On success this instance quits; a rejection (UAC declined or real error) toasts.
-async function relaunchForBundle(gid: string, name: string): Promise<void> {
+// relaunch runs an elevated-relaunch RPC. On success this instance quits; a
+// rejection (UAC declined or real error) toasts.
+async function relaunch(rpc: () => Promise<unknown>): Promise<void> {
   try {
-    await RelaunchElevatedForBundle(gid, name);
+    await rpc();
   } catch (e) {
     const msg = String((e as Error)?.message ?? e);
     pushToast(msg.includes('uac_declined') ? i18n.global.t('update.elevate_cancelled') : msg);
   }
+}
+
+// relaunchForBundle: restart omnigate elevated to continue installing `name`.
+export function relaunchForBundle(gid: string, name: string): Promise<void> {
+  return relaunch(() => RelaunchElevatedForBundle(gid, name));
+}
+
+// offerRelaunch: on permission_denied in a non-elevated process, toast with a
+// "restart as administrator" button and return true. IsElevated rejecting
+// counts as elevated (same as BottomBar) → no button, no loop.
+async function offerRelaunch(st: BundleState, onRelaunch: () => Promise<void>): Promise<boolean> {
+  if (st.error?.code !== 'permission_denied') return false;
+  let elevated = true;
+  try { elevated = await IsElevated(); } catch { elevated = true; }
+  if (elevated) return false;
+  pushToast(errorText(st.error), {
+    retryable: true,
+    retryLabel: i18n.global.t('buttons.relaunch_admin'),
+    onRetry: () => void onRelaunch(),
+  });
+  return true;
 }
 
 export const useBundlesStore = defineStore('bundles', {
@@ -83,29 +107,32 @@ export const useBundlesStore = defineStore('bundles', {
     async setActive(gid: string, name: string) { return this.apply(gid, (await SetActiveBundle(gid, name)) as BundleState); },
     async install(gid: string, name: string) {
       const st = (await InstallBundle(gid, name)) as BundleState;
-      if (st.error?.code === 'permission_denied') {
-        // IsElevated rejecting counts as elevated (same as BottomBar) → no button, no loop.
-        let elevated = true;
-        try { elevated = await IsElevated(); } catch { elevated = true; }
-        if (!elevated) {
-          this.byGame[gid] = st;
-          pushToast(errorText(st.error), {
-            retryable: true,
-            retryLabel: i18n.global.t('buttons.relaunch_admin'),
-            onRetry: () => void relaunchForBundle(gid, name),
-          });
-          return st;
-        }
+      if (await offerRelaunch(st, () => relaunchForBundle(gid, name))) {
+        this.byGame[gid] = st;
+        return st;
       }
       return this.apply(gid, st);
     },
-    async remove(gid: string, name: string) { return this.apply(gid, (await RemoveBundle(gid, name)) as BundleState); },
+    async remove(gid: string, name: string) {
+      const st = (await RemoveBundle(gid, name)) as BundleState;
+      // Removal needs no auto-continue: a plain elevated relaunch.
+      if (await offerRelaunch(st, () => relaunch(RelaunchAsAdmin))) {
+        this.byGame[gid] = st;
+        return st;
+      }
+      return this.apply(gid, st);
+    },
     async setOption(gid: string, cmd: string, enabled: boolean) {
       return this.apply(gid, (await SetLaunchOption(gid, cmd, enabled)) as BundleState);
     },
+    // Never rejects: a failed discard (op in flight, files locked) toasts.
     async discardInterrupted(gid: string) {
-      await DiscardInterrupted(gid);
-      await this.load(gid);
+      try {
+        await DiscardInterrupted(gid);
+      } catch (e) {
+        pushToast(i18n.global.t('bundle.discard_failed', { detail: String((e as Error)?.message ?? e) }));
+      }
+      try { await this.load(gid); } catch (e) { console.error('GetBundleState failed', e); }
     },
   },
 });

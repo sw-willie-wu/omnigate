@@ -178,6 +178,22 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 	}
 	plan.Kind = kind
 	plan.Bundle = bundle // fn already set it; keep InFlight/worker consistent
+
+	// A generic update whose version dir holds an interrupted bundle install
+	// would reset that sidecar (different plan token) and drop the bundle's
+	// partial download. Leave it alone and bring the interrupted prompt back.
+	if bundle == "" && kind == core.PlanUpdate {
+		dir := a.sidecarVersionDir(p, gid, plan.Version)
+		if validVersionDirName(plan.Version) && core.SidecarBundle(dir) != "" {
+			a.logger.Warn("runStartUpdateAsync: version dir holds an interrupted bundle install; not overwriting", "game", gid, "dir", dir)
+			state.mu.Lock()
+			state.InFlight = nil
+			state.mu.Unlock()
+			a.applyRecoveryState(gid, dir)
+			a.updateRegistry.EmitTerminal(gid)
+			return
+		}
+	}
 	a.logger.Debug("runStartUpdateAsync: CheckForUpdate done", "game", gid, "files", len(plan.Files), "bytes", plan.TotalBytes, "version", plan.Version)
 
 	tempDir := a.tempDirFor(p.ID(), gid)
@@ -557,7 +573,13 @@ func (a *App) ResumeInterrupted(gameID string) error {
 	}
 
 	// Preflight: fail fast if the game dir is not writable (Program Files w/o admin).
+	// An interrupted bundle install keeps its bundle on the error so the UI
+	// relaunches with --elevate-install-bundle (spec §6.9), never
+	// --elevate-update, whose generic plan would overwrite the bundle sidecar.
 	if ue := a.ensureGameDirWritable(gid, a.gameInstallDir(gid, p)); ue != nil {
+		if b := a.interruptedBundle(gid); b != "" {
+			ue.Params["bundle"] = b
+		}
 		a.setLastError(gid, ue)
 		return nil
 	}

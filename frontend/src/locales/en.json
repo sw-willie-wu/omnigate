@@ -317,6 +317,10 @@
     "resume": "Continue",
     "later": "Later",
     "discard": "Discard",
+    "discard_failed": "Discard failed: {detail}",
+    "confirm_discard": "Discarding deletes the partially downloaded files; they will have to be downloaded again. Discard?",
+    "permission_denied_install": "Installing quality {bundle} requires administrator rights",
+    "permission_denied_remove": "Removing quality {bundle} requires administrator rights",
     "stale": " (offline data)"
   }
 }

@@ -200,3 +200,89 @@ func TestDiscardInterrupted(t *testing.T) {
 		}
 	})
 }
+
+// writeBundleSidecar leaves an interrupted download sidecar for bundle at
+// version 3.7.0 and loads it into LastError like startup recovery does.
+func writeBundleSidecar(t *testing.T, a *App, f *fakeBundleProv, bundle string) string {
+	t.Helper()
+	dir := a.sidecarVersionDir(f, gid, "3.7.0")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"game_id":"x","version":"3.7.0","etag":"t","bundle":"`+bundle+`","entries":{}}`), 0o644)
+	a.applyRecoveryState(gid, dir)
+	return dir
+}
+
+// Final review I-1(a): a non-admin resume of an interrupted bundle install
+// must keep the bundle on permission_denied so the UI relaunches with
+// --elevate-install-bundle, not --elevate-update.
+func TestResumeInterrupted_BundlePermissionDeniedCarriesBundle(t *testing.T) {
+	a, f := newBundleApp(t)
+	writeBundleSidecar(t, a, f, "SD")
+	probeGameDirWritable = func(string) error { return os.ErrPermission }
+	if err := a.ResumeInterrupted(string(gid)); err != nil {
+		t.Fatal(err)
+	}
+	le := a.updateRegistry.Get(gid).Snapshot().LastError
+	if le == nil || le.Code != "permission_denied" || le.Params["bundle"] != "SD" {
+		t.Fatalf("LastError = %+v", le)
+	}
+}
+
+// Final review I-1(b): the elevated instance's auto InstallBundle for the
+// interrupted bundle resumes it instead of failing bundle_busy.
+func TestInstallBundle_SameInterruptedBundleResumes(t *testing.T) {
+	a, f := newBundleApp(t)
+	f.plan = core.UpdatePlan{Kind: core.PlanUpdate, Version: "3.7.0", ManifestETag: "t"}
+	writeBundleSidecar(t, a, f, "SD")
+	st, err := a.InstallBundle(string(gid), "SD")
+	if err != nil || st.Error != nil {
+		t.Fatalf("st.Error=%v err=%v", st.Error, err)
+	}
+	waitIdle(t, a, gid)
+	if f.planCalls.Load() != 1 || f.checkForUpdateCalls() != 0 {
+		t.Fatalf("planCalls=%d generic=%d", f.planCalls.Load(), f.checkForUpdateCalls())
+	}
+	// A different bundle is still blocked.
+	a2, f2 := newBundleApp(t)
+	writeBundleSidecar(t, a2, f2, "UHD")
+	if st, _ := a2.InstallBundle(string(gid), "SD"); st.Error == nil || st.Error.Code != "bundle_busy" {
+		t.Fatalf("other bundle: %v", st.Error)
+	}
+}
+
+// Final review I-1(c): a plain update whose plan lands on a bundle's
+// interrupted sidecar must not overwrite it; the interrupted prompt returns.
+func TestStartUpdate_DoesNotClobberBundleSidecar(t *testing.T) {
+	a, f := newBundleApp(t)
+	f.updatePlan = core.UpdatePlan{Kind: core.PlanUpdate, Version: "3.7.0", ManifestETag: "other"}
+	dir := writeBundleSidecar(t, a, f, "SD")
+	if err := a.StartUpdate(string(gid)); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, a, gid)
+	if _, err := os.Stat(filepath.Join(dir, "progress.json")); err != nil {
+		t.Fatal("bundle sidecar was removed")
+	}
+	le := a.updateRegistry.Get(gid).Snapshot().LastError
+	if le == nil || le.Code != "interrupted_resume" || le.Params["bundle"] != "SD" {
+		t.Fatalf("LastError = %+v", le)
+	}
+	if f.runUpdateCalls() != 0 {
+		t.Fatal("RunUpdate must not run over a bundle sidecar")
+	}
+}
+
+// Final review I-2: removing a bundle without write access reports
+// permission_denied (with the bundle and op) instead of bundle_remove_failed.
+func TestRemoveBundle_PermissionDenied(t *testing.T) {
+	a, f := newBundleApp(t)
+	f.st = core.BundleInstallState{Active: "HD", Installed: map[string]string{"HD": "3.7.0", "SD": "3.7.0"}}
+	probeGameDirWritable = func(string) error { return os.ErrPermission }
+	st, _ := a.RemoveBundle(string(gid), "SD")
+	if st.Error == nil || st.Error.Code != "permission_denied" || st.Error.Params["bundle"] != "SD" || st.Error.Params["op"] != "remove" {
+		t.Fatalf("st.Error=%+v", st.Error)
+	}
+	if len(f.removed) != 0 {
+		t.Fatal("provider RemoveBundle must not run")
+	}
+}

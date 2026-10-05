@@ -17,6 +17,8 @@ vi.mock('../../../wailsjs/go/app/App', () => ({
 }));
 vi.mock('../../../wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn() }));
 vi.mock('../useToast', () => ({ pushToast: vi.fn(), registerToast: vi.fn() }));
+const confirmFn = vi.fn();
+vi.mock('../useDialog', () => ({ confirm: (...a: unknown[]) => confirmFn(...a) }));
 
 import { useResumePrompt } from '../useResumePrompt';
 import { useUpdatesStore } from '../../stores/updates';
@@ -32,7 +34,7 @@ function withSetup<T>(fn: () => T): T {
 }
 
 describe('useResumePrompt bundle interruptions', () => {
-  beforeEach(() => { setActivePinia(createPinia()); discardRpc.mockReset(); });
+  beforeEach(() => { setActivePinia(createPinia()); discardRpc.mockReset(); confirmFn.mockReset().mockResolvedValue('ok'); });
 
   it('uses bundle copy and discards via RPC', async () => {
     useUpdatesStore().byGame[GID] = { last_error: { code: 'interrupted_resume', retryable: true, params: { phase: 'download', bundle: 'SD', version: '3.7.0' } } };
@@ -43,7 +45,16 @@ describe('useResumePrompt bundle interruptions', () => {
     expect(pending.value[0].resumeLabel).toBe(en.bundle.resume);
     expect(pending.value[0].dismissLabel).toBe(en.bundle.later);
     await discard(GID);
+    expect(confirmFn).toHaveBeenCalledWith(en.bundle.confirm_discard, en.bundle.discard, en.buttons.cancel);
     expect(discardRpc).toHaveBeenCalledWith(GID);
+  });
+
+  it('does not discard when the confirm dialog is cancelled', async () => {
+    useUpdatesStore().byGame[GID] = { last_error: { code: 'interrupted_resume', retryable: true, params: { phase: 'download', bundle: 'SD', version: '3.7.0' } } };
+    const { discard } = withSetup(() => useResumePrompt());
+    confirmFn.mockResolvedValue('cancel');
+    await discard(GID);
+    expect(discardRpc).not.toHaveBeenCalled();
   });
 
   it('keeps the generic copy for non-bundle interruptions', () => {

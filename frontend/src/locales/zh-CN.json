@@ -317,6 +317,10 @@
     "resume": "继续安装",
     "later": "稍后",
     "discard": "放弃",
+    "discard_failed": "放弃失败：{detail}",
+    "confirm_discard": "放弃会删除已下载的部分，之后需要重新下载。确定放弃？",
+    "permission_denied_install": "安装画质 {bundle} 需要系统管理员权限",
+    "permission_denied_remove": "删除画质 {bundle} 需要系统管理员权限",
     "stale": "（离线数据）"
   }
 }

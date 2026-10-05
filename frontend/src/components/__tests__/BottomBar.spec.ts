@@ -8,8 +8,16 @@ import cn from '../../locales/zh-CN.json';
 
 const isRunning = vi.fn();
 const launch = vi.fn();
+const isElevated = vi.fn();
+const relaunchElevated = vi.fn();
+const relaunchForBundle = vi.fn();
 vi.mock('../../../wailsjs/go/app/App', () => ({
   IsGameRunning: (...a: unknown[]) => isRunning(...a),
+  IsElevated: (...a: unknown[]) => isElevated(...a),
+  RelaunchElevated: (...a: unknown[]) => relaunchElevated(...a),
+  RelaunchElevatedForBundle: (...a: unknown[]) => relaunchForBundle(...a),
+  GetBundleState: vi.fn(), SetActiveBundle: vi.fn(), InstallBundle: vi.fn(), RemoveBundle: vi.fn(),
+  SetLaunchOption: vi.fn(), DiscardInterrupted: vi.fn(), RelaunchAsAdmin: vi.fn(),
   Launch: (...a: unknown[]) => launch(...a),
   // module-load deps of the games/updates stores:
   ListGames: vi.fn(), RefreshVersion: vi.fn(), GetIcon: vi.fn(), GetBackgrounds: vi.fn(),
@@ -27,6 +35,7 @@ import BottomBar from '../BottomBar.vue';
 import { useGamesStore } from '../../stores/games';
 import { useAccountStore } from '../../stores/account';
 import { useUpdatesStore } from '../../stores/updates';
+import { setLang } from '../../i18n';
 
 const GID = 'kurogames/wutheringwaves';
 function setup(opts: { selectedId: string; running?: boolean; locale?: 'en' | 'zh-TW' }) {
@@ -204,5 +213,34 @@ describe('BottomBar download/apply progress labels', () => {
     expect(label.exists()).toBe(true);
     expect(label.text()).toContain('25%');
     expect(label.text()).not.toContain('update.stage.no_such_stage');
+  });
+});
+
+// Final review I-1: the elevate button for an interrupted bundle install must
+// relaunch with --elevate-install-bundle, never --elevate-update.
+describe('BottomBar relaunch as administrator', () => {
+  beforeEach(() => { setLang('en'); [isRunning, isElevated, relaunchElevated, relaunchForBundle].forEach((m) => m.mockReset()); });
+
+  async function clickElevate(params: Record<string, string>) {
+    isElevated.mockResolvedValue(false);
+    const w = setup({ selectedId: 'A' });
+    useUpdatesStore().byGame[GID] = { last_error: { code: 'permission_denied', retryable: true, params } } as never;
+    await flushPromises();
+    await w.find('.elevate-btn').trigger('click');
+    await flushPromises();
+    return w;
+  }
+
+  it('bundle permission_denied → RelaunchElevatedForBundle with bundle copy', async () => {
+    const w = await clickElevate({ game: GID, bundle: 'SD' });
+    expect(relaunchForBundle).toHaveBeenCalledWith(GID, 'SD');
+    expect(relaunchElevated).not.toHaveBeenCalled();
+    expect(w.text()).toContain(en.bundle.permission_denied_install.replace('{bundle}', 'SD'));
+  });
+
+  it('plain permission_denied → RelaunchElevated', async () => {
+    await clickElevate({ game: GID });
+    expect(relaunchElevated).toHaveBeenCalledWith(GID);
+    expect(relaunchForBundle).not.toHaveBeenCalled();
   });
 });
