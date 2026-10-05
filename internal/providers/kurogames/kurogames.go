@@ -28,7 +28,8 @@ type Provider struct {
 	convLogPathsFn func(installDir string) []string
 	recordDelay    time.Duration
 	tempRootFn     func(core.GameID) string
-	kv             KV // config store (bundle catalog / active bundle / launch opts); memKV until SetKV
+	kv             KV                 // config store (bundle catalog / active bundle / launch opts); memKV until SetKV
+	removeAll      func(string) error // bundle directory removal (injectable for tests)
 
 	krsdkCachePathFn     func() (string, error)         // locate KRSDKUserCache.json (injectable)
 	localStorageDBPathFn func(installDir string) string // locate LocalStorage.db (injectable)
@@ -64,6 +65,8 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 		},
 		clock: realRetryClock{},
 		kv:    newMemKV(),
+
+		removeAll: os.RemoveAll,
 	}
 	p.recordAPIBase = "https://gmserver-api.aki-game2.net"
 	p.convLogPathsFn = defaultConvLogPaths
@@ -392,6 +395,9 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	if err := progress.Init(plan.ManifestETag); err != nil {
 		return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": err.Error()}}
 	}
+	if err := progress.SetBundle(plan.Bundle); err != nil {
+		return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": err.Error()}}
+	}
 
 	// Download phase
 	d := &downloader{
@@ -474,4 +480,5 @@ var (
 	_ core.CheckForUpdateProgress = (*Provider)(nil) // verify-local progress for BottomBar
 	_ core.ProcessChecker         = (*Provider)(nil)
 	_ core.PredownloadChecker     = (*Provider)(nil) // predl: disabled for v3 (always unsupported)
+	_ core.BundleManager          = (*Provider)(nil)
 )

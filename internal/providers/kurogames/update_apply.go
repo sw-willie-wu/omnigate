@@ -21,9 +21,10 @@ type applyWAL struct {
 	GameID   string   `json:"game_id"`
 	Version  string   `json:"version"`
 	ETag     string   `json:"etag"`
-	WasPredl bool     `json:"was_predl"` // for recovery message variant (spec §6.3)
-	Pending  []string `json:"pending"`   // relative paths still to apply
-	Done     []string `json:"done"`      // relative paths already moved
+	WasPredl bool     `json:"was_predl"`        // for recovery message variant (spec §6.3)
+	Pending  []string `json:"pending"`          // relative paths still to apply
+	Done     []string `json:"done"`             // relative paths already moved
+	Bundle   string   `json:"bundle,omitempty"` // bundle-install intent (spec 6.5)
 }
 
 // applier wraps dependencies for the apply phase.
@@ -210,6 +211,7 @@ func (a *applier) runApply(ctx context.Context) error {
 		Version:  a.plan.Version,
 		ETag:     a.plan.ManifestETag,
 		WasPredl: a.wasPredl,
+		Bundle:   a.plan.Bundle,
 		Pending:  pending,
 		Done:     []string{},
 	}
@@ -296,15 +298,27 @@ func (a *applier) runApply(ctx context.Context) error {
 	// [更新遊戲]. A legacy v2 record is upgraded to the v3 shape (spec §3).
 	// Failure is non-fatal — files are already in place.
 	configPath := filepath.Join(a.gameDir, installStateFile)
-	if err := writeInstallState(configPath, func(s *installState) {
+	wbErr := writeInstallState(configPath, func(s *installState) {
 		s.Version = a.plan.Version
 		for _, n := range s.installedKnown() {
 			b := s.Bundles[n]
 			b.Version = a.plan.Version
 			s.Bundles[n] = b
 		}
-	}); err != nil {
-		a.logger.Warn("runApply: install record write-back failed (apply otherwise succeeded)", "err", err, "path", configPath)
+		if a.plan.Bundle != "" {
+			b := s.Bundles[a.plan.Bundle]
+			b.Version = a.plan.Version
+			b.State = ""
+			b.ResourcePacks = []string{"common", packOf(a.plan.Bundle)}
+			if b.Raw == nil {
+				b.Raw = map[string]any{"state": ""}
+			}
+			b.Raw["state"] = ""
+			s.Bundles[a.plan.Bundle] = b
+		}
+	})
+	if wbErr != nil {
+		a.logger.Warn("runApply: install record write-back failed (apply otherwise succeeded)", "err", wbErr, "path", configPath, "bundle", a.plan.Bundle)
 	} else {
 		a.logger.Info("runApply: install record written", "path", configPath, "version", a.plan.Version)
 	}
@@ -322,6 +336,9 @@ func (a *applier) runApply(ctx context.Context) error {
 	_ = a.lock.Release()
 	if err := os.RemoveAll(a.progress.dir()); err != nil {
 		a.logger.Warn("cleanup version dir post-apply", "dir", a.progress.dir(), "err", err)
+	}
+	if wbErr != nil && a.plan.Bundle != "" {
+		return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"detail": wbErr.Error(), "bundle": a.plan.Bundle}}
 	}
 	return nil
 }

@@ -29,3 +29,22 @@ func TestLiveCheckForUpdate(t *testing.T) {
 		t.Fatalf("expected empty plan on an up-to-date install")
 	}
 }
+
+// TestLiveBuildBundleInstallPlanSD builds (never downloads) the SD bundle
+// install plan against the real server and the real (READ-ONLY) install.
+func TestLiveBuildBundleInstallPlanSD(t *testing.T) {
+	dir := os.Getenv("OMNIGATE_WUWA_DIR")
+	if dir == "" {
+		t.Skip("OMNIGATE_WUWA_DIR not set")
+	}
+	p := New(Settings{TempDir: t.TempDir()}, nil)
+	p.SetResolvedPaths(map[core.GameID]string{"kurogames/wutheringwaves": dir})
+	plan, err := p.BuildBundleInstallPlan(context.Background(), "kurogames/wutheringwaves", "SD", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("SD plan files=%d bytes=%d token=%s", len(plan.Files), plan.TotalBytes, plan.ManifestETag)
+	if plan.Bundle != "SD" || len(plan.Files) != 100 {
+		t.Fatalf("bundle=%q files=%d", plan.Bundle, len(plan.Files))
+	}
+}

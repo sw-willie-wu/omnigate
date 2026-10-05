@@ -59,6 +59,22 @@ func (p *progressStore) Init(etag string) error {
 	return p.writeAtomic("progress.json", &pf)
 }
 
+// SetBundle stamps the bundle-install intent into progress.json (spec 6.5).
+// Called by RunUpdate right after Init; no-op for "".
+func (p *progressStore) SetBundle(name string) error {
+	if name == "" {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pf, err := core.LoadProgressFromPath(filepath.Join(p.dir(), "progress.json"))
+	if err != nil {
+		return err
+	}
+	pf.Bundle = name
+	return p.writeAtomic("progress.json", pf)
+}
+
 // removeStaleParts deletes every *.part under the version dir. Must walk
 // recursively: .part files live at the file's final relative path (e.g.
 // Client/Content/Paks/x.pak.part) — a top-level glob would miss exactly the
