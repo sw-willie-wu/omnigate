@@ -99,6 +99,21 @@ func TestValidateIndexV3_Invalid(t *testing.T) {
 			i.Bundles["SD"] = b
 		},
 		"bad name": func(i *gameIndexV3) { i.Bundles["hd-x"] = i.Bundles["HD"] },
+		"traversal pack version": func(i *gameIndexV3) {
+			c := i.ResourcePacks["common"]
+			c.Version = "..\\..\\x"
+			i.ResourcePacks["common"] = c
+		},
+		"traversal patchConfig version": func(i *gameIndexV3) {
+			c := i.ResourcePacks["common"]
+			c.PatchConfig = append(append([]indexConfigRaw(nil), c.PatchConfig...), indexConfigRaw{Version: "../x"})
+			i.ResourcePacks["common"] = c
+		},
+		"empty pack version": func(i *gameIndexV3) {
+			c := i.ResourcePacks["common"]
+			c.Version = ""
+			i.ResourcePacks["common"] = c
+		},
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -75,6 +75,7 @@ type InFlightSnapshot struct {
 	Current   int64         `json:"current"`
 	Total     int64         `json:"total"`
 	Version   string        `json:"version"`
+	Bundle    string        `json:"bundle,omitempty"`
 	StartedAt time.Time     `json:"started_at"`
 }
 
@@ -96,6 +97,7 @@ func (s *GameUpdateState) Snapshot() GameUpdateSnapshot {
 			Current:   s.InFlight.Current,
 			Total:     s.InFlight.Total,
 			Version:   s.InFlight.Plan.Version,
+			Bundle:    s.InFlight.Plan.Bundle,
 			StartedAt: s.InFlight.StartedAt,
 		}
 	}

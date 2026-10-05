@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -115,9 +116,27 @@ func bundleOptions(b bundleRaw) []core.LaunchOption {
 	return out
 }
 
+// safeVersionSegment reports whether v is usable as one path segment:
+// non-empty, not "."/"..", no separators.
+func safeVersionSegment(v string) bool {
+	return v != "" && v != "." && v != ".." && !strings.ContainsAny(v, `/\`) && filepath.Base(v) == v
+}
+
 func validateIndexV3(idx *gameIndexV3) error {
 	if _, ok := idx.ResourcePacks["common"]; !ok {
 		return manifestInvalid("resourcePacks missing common")
+	}
+	// Pack versions become sidecar dir names (<temp>/<gid>/<version>/), so each
+	// must be a single safe path segment.
+	for pack, rp := range idx.ResourcePacks {
+		if !safeVersionSegment(rp.Version) {
+			return manifestInvalid(fmt.Sprintf("bad pack version %q for %s", rp.Version, pack))
+		}
+		for _, pc := range rp.PatchConfig {
+			if !safeVersionSegment(pc.Version) {
+				return manifestInvalid(fmt.Sprintf("bad pack version %q in %s patchConfig", pc.Version, pack))
+			}
+		}
 	}
 	for name, b := range idx.Bundles {
 		if !bundleNameRe.MatchString(name) {

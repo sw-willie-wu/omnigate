@@ -43,7 +43,8 @@ type App struct {
 	gachaStore     store.GachaStore
 	gachaIcons     *gachaicon.Manager
 	uidCache       *uidCache
-	pendingElevate string // gid from --elevate-update; consumed once by PendingElevatedGame
+	pendingElevate string    // gid from --elevate-update; consumed once by PendingElevatedGame
+	startedAt      time.Time // process start; a bundle catalog fetched before it is stale
 }
 
 // New returns an App. dataDir is the directory holding omnigate.db (plus the log
@@ -100,6 +101,8 @@ func New(dataDir string, logger *slog.Logger) *App {
 	// Capture the --elevate-update <gid> arg passed by an elevated relaunch so
 	// the frontend can auto-select + auto-start that game's update (as admin).
 	a.pendingElevate = parseElevateArg(os.Args)
+
+	a.startedAt = time.Now()
 
 	return a
 }
