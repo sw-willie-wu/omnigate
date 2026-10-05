@@ -18,5 +18,6 @@ type ProgressFile struct {
 	GameID  string                   `json:"game_id"`
 	Version string                   `json:"version"`
 	ETag    string                   `json:"etag"`
+	Bundle  string                   `json:"bundle,omitempty"`
 	Entries map[string]ProgressEntry `json:"entries"`
 }

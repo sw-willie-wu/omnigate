@@ -28,6 +28,8 @@ type Provider struct {
 	convLogPathsFn func(installDir string) []string
 	recordDelay    time.Duration
 	tempRootFn     func(core.GameID) string
+	kv             KV                 // config store (bundle catalog / active bundle / launch opts); memKV until SetKV
+	removeAll      func(string) error // bundle directory removal (injectable for tests)
 
 	krsdkCachePathFn     func() (string, error)         // locate KRSDKUserCache.json (injectable)
 	localStorageDBPathFn func(installDir string) string // locate LocalStorage.db (injectable)
@@ -62,6 +64,9 @@ func New(settings Settings, logger *slog.Logger) *Provider {
 			},
 		},
 		clock: realRetryClock{},
+		kv:    newMemKV(),
+
+		removeAll: os.RemoveAll,
 	}
 	p.recordAPIBase = "https://gmserver-api.aki-game2.net"
 	p.convLogPathsFn = defaultConvLogPaths
@@ -183,22 +188,19 @@ func (p *Provider) CheckVersion(ctx context.Context, gid core.GameID) (core.Vers
 		return core.VersionInfo{}, err
 	}
 	vi, err := fetchVersion(ctx, installPath, gid)
-	if err != nil {
+	if err != nil || vi.Current == "" {
 		return vi, err
 	}
-	// Best-effort: fetch index.json (~17 KiB) so vi.Latest reflects
-	// what the server is actually shipping. Network blip → fall back
-	// to local-only (fetchVersion already set Latest = Current).
-	// 10s budget keeps Refresh responsive even on slow connections.
+	// Best-effort: fetch the v3 game index so vi.Latest reflects what the
+	// server ships (common pack version) and refresh the bundle catalog.
+	// Network blip → local-only (fetchVersion already set Latest = Current).
+	// 10s budget keeps Refresh responsive. Predownload is not offered for
+	// the v3 protocol (spec N1), so vi.Predownload stays nil.
 	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if idx, _, ferr := fetchIndex(fetchCtx, p.httpClient, indexJSONURL()); ferr == nil {
-		if idx.Default.Version != "" {
-			vi.Latest = idx.Default.Version
-		}
-		if idx.Predownload != nil && idx.Predownload.Version != "" && idx.Predownload.Version != vi.Current {
-			vi.Predownload = &core.PredownloadInfo{TargetVersion: idx.Predownload.Version}
-		}
+	if idx, ferr := fetchGameIndexV3(fetchCtx, p.httpClient); ferr == nil {
+		vi.Latest = idx.ResourcePacks["common"].Version
+		p.saveCatalog(gid, catalogFromIndex(idx, time.Now()))
 	}
 	return vi, nil
 }
@@ -208,6 +210,7 @@ func (p *Provider) Launch(ctx context.Context, gid core.GameID, opts core.Launch
 	if err != nil {
 		return 0, err
 	}
+	opts.ExtraArgs = p.launchArgsFor(ctx, gid, installPath)
 	return Launch(ctx, installPath, gid, opts)
 }
 
@@ -247,192 +250,54 @@ func (p *Provider) CheckForUpdate(ctx context.Context, gid core.GameID) (core.Up
 // (`done` files of `total` total examined). Implements
 // core.CheckForUpdateProgress.
 func (p *Provider) CheckForUpdateWithProgress(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
-	p.logger.Debug("kurogames CheckForUpdate: enter", "game", gid)
 	g := findByID(gid)
 	if g == nil {
 		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
 	}
-
-	// Find install path
-	p.logger.Debug("kurogames CheckForUpdate: gameDir", "game", gid)
 	installPath, err := p.gameDir(ctx, gid)
 	if err != nil {
-		p.logger.Warn("kurogames CheckForUpdate: gameDir failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
 	}
-	p.logger.Debug("kurogames CheckForUpdate: install path resolved", "game", gid, "install_path", installPath)
-
-	// AppCred is hardcoded (per research markdown 2026-05-05); no extraction.
-	// Read current local version from launcherDownloadConfig.json.
-	localVersion, _ := readLauncherDownloadConfigVersion(filepath.Join(installPath, "launcherDownloadConfig.json"))
-	p.logger.Debug("kurogames CheckForUpdate: localVersion read", "game", gid, "local_version", localVersion)
-
-	// Two-step manifest fetch:
-	// 1. GET index.json → discover CDN list + per-version indexFile URL
-	p.logger.Debug("kurogames CheckForUpdate: fetchIndex start", "game", gid, "url", indexJSONURL())
-	idx, idxETag, err := fetchIndex(ctx, p.httpClient, indexJSONURL())
+	st, err := readInstallState(filepath.Join(installPath, installStateFile))
 	if err != nil {
-		p.logger.Warn("kurogames CheckForUpdate: fetchIndex failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
 	}
-	p.logger.Debug("kurogames CheckForUpdate: fetchIndex done", "game", gid, "default_version", idx.Default.Version, "etag", idxETag)
-	cfg, _ := pickIndexFileForVersion(idx, localVersion)
-	cdn := pickCDN(idx.Default.CDNList)
-	indexFileURL := cdn + cfg.IndexFile
-	p.logger.Debug("kurogames CheckForUpdate: fetchIndexFile start", "game", gid, "url", indexFileURL)
-
-	// 2. GET indexFile.json → discover file list with MD5 + size
-	idxFile, _, err := fetchIndexFile(ctx, p.httpClient, indexFileURL)
+	known := st.installedKnown()
+	if len(known) == 0 {
+		return core.UpdatePlan{}, &core.UpdateError{Code: "install_record_missing", Retryable: false}
+	}
+	idx, err := fetchGameIndexV3(ctx, p.httpClient)
 	if err != nil {
-		p.logger.Warn("kurogames CheckForUpdate: fetchIndexFile failed", "game", gid, "err", err)
+		p.logger.Warn("kurogames CheckForUpdate: fetch v3 index failed", "game", gid, "err", err)
 		return core.UpdatePlan{}, err
 	}
-	p.logger.Debug("kurogames CheckForUpdate: fetchIndexFile done", "game", gid, "resource_count", len(idxFile.Resource))
-
-	// Filter to changed files only — onProgress fires after each file.
-	// Workers honor ctx.Done() between files so cancel mid-verify takes
-	// effect within ~1 file's worth of MD5 (worst case ~30s for biggest .pak).
-	// Patch manifests (groupInfos present) go through the patch-aware
-	// classifier (spec §2); legacy full-manifest indexFiles keep the
-	// original filterChangedFiles flow unchanged.
-	var (
-		files       []core.FileTask
-		patchGroups []core.PatchGroup
-		deleteFiles []string
-		peakTemp    int64
-	)
-	if len(idxFile.GroupInfos) > 0 || len(idxFile.ApplyTypes) > 0 {
-		// ApplyTypes alone (even with empty GroupInfos) must still route
-		// through the builder so step-0's unknown-applyTypes fallback (spec
-		// §2, which is ordered BEFORE the len(GroupInfos)==0 legacy check)
-		// can fire — an unrecognized apply strategy with a sparse manifest
-		// is exactly the "don't understand this format" case it exists for.
-		fullCDN := pickCDN(idx.Default.CDNList)
-		fetchFull := p.mkFetchFull(idx.Default.Config, fullCDN)
-		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, fullCDN, idx.Default.Config.BaseURL, idxFile, fetchFull, onProgress)
-		if err != nil {
-			return core.UpdatePlan{}, err
-		}
-	} else {
-		files = filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
-		if ctx.Err() != nil {
-			return core.UpdatePlan{}, ctx.Err()
-		}
+	// v3: common + every installed (usable, known) bundle's pack, each
+	// patched from its own local version (spec §5).
+	packs := []string{"common"}
+	for _, n := range known {
+		packs = append(packs, packOf(n))
 	}
-	var totalBytes int64
-	for _, f := range files {
-		totalBytes += f.Size
+	plan, err := p.buildPlanV3(ctx, gid, installPath, idx, packs, st.packVersion, onProgress)
+	if err != nil {
+		return core.UpdatePlan{}, err
 	}
-
-	// Plan.Version must be the TARGET (latest) version, not cfg.Version.
-	// In patch mode cfg.Version is the FROM version (the patchConfig is keyed
-	// by current install version), so writing cfg.Version back to
-	// launcherDownloadConfig.json after apply would leave it at the
-	// pre-update value → AvailableUpdate re-flags on next Refresh.
-	targetVersion := idx.Default.Version
-	plan := core.UpdatePlan{
-		GameID:        gid,
-		Kind:          core.PlanUpdate,
-		ManifestETag:  idxETag,
-		Version:       targetVersion,
-		Files:         files,
-		TotalBytes:    totalBytes,
-		PatchGroups:   patchGroups,
-		DeleteFiles:   deleteFiles,
-		PeakTempBytes: peakTemp,
-	}
-	plan.Reason = core.ReasonVersionChanged // M3.B forward-consistency: kurogames is always version-change driven
-	p.logger.Info("CheckForUpdate complete",
-		"game", gid,
-		"local_version", localVersion,
-		"target_version", targetVersion,
-		"patch_from", cfg.Version,
-		"files_to_update", len(files),
-		"bytes", totalBytes,
-	)
+	p.logger.Info("CheckForUpdate complete", "game", gid, "local_version", st.packVersion("common"), "target_version", plan.Version, "packs", packs, "files_to_update", len(plan.Files), "patch_groups", len(plan.PatchGroups), "bytes", plan.TotalBytes)
 	return plan, nil
 }
 
-// SupportsPredownload implements core.PredownloadChecker. kurogames serves only
-// WuWa; predl is supported whenever the game id is known. Whether an active
-// predl is currently published is decided in CheckForPredownload.
+// SupportsPredownload implements core.PredownloadChecker. Predownload is
+// disabled for the v3 resource-pack protocol (spec N1): the v3 index's
+// predownload shape is not modelled, so never offer it.
 func (p *Provider) SupportsPredownload(gid core.GameID) bool {
-	return findByID(gid) != nil
+	return false
 }
 
-// CheckForPredownload implements core.PredownloadChecker. Mirrors
-// CheckForUpdateWithProgress but sources the manifest from idx.Predownload
-// instead of idx.Default. Returns core.ErrPredownloadUnsupported when no active
-// predownload is published. Download/stage/apply reuse the M3.A path: RunUpdate
-// sees Kind=PlanPredownload and stops after RenameToPredlReady.
+// CheckForPredownload implements core.PredownloadChecker; always
+// ErrPredownloadUnsupported (see SupportsPredownload). RunUpdate still
+// understands PlanPredownload plans (staged-bytes adoption) for a
+// pre-existing predl_ready.json left by an older build.
 func (p *Provider) CheckForPredownload(ctx context.Context, gid core.GameID, onProgress func(done, total int)) (core.UpdatePlan, error) {
-	g := findByID(gid)
-	if g == nil {
-		return core.UpdatePlan{}, fmt.Errorf("%w: %s", core.ErrUnknownGame, gid)
-	}
-	installPath, err := p.gameDir(ctx, gid)
-	if err != nil {
-		return core.UpdatePlan{}, err
-	}
-	localVersion, _ := readLauncherDownloadConfigVersion(filepath.Join(installPath, "launcherDownloadConfig.json"))
-
-	idx, idxETag, err := fetchIndex(ctx, p.httpClient, indexJSONURL())
-	if err != nil {
-		return core.UpdatePlan{}, err
-	}
-	if idx.Predownload == nil || idx.Predownload.Version == "" {
-		return core.UpdatePlan{}, core.ErrPredownloadUnsupported
-	}
-
-	cfg := pickPredownloadIndexFile(idx.Predownload.Config, localVersion)
-	cdn := pickCDN(idx.Predownload.CDNList)
-	idxFile, _, err := fetchIndexFile(ctx, p.httpClient, cdn+cfg.IndexFile)
-	if err != nil {
-		return core.UpdatePlan{}, err
-	}
-
-	// See CheckForUpdateWithProgress: patch manifests go through the shared
-	// patch-aware classifier. fetchFull is bound to THIS entry point's own
-	// (predownload) full config/CDN — never idx.Default, or a predl
-	// whole-plan fallback would fetch the live-version manifest (plan gate
-	// B1).
-	var (
-		files       []core.FileTask
-		patchGroups []core.PatchGroup
-		deleteFiles []string
-		peakTemp    int64
-	)
-	if len(idxFile.GroupInfos) > 0 || len(idxFile.ApplyTypes) > 0 {
-		fullCDN := pickCDN(idx.Predownload.CDNList)
-		fetchFull := p.mkFetchFull(idx.Predownload.Config, fullCDN)
-		files, patchGroups, deleteFiles, peakTemp, err = p.buildFileAndPatchPlan(ctx, installPath, cdn, cfg.BaseURL, fullCDN, idx.Predownload.Config.BaseURL, idxFile, fetchFull, onProgress)
-		if err != nil {
-			return core.UpdatePlan{}, err
-		}
-	} else {
-		files = filterChangedFiles(ctx, installPath, cdn, cfg.BaseURL, idxFile.Resource, p.logger, onProgress)
-		if ctx.Err() != nil {
-			return core.UpdatePlan{}, ctx.Err()
-		}
-	}
-	var totalBytes int64
-	for _, f := range files {
-		totalBytes += f.Size
-	}
-	plan := core.UpdatePlan{
-		GameID:        gid,
-		Kind:          core.PlanPredownload,
-		ManifestETag:  idxETag,
-		Version:       idx.Predownload.Version,
-		Files:         files,
-		TotalBytes:    totalBytes,
-		Reason:        core.ReasonPredownload,
-		PatchGroups:   patchGroups,
-		DeleteFiles:   deleteFiles,
-		PeakTempBytes: peakTemp,
-	}
-	p.logger.Info("CheckForPredownload complete", "game", gid, "predl_version", idx.Predownload.Version, "files", len(files), "bytes", totalBytes)
-	return plan, nil
+	return core.UpdatePlan{}, core.ErrPredownloadUnsupported
 }
 
 // RunUpdate executes a previously-checked plan. Re-verifies ETag at entry,
@@ -474,13 +339,12 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 		}
 	}
 
-	// Re-verify ETag at entry: re-fetch index.json (~17 KiB gzipped).
-	if currentIdx, currentETag, err := fetchIndex(ctx, p.httpClient, indexJSONURL()); err == nil && currentETag != "" && currentETag != plan.ManifestETag {
-		_ = currentIdx
-		return &core.UpdateError{
-			Code:      "manifest_changed",
-			Retryable: true,
-			Params:    map[string]string{"old_etag": plan.ManifestETag, "new_etag": currentETag},
+	// Re-verify at entry (spec §2.1): recompute planToken over the plan's
+	// pack set against the live v3 index. A fetch/validate failure skips the
+	// check (best-effort, same as the v2 ETag re-check).
+	if idx, err := fetchGameIndexV3(ctx, p.httpClient); err == nil {
+		if tok := planToken(idx, p.planTargets(plan, installPath)); tok != plan.ManifestETag {
+			return &core.UpdateError{Code: "manifest_changed", Retryable: true, Params: map[string]string{"old_etag": plan.ManifestETag, "new_etag": tok}}
 		}
 	}
 
@@ -529,6 +393,9 @@ func (p *Provider) RunUpdate(ctx context.Context, plan core.UpdatePlan, onEvent 
 	}
 
 	if err := progress.Init(plan.ManifestETag); err != nil {
+		return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": err.Error()}}
+	}
+	if err := progress.SetBundle(plan.Bundle); err != nil {
 		return &core.UpdateError{Code: "internal", Params: map[string]string{"reason": err.Error()}}
 	}
 
@@ -612,5 +479,6 @@ var (
 	_ core.Updater                = (*Provider)(nil) // M3.A: implements update interface
 	_ core.CheckForUpdateProgress = (*Provider)(nil) // verify-local progress for BottomBar
 	_ core.ProcessChecker         = (*Provider)(nil)
-	_ core.PredownloadChecker     = (*Provider)(nil) // predl: targets idx.Predownload
+	_ core.PredownloadChecker     = (*Provider)(nil) // predl: disabled for v3 (always unsupported)
+	_ core.BundleManager          = (*Provider)(nil)
 )

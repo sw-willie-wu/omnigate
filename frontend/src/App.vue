@@ -4,8 +4,10 @@ import { useGamesStore } from './stores/games';
 import { useViewStore } from './stores/view';
 import { useUpdatesStore } from './stores/updates';
 import { useGachaStore } from './stores/gacha';
-import { GetSettings, PendingElevatedGame } from '../wailsjs/go/app/App';
+import { useBundlesStore } from './stores/bundles';
+import { GetSettings, PendingElevatedGame, PendingElevatedBundle } from '../wailsjs/go/app/App';
 import { runElevatedAutoStart } from './composables/elevatedAutoStart';
+import { runElevatedBundleAutoStart } from './composables/elevatedBundleAutoStart';
 import { setLang } from './i18n';
 import BgLayer from './components/BgLayer.vue';
 import Topbar from './components/Topbar.vue';
@@ -57,6 +59,13 @@ onMounted(async () => {
     PendingElevatedGame,
     (id) => games.select(id),
     (id) => updates.startUpdate(id),
+  );
+  // Elevated relaunch for a quality-bundle install (spec §6.9): continue the
+  // install the user already confirmed before the UAC prompt.
+  await runElevatedBundleAutoStart(
+    PendingElevatedBundle,
+    (id) => games.select(id),
+    (id, b) => useBundlesStore().install(id, b),
   );
   // Probe for updates so BottomBar [更新 ↓] can appear without user clicking
   // Refresh first. Best-effort, parallel; errors swallowed.

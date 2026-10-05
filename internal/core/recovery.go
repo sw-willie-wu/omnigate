@@ -25,6 +25,7 @@ const (
 type RecoveryState struct {
 	Phase    RecoveryPhase
 	WasPredl bool
+	Bundle   string
 	Err      error
 }
 
@@ -83,12 +84,13 @@ func ScanRecovery(dir string) RecoveryState {
 			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
 		}
 		var hdr struct {
-			WasPredl bool `json:"was_predl"`
+			WasPredl bool   `json:"was_predl"`
+			Bundle   string `json:"bundle"`
 		}
 		if err := json.Unmarshal(body, &hdr); err != nil {
 			return RecoveryState{Phase: RecoveryCorrupt, Err: err}
 		}
-		return RecoveryState{Phase: RecoveryPhaseApplyResume, WasPredl: hdr.WasPredl}
+		return RecoveryState{Phase: RecoveryPhaseApplyResume, WasPredl: hdr.WasPredl, Bundle: hdr.Bundle}
 
 	case hasSophonProgress:
 		// Sophon download-phase resume. Supersedes v1 progress.json + predl_ready.json.
@@ -109,11 +111,12 @@ func ScanRecovery(dir string) RecoveryState {
 		return RecoveryState{Phase: RecoveryPhasePredlAwaiting}
 
 	case hasProgress:
-		if _, err := loadProgressFile(filepath.Join(dir, "progress.json")); err != nil {
+		pf, err := loadProgressFile(filepath.Join(dir, "progress.json"))
+		if err != nil {
 			_ = os.Remove(filepath.Join(dir, "progress.json"))
 			return RecoveryState{Phase: RecoveryNone}
 		}
-		return RecoveryState{Phase: RecoveryPhaseDownloadResume}
+		return RecoveryState{Phase: RecoveryPhaseDownloadResume, Bundle: pf.Bundle}
 
 	case hasPredl:
 		if _, err := loadProgressFile(filepath.Join(dir, "predl_ready.json")); err != nil {
@@ -125,4 +128,24 @@ func ScanRecovery(dir string) RecoveryState {
 	default:
 		return RecoveryState{Phase: RecoveryNone}
 	}
+}
+
+// SidecarBundle reports the quality bundle recorded by an interrupted v1
+// sidecar in dir (apply.wal header, else progress.json), or "" if none. Unlike
+// ScanRecovery it never deletes anything, so it is safe to call before a
+// regular update.
+func SidecarBundle(dir string) string {
+	if body, err := os.ReadFile(filepath.Join(dir, "apply.wal")); err == nil {
+		var hdr struct {
+			Bundle string `json:"bundle"`
+		}
+		if json.Unmarshal(body, &hdr) == nil {
+			return hdr.Bundle
+		}
+		return ""
+	}
+	if pf, err := loadProgressFile(filepath.Join(dir, "progress.json")); err == nil {
+		return pf.Bundle
+	}
+	return ""
 }

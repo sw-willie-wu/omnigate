@@ -458,7 +458,7 @@ func TestRunStartUpdateAsync_RoutesPredlThroughChecker(t *testing.T) {
 	fake := &checkUpdaterFake{gid: gid, supportsPredl: true}
 	a := newAppWithProvider(fake)
 	defer a.updateRegistry.emitter.Stop()
-	a.runStartUpdateAsync(context.Background(), gid, core.PlanPredownload, fake, fake)
+	a.runStartUpdateAsync(context.Background(), gid, core.PlanPredownload, fake, fake, nil, "")
 	if !fake.predlCalled {
 		t.Fatal("expected CheckForPredownload to be called for PlanPredownload")
 	}
@@ -477,7 +477,7 @@ func TestRunStartUpdateAsync_PredlUnsupportedIdlesQuietly(t *testing.T) {
 	st.AvailablePredl = &core.UpdatePlan{Version: "x"}
 	st.InFlight = &InFlightOp{Plan: core.UpdatePlan{GameID: gid, Kind: core.PlanPredownload}}
 	st.mu.Unlock()
-	a.runStartUpdateAsync(context.Background(), gid, core.PlanPredownload, fake, fake)
+	a.runStartUpdateAsync(context.Background(), gid, core.PlanPredownload, fake, fake, nil, "")
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 	if st.AvailablePredl != nil {

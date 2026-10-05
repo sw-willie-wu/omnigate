@@ -21,9 +21,10 @@ type applyWAL struct {
 	GameID   string   `json:"game_id"`
 	Version  string   `json:"version"`
 	ETag     string   `json:"etag"`
-	WasPredl bool     `json:"was_predl"` // for recovery message variant (spec §6.3)
-	Pending  []string `json:"pending"`   // relative paths still to apply
-	Done     []string `json:"done"`      // relative paths already moved
+	WasPredl bool     `json:"was_predl"`        // for recovery message variant (spec §6.3)
+	Pending  []string `json:"pending"`          // relative paths still to apply
+	Done     []string `json:"done"`             // relative paths already moved
+	Bundle   string   `json:"bundle,omitempty"` // bundle-install intent (spec 6.5)
 }
 
 // applier wraps dependencies for the apply phase.
@@ -210,6 +211,7 @@ func (a *applier) runApply(ctx context.Context) error {
 		Version:  a.plan.Version,
 		ETag:     a.plan.ManifestETag,
 		WasPredl: a.wasPredl,
+		Bundle:   a.plan.Bundle,
 		Pending:  pending,
 		Done:     []string{},
 	}
@@ -289,17 +291,36 @@ func (a *applier) runApply(ctx context.Context) error {
 		}
 	}
 
-	// Persist new version to launcherDownloadConfig.json so subsequent
+	// Persist the new version to the install record so subsequent
 	// CheckVersion sees Current = Latest. Without this, even a 0-file apply
-	// (already-up-to-date) leaves the config showing the stale local version
+	// (already-up-to-date) leaves the record showing the stale local version
 	// → Refresh re-flags AvailableUpdate and BottomBar bounces back to
-	// [更新遊戲]. Failure is non-fatal — files are already in place.
-	configPath := filepath.Join(a.gameDir, "launcherDownloadConfig.json")
-	a.logger.Debug("runApply: writing launcherDownloadConfig.json", "path", configPath, "new_version", a.plan.Version)
-	if err := writeLauncherConfigVersion(configPath, a.plan.Version); err != nil {
-		a.logger.Warn("runApply: update launcherDownloadConfig.json failed (apply otherwise succeeded)", "err", err, "path", configPath)
+	// [更新遊戲]. A legacy v2 record is upgraded to the v3 shape (spec §3).
+	// Failure is non-fatal — files are already in place.
+	configPath := filepath.Join(a.gameDir, installStateFile)
+	wbErr := writeInstallState(configPath, func(s *installState) {
+		s.Version = a.plan.Version
+		for _, n := range s.installedKnown() {
+			b := s.Bundles[n]
+			b.Version = a.plan.Version
+			s.Bundles[n] = b
+		}
+		if a.plan.Bundle != "" {
+			b := s.Bundles[a.plan.Bundle]
+			b.Version = a.plan.Version
+			b.State = ""
+			b.ResourcePacks = []string{"common", packOf(a.plan.Bundle)}
+			if b.Raw == nil {
+				b.Raw = map[string]any{"state": ""}
+			}
+			b.Raw["state"] = ""
+			s.Bundles[a.plan.Bundle] = b
+		}
+	})
+	if wbErr != nil {
+		a.logger.Warn("runApply: install record write-back failed (apply otherwise succeeded)", "err", wbErr, "path", configPath, "bundle", a.plan.Bundle)
 	} else {
-		a.logger.Info("runApply: launcherDownloadConfig.json written", "path", configPath, "version", a.plan.Version)
+		a.logger.Info("runApply: install record written", "path", configPath, "version", a.plan.Version)
 	}
 
 	// All applied; remove WAL
@@ -316,34 +337,10 @@ func (a *applier) runApply(ctx context.Context) error {
 	if err := os.RemoveAll(a.progress.dir()); err != nil {
 		a.logger.Warn("cleanup version dir post-apply", "dir", a.progress.dir(), "err", err)
 	}
+	if wbErr != nil && a.plan.Bundle != "" {
+		return &core.UpdateError{Code: "apply_partial", Retryable: true, Params: map[string]string{"detail": wbErr.Error(), "bundle": a.plan.Bundle}}
+	}
 	return nil
-}
-
-// writeLauncherConfigVersion reads the existing launcherDownloadConfig.json
-// (if any), overwrites only the `version` field, and atomic-renames the
-// updated JSON back. Preserves any other fields KRLauncher writes (we only
-// know about `version` from research). Creates a minimal `{"version":...}`
-// file if none exists.
-func writeLauncherConfigVersion(path, newVersion string) error {
-	doc := map[string]any{}
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if uerr := json.Unmarshal(data, &doc); uerr != nil {
-			doc = map[string]any{}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	doc["version"] = newVersion
-	out, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
 
 // resumeApply replays apply.wal: re-applies any Pending entries that

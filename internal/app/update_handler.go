@@ -28,7 +28,29 @@ func (a *App) StartPredownload(gameID string) error {
 	return a.startUpdateFlow(gid, core.PlanPredownload)
 }
 
+// planFn builds the update plan off-thread (in the "verifying" stage). nil
+// means the default CheckForUpdate path. Bundle installs pass a closure over
+// core.BundleManager.BuildBundleInstallPlan.
+type planFn func(ctx context.Context, onProgress func(done, total int)) (core.UpdatePlan, error)
+
 func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
+	return a.startUpdateFlowWith(gid, kind, nil, "")
+}
+
+// sidecarVersionDir is the version-scoped sidecar directory
+// <tempRoot>/<gameID-flat>/<version> (same layout as runResumeAsync and the
+// RefreshVersion phantom-predl cleanup).
+func (a *App) sidecarVersionDir(p core.Provider, gid core.GameID, version string) string {
+	return filepath.Join(a.tempDirFor(p.ID(), gid), strings.ReplaceAll(string(gid), "/", "-"), version)
+}
+
+// startUpdateFlowWith is startUpdateFlow with an optional plan builder and
+// bundle name. bundle == "": legacy behaviour (sync process_blocked /
+// permission_denied go to LastError and return nil; in-flight conflict is a
+// plain error). bundle != "": those sync failures are returned as
+// *core.UpdateError (in-flight conflict → bundle_busy) and never touch
+// LastError. Either way they happen before InFlight is registered.
+func (a *App) startUpdateFlowWith(gid core.GameID, kind core.PlanKind, fn planFn, bundle string) error {
 	// Find provider, type-assert Updater
 	p, err := a.provider(gid)
 	if err != nil {
@@ -39,24 +61,30 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 		return fmt.Errorf("provider %s does not support updates", p.ID())
 	}
 
+	syncErr := func(ue *core.UpdateError) error {
+		if bundle != "" {
+			return ue
+		}
+		a.setLastError(gid, ue)
+		return nil // error surfaces via snapshot LastError; RPC returns nil per spec §1.2.2
+	}
+
 	// 1st game-running guard — resolve game-running status via core.ProcessChecker interface
 	// (optional capability: not all providers implement it).
 	if pc, ok := p.(core.ProcessChecker); ok {
 		if running, _ := pc.IsGameRunning(gid); running {
-			a.setLastError(gid, &core.UpdateError{
+			return syncErr(&core.UpdateError{
 				Code:      "process_blocked",
 				Retryable: true,
 				Params:    map[string]string{"kind": "process_running", "game": string(gid)},
 			})
-			return nil // error surfaces via snapshot LastError; RPC returns nil per spec §1.2.2
 		}
 	}
 
 	// Preflight: fail fast (before any download) if the game dir is not writable
 	// — e.g. installed under Program Files and we are not elevated.
 	if ue := a.ensureGameDirWritable(gid, a.gameInstallDir(gid, p)); ue != nil {
-		a.setLastError(gid, ue)
-		return nil
+		return syncErr(ue)
 	}
 
 	state := a.updateRegistry.Get(gid)
@@ -65,6 +93,9 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 	if state.InFlight != nil {
 		state.mu.Unlock()
 		cancel()
+		if bundle != "" {
+			return &core.UpdateError{Code: "bundle_busy", Retryable: true}
+		}
 		return fmt.Errorf("update already in flight for %s", gid)
 	}
 	// Set "verifying" InFlight immediately so the BottomBar reflects the
@@ -74,7 +105,7 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 	// seconds). Plan/TotalBytes start zero; runStartUpdateAsync rewrites
 	// them once CheckForUpdate returns.
 	state.InFlight = &InFlightOp{
-		Plan:   core.UpdatePlan{GameID: gid, Kind: kind},
+		Plan:   core.UpdatePlan{GameID: gid, Kind: kind, Bundle: bundle},
 		Phase:  core.PhaseDownload,
 		Stage:  "verifying",
 		Total:  0,
@@ -84,7 +115,7 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 	state.mu.Unlock()
 	a.updateRegistry.EmitTerminal(gid)
 
-	go a.runStartUpdateAsync(ctx, gid, kind, p, upd)
+	go a.runStartUpdateAsync(ctx, gid, kind, p, upd, fn, bundle)
 	return nil
 }
 
@@ -93,7 +124,7 @@ func (a *App) startUpdateFlow(gid core.GameID, kind core.PlanKind) error {
 // hands off to runUpdateWorker. On any error before runUpdateWorker takes
 // over, it must clear InFlight and set LastError (which runUpdateWorker
 // would otherwise do via its own deferred path).
-func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind core.PlanKind, p core.Provider, upd core.Updater) {
+func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind core.PlanKind, p core.Provider, upd core.Updater, fn planFn, bundle string) {
 	state := a.updateRegistry.Get(gid)
 
 	abort := func(err error) {
@@ -127,6 +158,8 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 		// X / Y" BottomBar label during the predl probe, so it shares the
 		// same verify-progress callback via verifyProgressFn.
 		plan, err = pc.CheckForPredownload(ctx, gid, a.verifyProgressFn(gid))
+	} else if fn != nil {
+		plan, err = fn(ctx, a.verifyProgressFn(gid))
 	} else {
 		plan, err = a.checkForUpdateVerifying(ctx, gid, upd)
 	}
@@ -144,6 +177,23 @@ func (a *App) runStartUpdateAsync(ctx context.Context, gid core.GameID, kind cor
 		return
 	}
 	plan.Kind = kind
+	plan.Bundle = bundle // fn already set it; keep InFlight/worker consistent
+
+	// A generic update whose version dir holds an interrupted bundle install
+	// would reset that sidecar (different plan token) and drop the bundle's
+	// partial download. Leave it alone and bring the interrupted prompt back.
+	if bundle == "" && kind == core.PlanUpdate {
+		dir := a.sidecarVersionDir(p, gid, plan.Version)
+		if validVersionDirName(plan.Version) && core.SidecarBundle(dir) != "" {
+			a.logger.Warn("runStartUpdateAsync: version dir holds an interrupted bundle install; not overwriting", "game", gid, "dir", dir)
+			state.mu.Lock()
+			state.InFlight = nil
+			state.mu.Unlock()
+			a.applyRecoveryState(gid, dir)
+			a.updateRegistry.EmitTerminal(gid)
+			return
+		}
+	}
 	a.logger.Debug("runStartUpdateAsync: CheckForUpdate done", "game", gid, "files", len(plan.Files), "bytes", plan.TotalBytes, "version", plan.Version)
 
 	tempDir := a.tempDirFor(p.ID(), gid)
@@ -242,6 +292,13 @@ func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Upd
 
 	err := upd.RunUpdate(ctx, plan, onEvent)
 
+	if err == nil && plan.Bundle != "" {
+		// Before InFlight clears: the frontend reloads bundle state on the
+		// in-flight→idle edge, and tests poll InFlight==nil, so active must
+		// already be written by then (no I/O under state.mu).
+		a.onBundleInstalled(gid, plan.Bundle)
+	}
+
 	// Terminal: clear InFlight, set LastError if non-cancel.
 	// Use errors.Is (NOT ==) because cancel-induced panics get wrapped into
 	// *core.UpdateError by RunUpdate's defer; equality check would miss those.
@@ -250,8 +307,9 @@ func (a *App) runUpdateWorker(ctx context.Context, gid core.GameID, upd core.Upd
 	if err != nil && !errors.Is(err, context.Canceled) {
 		state.LastError = asUpdateError(err)
 	} else if err == nil {
-		// Success: clear AvailableUpdate or set PredlReady
-		if plan.Kind == core.PlanUpdate {
+		// Success: clear AvailableUpdate or set PredlReady. A bundle install
+		// does not move the game version, so a pending update stays available.
+		if plan.Kind == core.PlanUpdate && plan.Bundle == "" {
 			state.AvailableUpdate = nil
 		} else if plan.Kind == core.PlanPredownload {
 			state.PredlReady = &plan
@@ -515,7 +573,13 @@ func (a *App) ResumeInterrupted(gameID string) error {
 	}
 
 	// Preflight: fail fast if the game dir is not writable (Program Files w/o admin).
+	// An interrupted bundle install keeps its bundle on the error so the UI
+	// relaunches with --elevate-install-bundle (spec §6.9), never
+	// --elevate-update, whose generic plan would overwrite the bundle sidecar.
 	if ue := a.ensureGameDirWritable(gid, a.gameInstallDir(gid, p)); ue != nil {
+		if b := a.interruptedBundle(gid); b != "" {
+			ue.Params["bundle"] = b
+		}
 		a.setLastError(gid, ue)
 		return nil
 	}
@@ -533,8 +597,14 @@ func (a *App) ResumeInterrupted(gameID string) error {
 	// last_error.code) and the user gets visible feedback while CheckForUpdate
 	// re-fetches the manifest + re-MD5s local files (potentially minutes).
 	// Same pattern as startUpdateFlow → runStartUpdateAsync.
+	// An interrupted bundle install resumes as a bundle install (spec §6.6):
+	// capture bundle/version before LastError is cleared.
+	var bundle, version string
+	if state.LastError != nil && state.LastError.Code == "interrupted_resume" {
+		bundle, version = state.LastError.Params["bundle"], state.LastError.Params["version"]
+	}
 	state.InFlight = &InFlightOp{
-		Plan:   core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate},
+		Plan:   core.UpdatePlan{GameID: gid, Kind: core.PlanUpdate, Bundle: bundle},
 		Phase:  core.PhaseDownload,
 		Stage:  "verifying",
 		Total:  0,
@@ -544,7 +614,7 @@ func (a *App) ResumeInterrupted(gameID string) error {
 	state.mu.Unlock()
 	a.updateRegistry.EmitTerminal(gid)
 
-	go a.runResumeAsync(ctx, gid, p, upd)
+	go a.runResumeAsync(ctx, gid, p, upd, bundle, version)
 	return nil
 }
 
@@ -552,7 +622,7 @@ func (a *App) ResumeInterrupted(gameID string) error {
 // same shape as runStartUpdateAsync. Re-fetches manifest, validates ETag,
 // then dispatches to runUpdateWorker with the appropriate Kind / initial
 // Phase based on the recovered sidecar.
-func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provider, upd core.Updater) {
+func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provider, upd core.Updater, bundle, version string) {
 	state := a.updateRegistry.Get(gid)
 	abort := func(err error) {
 		a.logger.Warn("runResumeAsync abort", "game", gid, "err", err)
@@ -565,15 +635,43 @@ func (a *App) runResumeAsync(ctx context.Context, gid core.GameID, p core.Provid
 		a.updateRegistry.EmitTerminal(gid)
 	}
 
-	plan, err := a.checkForUpdateVerifying(ctx, gid, upd)
+	// bundle != "": the interrupted op was a bundle install — re-plan it via
+	// the bundle planner, never the generic CheckForUpdate.
+	var plan core.UpdatePlan
+	var err error
+	if bundle != "" {
+		bm, ok := p.(core.BundleManager)
+		if !ok {
+			abort(fmt.Errorf("provider %s cannot resume a bundle install", p.ID()))
+			return
+		}
+		plan, err = bm.BuildBundleInstallPlan(ctx, gid, bundle, a.verifyProgressFn(gid))
+		// Defence in depth: plan.Version is server-derived and becomes a
+		// sidecar path segment that may be removeAll'd below.
+		if err == nil && !validVersionDirName(plan.Version) {
+			abort(&core.UpdateError{
+				Code:      "manifest_invalid",
+				Retryable: false,
+				Params:    map[string]string{"reason": fmt.Sprintf("bad bundle plan version %q", plan.Version)},
+			})
+			return
+		}
+	} else {
+		plan, err = a.checkForUpdateVerifying(ctx, gid, upd)
+	}
 	if err != nil {
 		abort(err)
 		return
 	}
 
 	tempRoot := a.tempDirFor(p.ID(), gid)
-	gameIDFlat := strings.ReplaceAll(string(gid), "/", "-")
-	sidecarDir := filepath.Join(tempRoot, gameIDFlat, plan.Version)
+	sidecarDir := a.sidecarVersionDir(p, gid, plan.Version)
+	// Bundle install whose common version moved on since the interruption:
+	// the old version's sidecar is stale. Non-bundle resumes keep today's
+	// behaviour (delete nothing) so e.g. HoYo predl dirs are untouched.
+	if bundle != "" && version != "" && plan.Version != version && validVersionDirName(version) {
+		_ = removeAll(a.sidecarVersionDir(p, gid, version))
+	}
 	rec := core.ScanRecovery(sidecarDir)
 
 	sidecarETag := readSidecarETag(sidecarDir)
@@ -1132,6 +1230,18 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 		applyRecoveryStateOverride(gid, sidecarDir)
 		return
 	}
+	// v2 predownload leftovers for a game that no longer supports predownload
+	// (e.g. Wuthering Waves after the v3 migration) can never be applied —
+	// drop the whole version dir. Capability check, not a backend-ID check.
+	if _, err := os.Stat(filepath.Join(sidecarDir, "predl_ready.json")); err == nil {
+		if p, err := a.provider(gid); err == nil {
+			if pc, ok := p.(core.PredownloadChecker); !ok || !pc.SupportsPredownload(gid) {
+				a.logger.Warn("applyRecoveryState: removing predownload leftover for a game without predownload support", "game", gid, "dir", sidecarDir)
+				_ = removeAll(sidecarDir)
+				return
+			}
+		}
+	}
 	rec := core.ScanRecovery(sidecarDir)
 	a.logger.Debug("applyRecoveryState: ScanRecovery result", "game", gid, "dir", sidecarDir, "phase", rec.Phase, "wasPredl", rec.WasPredl)
 	state := a.updateRegistry.Get(gid)
@@ -1144,6 +1254,8 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 			Params: map[string]string{
 				"phase":    "download",
 				"wasPredl": fmt.Sprintf("%t", rec.WasPredl),
+				"bundle":   rec.Bundle,
+				"version":  filepath.Base(sidecarDir),
 			},
 		}
 		state.mu.Unlock()
@@ -1157,6 +1269,8 @@ func (a *App) applyRecoveryState(gid core.GameID, sidecarDir string) {
 			Params: map[string]string{
 				"phase":    "apply",
 				"wasPredl": fmt.Sprintf("%t", rec.WasPredl),
+				"bundle":   rec.Bundle,
+				"version":  filepath.Base(sidecarDir),
 			},
 		}
 		state.mu.Unlock()

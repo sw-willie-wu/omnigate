@@ -17,8 +17,8 @@ import (
 )
 
 // TestUpdate_HappyPath_E2E: drives downloader + applier through a synthetic
-// CDN. Does NOT exercise CheckForUpdate's two-step manifest fetch (that's
-// already covered by Task 7's TestFetchIndex* tests). This integration test
+// CDN. Does NOT exercise CheckForUpdate's two-step manifest fetch (covered
+// by update_v3_test.go / update_krpdiff_e2e_test.go). This integration test
 // validates that the plan-driven download → apply pipeline reaches gameDir
 // with the correct file contents.
 func TestUpdate_HappyPath_E2E(t *testing.T) {
@@ -86,33 +86,35 @@ func TestUpdate_HappyPath_E2E(t *testing.T) {
 	}
 }
 
-// TestRunUpdate_ETagDriftRejects validates Task 10's RunUpdate ETag re-verify
-// per spec §2.8: if index.json's ETag differs at RunUpdate entry from the
-// captured plan.ManifestETag, return manifest_changed (retryable).
+// TestRunUpdate_ETagDriftRejects validates RunUpdate's entry re-verify
+// (spec §2.1): a plan built against one v3 game index must be rejected with
+// manifest_changed (retryable) when a target pack's version/indexFileMd5
+// changes before RunUpdate starts.
 func TestRunUpdate_ETagDriftRejects(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/launcher/game/G153/", func(w http.ResponseWriter, _ *http.Request) {
-		// Returns a different ETag than the plan captured
-		w.Header().Set("Last-Modified", "Wed, 30 Apr 2026 00:00:00 GMT")
-		w.Header().Set("Content-Type", "application/json")
-		body, _ := json.Marshal(map[string]any{
-			"default": map[string]any{
-				"version": "3.5.0",
-				"cdnList": []map[string]any{{"url": "http://localhost/", "P": 0}},
-				"config":  map[string]any{"version": "3.5.0", "indexFile": "x", "baseUrl": "y"},
-			},
-		})
-		w.Write(body)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, installStateFile), []byte(`{"version":"3.7.0","bundles":{"HD":{"version":"3.7.0","state":"","resourcePacks":["common","hd"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	common := tinyIndexFile(t, dir, map[string]string{"Client/Content/Paks/a.pak": "a"})
+	srv := newV3Server(t, map[string][]byte{"common": common}, nil)
+	p := newV3TestProvider(t, dir)
+	plan, err := p.CheckForUpdateWithProgress(context.Background(), gidWuwa, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Server publishes a new common pack after the plan was built.
+	c := srv.idx.ResourcePacks["common"]
+	c.Version, c.IndexFileMD5 = "3.7.1", "ffffffffffffffffffffffffffffffff"
+	srv.idx.ResourcePacks["common"] = c
 
-	// Skipped: full E2E for ETag drift requires patching indexJSONURL constant
-	// (which is hardcoded to prod-alicdn-gamestarter.kurogame.com). Task 16's
-	// integration tests cover this end-to-end via httptest with URL injection.
-	// Here we just assert the test's dependency (md5hex helper) is callable
-	// to keep this file self-contained.
-	t.Skip("ETag drift requires URL injection seam; covered by Task 16 integration test")
+	err = p.RunUpdate(context.Background(), plan, nil)
+	var ue *core.UpdateError
+	if !errorsAs(err, &ue) || ue.Code != "manifest_changed" || !ue.Retryable {
+		t.Fatalf("err=%v, want retryable manifest_changed", err)
+	}
+	if ue.Params["old_etag"] != plan.ManifestETag || ue.Params["new_etag"] == plan.ManifestETag {
+		t.Fatalf("params=%v", ue.Params)
+	}
 }
 
 // testLogger returns a slog.Logger that discards output.

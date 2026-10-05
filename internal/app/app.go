@@ -43,7 +43,11 @@ type App struct {
 	gachaStore     store.GachaStore
 	gachaIcons     *gachaicon.Manager
 	uidCache       *uidCache
-	pendingElevate string // gid from --elevate-update; consumed once by PendingElevatedGame
+	pendingElevate string    // gid from --elevate-update; consumed once by PendingElevatedGame
+	startedAt      time.Time // process start; a bundle catalog fetched before it is stale
+
+	// from --elevate-install-bundle; consumed once by PendingElevatedBundle
+	pendingElevateBundle ElevatedBundle
 }
 
 // New returns an App. dataDir is the directory holding omnigate.db (plus the log
@@ -100,6 +104,10 @@ func New(dataDir string, logger *slog.Logger) *App {
 	// Capture the --elevate-update <gid> arg passed by an elevated relaunch so
 	// the frontend can auto-select + auto-start that game's update (as admin).
 	a.pendingElevate = parseElevateArg(os.Args)
+	// Likewise --elevate-install-bundle <gid> <bundle> (spec §6.9).
+	a.pendingElevateBundle = parseElevateBundleArg(os.Args)
+
+	a.startedAt = time.Now()
 
 	return a
 }
@@ -132,6 +140,9 @@ func (a *App) constructProviders() error {
 
 	kuro := kurogames.New(kurogames.Settings{}, a.logger.With("backend", "kurogames"))
 	kuro.SetTempRootFn(func(gid core.GameID) string { return a.tempDirFor(kurogames.BackendID, gid) })
+	if a.store != nil {
+		kuro.SetKV(a.store)
+	}
 	if err := a.registerProvider(kuro); err != nil {
 		return err
 	}

@@ -212,3 +212,58 @@ func TestScanRecovery_Precedence_SophonProgressOverV1Progress(t *testing.T) {
 		}
 	}
 }
+
+func TestScanRecovery_BundleFromProgress(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"game_id":"kurogames/wutheringwaves","version":"3.7.0","etag":"x","bundle":"SD","entries":{}}`
+	if err := os.WriteFile(filepath.Join(dir, "progress.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := ScanRecovery(dir)
+	if rs.Phase != RecoveryPhaseDownloadResume || rs.Bundle != "SD" {
+		t.Fatalf("got phase=%v bundle=%q, want download/SD", rs.Phase, rs.Bundle)
+	}
+}
+
+func TestScanRecovery_BundleFromIndentedWAL(t *testing.T) {
+	dir := t.TempDir()
+	// MarshalIndent 格式：第一行只有 "{"，不得用首行解析（spec §0.7）。
+	body := "{\n  \"game_id\": \"kurogames/wutheringwaves\",\n  \"version\": \"3.7.0\",\n  \"etag\": \"x\",\n  \"was_predl\": false,\n  \"bundle\": \"UHD\",\n  \"pending\": [],\n  \"done\": []\n}"
+	if err := os.WriteFile(filepath.Join(dir, "apply.wal"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := ScanRecovery(dir)
+	if rs.Phase != RecoveryPhaseApplyResume || rs.Bundle != "UHD" {
+		t.Fatalf("got phase=%v bundle=%q, want apply/UHD", rs.Phase, rs.Bundle)
+	}
+}
+
+func TestScanRecovery_NoBundleFieldIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"game_id":"g","version":"1","etag":"x","entries":{}}`
+	_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(body), 0o644)
+	if rs := ScanRecovery(dir); rs.Bundle != "" {
+		t.Fatalf("bundle=%q, want empty", rs.Bundle)
+	}
+}
+
+func TestSidecarBundle_NoSideEffects(t *testing.T) {
+	dir := t.TempDir()
+	if got := SidecarBundle(dir); got != "" {
+		t.Fatalf("empty dir: %q", got)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"game_id":"x","version":"3.7.0","etag":"t","bundle":"SD","entries":{}}`), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "predl_ready.json"), []byte(`{"game_id":"x","version":"3.7.0","etag":"t","entries":{}}`), 0o644)
+	if got := SidecarBundle(dir); got != "SD" {
+		t.Fatalf("progress.json bundle = %q", got)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "apply.wal"), []byte(`{"version":"3.7.0","etag":"t","bundle":"UHD","pending":[],"done":[]}`), 0o644)
+	if got := SidecarBundle(dir); got != "UHD" {
+		t.Fatalf("apply.wal bundle = %q", got)
+	}
+	for _, f := range []string{"progress.json", "predl_ready.json", "apply.wal"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Fatalf("%s was removed", f)
+		}
+	}
+}

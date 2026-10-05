@@ -3,12 +3,15 @@ import { ref, computed, watch, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGamesStore } from '../stores/games';
 import { useUpdatesStore } from '../stores/updates';
-import { BrowseForDirectory } from '../../wailsjs/go/app/App';
+import { useBundlesStore } from '../stores/bundles';
+import type { BundleRow } from '../stores/bundles';
+import { confirm } from '../composables/useDialog';
+import { BrowseForDirectory, IsGameRunning } from '../../wailsjs/go/app/App';
 import type { GameRow } from '../stores/games';
 
 const props = defineProps<{ row: GameRow }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const games = useGamesStore();
 const updates = useUpdatesStore();
 
@@ -19,6 +22,82 @@ const saving = ref(false);
 const inFlight = computed(() => updates.byGame[props.row.id]?.in_flight != null);
 const saveDisabled = computed(() => saving.value || inFlight.value || !draft.value);
 const resetDisabled = computed(() => saving.value || !props.row.override_path);
+
+// ── Quality bundles + launch options (WuWa v3; spec §7) ──
+const bundles = useBundlesStore();
+const running = ref(false);
+const bstate = computed(() => bundles.byGame[props.row.id]);
+const bundleDisabled = computed(() => inFlight.value || running.value);
+
+function label(m: Record<string, string> | null | undefined): string {
+  if (!m) return '';
+  return m[locale.value as string] ?? m.en ?? Object.values(m)[0] ?? '';
+}
+function gb(n: number): string {
+  return `${(n / 1e9).toFixed(1)} GB`;
+}
+
+async function refreshBundles() {
+  if (props.row.backend !== 'kurogames') return;
+  try {
+    running.value = await IsGameRunning(props.row.id).catch(() => false);
+    await bundles.load(props.row.id);
+  } catch (e) {
+    console.error('GetBundleState failed', e);
+  }
+}
+
+async function onPick(name: string, e: Event) {
+  try {
+    await bundles.setActive(props.row.id, name);
+  } catch (err) {
+    console.error('SetActiveBundle failed', err);
+  }
+  // On a refused switch `active` doesn't change, so Vue won't re-patch the
+  // radio — resync the DOM state with the store.
+  (e.target as HTMLInputElement).checked = bstate.value?.active === name;
+}
+
+async function onInstall(b: BundleRow) {
+  const r = await confirm(
+    t('bundle.confirm_install', { name: label(b.display_name), size: gb(b.size_bytes) }),
+    t('bundle.install'),
+    t('buttons.cancel'),
+  );
+  if (r !== 'ok') return;
+  try {
+    const st = await bundles.install(props.row.id, b.name);
+    if (!st.error) close();
+  } catch (e) {
+    console.error('InstallBundle failed', e);
+  }
+}
+
+async function onRemove(b: BundleRow) {
+  const r = await confirm(
+    t('bundle.confirm_remove', { name: label(b.display_name), size: gb(b.size_bytes) }),
+    t('bundle.remove'),
+    t('buttons.cancel'),
+  );
+  if (r !== 'ok') return;
+  try {
+    await bundles.remove(props.row.id, b.name);
+  } catch (e) {
+    console.error('RemoveBundle failed', e);
+  }
+}
+
+async function onOption(cmd: string, e: Event) {
+  const el = e.target as HTMLInputElement;
+  try {
+    await bundles.setOption(props.row.id, cmd, el.checked);
+  } catch (err) {
+    console.error('SetLaunchOption failed', err);
+  }
+  // Resync with the authoritative state (a refused write leaves `enabled` unchanged).
+  const o = (bstate.value?.options ?? []).find((x) => x.cmd === cmd);
+  if (o) el.checked = o.enabled;
+}
 
 const badge = computed(() => {
   const src = props.row.path_source;
@@ -40,6 +119,7 @@ function toggle() {
     draft.value = props.row.override_path ?? '';
     open.value = true;
     window.addEventListener('keydown', onKeydown);
+    void refreshBundles();
   }
 }
 
@@ -132,6 +212,68 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown));
             @click="onSave"
           >{{ t('gamecfg.save') }}</button>
         </div>
+
+        <template v-if="bstate?.supported">
+          <div class="gamecfg-section">
+            <div class="gamecfg-label">{{ t('bundle.title') }}<span v-if="bstate.catalog_stale" class="gamecfg-stale">{{ t('bundle.stale') }}</span></div>
+            <div
+              v-for="b in bstate.bundles ?? []"
+              :key="b.name"
+              class="bundle-row"
+              :class="{ disabled: b.pending || !b.launch_supported }"
+              :data-testid="`bundle-row-${b.name}`"
+            >
+              <label class="bundle-pick">
+                <input
+                  type="radio"
+                  name="bundle"
+                  :value="b.name"
+                  :checked="bstate.active === b.name"
+                  :disabled="bundleDisabled || !b.installed || b.pending || !b.launch_supported"
+                  :data-testid="`bundle-radio-${b.name}`"
+                  @change="onPick(b.name, $event)"
+                />
+                <span class="bundle-name">{{ label(b.display_name) }}</span>
+              </label>
+              <span class="bundle-status">
+                <template v-if="b.pending">{{ t('bundle.pending') }}</template>
+                <template v-else-if="!b.launch_supported">{{ t('bundle.unsupported') }}</template>
+                <template v-else-if="b.installed">{{ t('bundle.installed', { version: b.version ?? '' }) }}<template v-if="bstate.active === b.name"> · {{ t('bundle.active') }}</template></template>
+                <template v-else>{{ t('bundle.not_installed', { size: gb(b.size_bytes) }) }}</template>
+              </span>
+              <button
+                v-if="b.removable && !b.pending"
+                class="gamecfg-btn"
+                :disabled="bundleDisabled"
+                :title="bundleDisabled ? t('gamecfg.save_disabled_inflight') : undefined"
+                :data-testid="`bundle-remove-${b.name}`"
+                @click="onRemove(b)"
+              >{{ t('bundle.remove') }}</button>
+              <button
+                v-else-if="!b.installed && !b.pending && b.launch_supported"
+                class="gamecfg-btn"
+                :disabled="bundleDisabled"
+                :title="bundleDisabled ? t('gamecfg.save_disabled_inflight') : undefined"
+                :data-testid="`bundle-install-${b.name}`"
+                @click="onInstall(b)"
+              >{{ t('bundle.install') }}</button>
+            </div>
+            <div class="gamecfg-hint">{{ t('bundle.hint') }}</div>
+          </div>
+          <div v-if="(bstate.options ?? []).length" class="gamecfg-section">
+            <div class="gamecfg-label">{{ t('bundle.options_title') }}</div>
+            <label v-for="o in bstate.options ?? []" :key="o.cmd" class="option-row">
+              <input
+                type="checkbox"
+                :checked="o.enabled"
+                :disabled="bundleDisabled"
+                :data-testid="`option-${o.cmd}`"
+                @change="onOption(o.cmd, $event)"
+              />
+              <span>{{ label(o.label) }}</span>
+            </label>
+          </div>
+        </template>
       </div>
     </template>
   </div>

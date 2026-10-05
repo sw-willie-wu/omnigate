@@ -52,7 +52,7 @@ const progressPct = computed(() => {
   return Math.min(100, (ifl.current / ifl.total) * 100);
 });
 const isPredl = computed(() => inFlight.value?.kind === 'predownload');
-const inflightLabel = computed(() => {
+const inflightLabelBase = computed(() => {
   const ifl = inFlight.value;
   if (!ifl) return '';
   if (ifl.stage === 'verifying') {
@@ -63,6 +63,13 @@ const inflightLabel = computed(() => {
   if (ifl.kind === 'predownload') return t('update.predl_downloading', { pct: Math.round(progressPct.value) });
   if (ifl.phase === 'apply') return t('update.applying', { cur: ifl.current, total: ifl.total });
   return t('update.downloading', { pct: Math.round(progressPct.value) });
+});
+// Quality-bundle installs run as kind=update; prefix them so the row reads
+// "安裝畫質 SD：下載中 45%" instead of looking like a game update.
+const inflightLabel = computed(() => {
+  const base = inflightLabelBase.value;
+  const b = inFlight.value?.bundle;
+  return b && base ? t('bundle.install_prefix', { bundle: b }) + base : base;
 });
 </script>
 

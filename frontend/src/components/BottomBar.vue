@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useGamesStore } from '../stores/games';
 import { useUpdatesStore } from '../stores/updates';
 import { useAccountStore, accountPrimary } from '../stores/account';
+import { errorText as bundleErrorText, relaunchForBundle } from '../stores/bundles';
 import { useI18n } from 'vue-i18n';
 import { confirm } from '../composables/useDialog';
 import { pushToast } from '../composables/useToast';
@@ -69,6 +70,7 @@ const errorLabel = computed<string>(() => {
   if (!err || !err.code) return '';
   if (err.code === 'interrupted_resume') return '';
   const params = (err.params as any) || {};
+  if (err.code === 'permission_denied' && params.bundle) return bundleErrorText(err);
   // Codes live in two locale blocks: update.error.* (newer) and update.errors.*
   // (M3.A-era). Try both, then fall back to the generic internal template with
   // the raw code as detail so an unknown code never leaks as a raw i18n key.
@@ -89,6 +91,13 @@ const showElevateButton = computed(() => lastError.value?.code === 'permission_d
 async function onRelaunchElevated() {
   const gid = games.selected?.id;
   if (!gid) return;
+  // An interrupted bundle install continues as that bundle install (spec §6.9);
+  // --elevate-update would plan a generic update over its sidecar.
+  const bundle = lastError.value?.params?.bundle as string | undefined;
+  if (bundle) {
+    await relaunchForBundle(gid, bundle);
+    return;
+  }
   try {
     await updates.relaunchElevated(gid);
   } catch (e) {
@@ -96,6 +105,9 @@ async function onRelaunchElevated() {
     pushToast(msg.includes('uac_declined') ? t('update.elevate_cancelled') : msg);
   }
 }
+
+// Quality-bundle installs run as kind=update; prefix their progress labels.
+const bundlePrefix = computed(() => (inFlight.value?.bundle ? t('bundle.install_prefix', { bundle: inFlight.value.bundle }) : ''));
 
 // Stage label from in_flight.stage + params (M3.B i18n)
 const stageLabel = computed<string>(() => {
@@ -328,12 +340,12 @@ async function onCancel() {
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'download'" class="progress-btn update">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || downloadLabel) }}</span>
+        <span class="label">{{ bundlePrefix }}{{ isVerifying ? verifyLabel : (stageLabel || downloadLabel) }}</span>
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'apply'" class="progress-btn update apply">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ stageLabel || t('update.applying', { cur: inFlight.current, total: inFlight.total }) }}</span>
+        <span class="label">{{ bundlePrefix }}{{ stageLabel || t('update.applying', { cur: inFlight.current, total: inFlight.total }) }}</span>
         <!-- cancel disabled in apply phase; show tooltip instead of ×: spec §2.6 -->
         <span class="cancel-x disabled" :title="cancelDisabledTooltip">×</span>
       </button>

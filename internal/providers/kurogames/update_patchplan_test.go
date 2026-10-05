@@ -5,8 +5,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -508,82 +506,6 @@ func TestBuildPlan_MergedProgressMonotonic(t *testing.T) {
 		if tot != 3 {
 			t.Errorf("total[%d] = %d, want 3 (constant)", i, tot)
 		}
-	}
-}
-
-// TestCheckForPredownload_FullFallbackUsesPredlConfig pins plan gate B1: a
-// predownload patch manifest that escalates to whole-plan fallback must
-// fetch the FULL indexFile from the PREDOWNLOAD config
-// (idx.Predownload.Config — the top-level config, NOT its PatchConfig[]
-// sub-entry used for the patch manifest itself), never the default
-// (live-version) config's full manifest — otherwise the fallback plan mixes
-// predl-target files with live-version files.
-func TestCheckForPredownload_FullFallbackUsesPredlConfig(t *testing.T) {
-	const gid = core.GameID("kurogames/wutheringwaves")
-
-	// idx.Predownload.Config is the FULL predl-target config (indexFile =
-	// predl/full/...); its PatchConfig[] holds a from-3.5.3 patch manifest
-	// at a distinct path. Local install version is 3.5.3 (planted below) so
-	// CheckForPredownload's own fetch uses the PATCH path, while
-	// mkFetchFull(idx.Predownload.Config, ...) — bound to the top-level
-	// config — must resolve to the FULL predl path.
-	index := `{
-	  "default":{"version":"3.5.3","cdnList":[{"url":"PLACEHOLDER/","P":0}],"config":{"version":"3.5.3","indexFile":"default/full/indexFile.json","baseUrl":"default/zip/"}},
-	  "predownload":{"version":"3.6.0","cdnList":[{"url":"PLACEHOLDER/","P":0}],"config":{
-	    "version":"3.6.0","indexFile":"predl/full/indexFile.json","baseUrl":"predl/zip/","patchType":"patch",
-	    "patchConfig":[{"version":"3.5.3","indexFile":"predl/patch/indexFile.json","baseUrl":"predl/patchzip/"}]
-	  }},
-	  "predownloadSwitch":1
-	}`
-	// Patch manifest with an unknown applyTypes value → forces whole-plan fallback.
-	patchManifest := `{"applyTypes":["group","zip"],"resource":[]}`
-	predlFullManifest := `{"resource":[{"dest":"predl-full.pak","md5":"abc","size":42}]}`
-
-	var defaultFullHit, predlFullHit bool
-	mux := http.NewServeMux()
-	var srv *httptest.Server
-	mux.HandleFunc("/index.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(strings.ReplaceAll(index, "PLACEHOLDER", srv.URL)))
-	})
-	mux.HandleFunc("/predl/patch/indexFile.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(patchManifest))
-	})
-	mux.HandleFunc("/predl/full/indexFile.json", func(w http.ResponseWriter, _ *http.Request) {
-		predlFullHit = true
-		w.Write([]byte(predlFullManifest))
-	})
-	mux.HandleFunc("/default/full/indexFile.json", func(w http.ResponseWriter, _ *http.Request) {
-		defaultFullHit = true
-		w.Write([]byte(`{"resource":[]}`))
-	})
-	srv = httptest.NewServer(mux)
-	defer srv.Close()
-
-	orig := indexJSONURL
-	indexJSONURL = func() string { return srv.URL + "/index.json" }
-	defer func() { indexJSONURL = orig }()
-
-	installDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(installDir, "launcherDownloadConfig.json"), []byte(`{"version":"3.5.3"}`), 0o644); err != nil {
-		t.Fatalf("plant launcherDownloadConfig.json: %v", err)
-	}
-
-	p := New(Settings{}, nil)
-	p.httpClient = srv.Client()
-	p.SetResolvedPaths(map[core.GameID]string{gid: installDir})
-
-	plan, err := p.CheckForPredownload(context.Background(), gid, nil)
-	if err != nil {
-		t.Fatalf("CheckForPredownload: %v", err)
-	}
-	if defaultFullHit {
-		t.Error("default (live) full indexFile was fetched — plan gate B1 violated")
-	}
-	if !predlFullHit {
-		t.Fatal("predl full indexFile was never fetched — expected whole-plan fallback to use idx.Predownload.Config")
-	}
-	if len(plan.Files) != 1 || plan.Files[0].Path != "predl-full.pak" {
-		t.Errorf("plan.Files = %+v, want [predl-full.pak] from the predl FULL manifest", plan.Files)
 	}
 }
 

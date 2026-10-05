@@ -468,6 +468,20 @@
   .gamecfg-save { background: var(--accent); color: var(--bg); border-color: var(--accent); }
   .gamecfg-save:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
   .gamecfg-reset { color: var(--crit); }
+  .gamecfg-section {
+    display: flex; flex-direction: column; gap: 6px;
+    border-top: 1px solid var(--border-strong);
+    padding-top: 10px; margin-top: 4px;
+  }
+  .gamecfg-stale { margin-left: 6px; text-transform: none; letter-spacing: 0; color: var(--warn); }
+  .gamecfg-hint { font-size: 11px; color: var(--text-2); line-height: 1.4; }
+  .bundle-row { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+  .bundle-row.disabled { opacity: 0.45; }
+  .bundle-row .bundle-pick { display: flex; align-items: center; gap: 8px; min-width: 72px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .bundle-row .bundle-status { flex: 1; min-width: 0; font-size: 11px; color: var(--text-2); }
+  .bundle-row .gamecfg-btn { padding: 4px 12px; }
+  .bundle-row input[type="radio"], .option-row input[type="checkbox"] { accent-color: var(--accent); margin: 0; }
+  .option-row { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
 
   .predl-area { flex-shrink: 0; margin-right: 16px; }
   .predl-btn {

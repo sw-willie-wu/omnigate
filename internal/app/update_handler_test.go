@@ -836,7 +836,7 @@ func TestResumeAsync_RunsPreflight(t *testing.T) {
 	}
 	state.mu.Unlock()
 
-	a.runResumeAsync(ctx, gid, upd, upd)
+	a.runResumeAsync(ctx, gid, upd, upd, "", "")
 
 	state.mu.RLock()
 	defer state.mu.RUnlock()
@@ -927,4 +927,141 @@ func TestRunUpdateWorker_LogsFailure(t *testing.T) {
 			t.Errorf("LastError = %+v, want nil after cancellation", state.LastError)
 		}
 	})
+}
+
+func TestApplyRecoveryState_ParamsCarryBundleAndVersion(t *testing.T) {
+	a, f := newBundleApp(t)
+	dir := a.sidecarVersionDir(f, gid, "3.7.0")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"game_id":"x","version":"3.7.0","etag":"t","bundle":"SD","entries":{}}`), 0o644)
+	a.applyRecoveryState(gid, dir)
+	le := a.updateRegistry.Get(gid).Snapshot().LastError
+	if le == nil || le.Params["bundle"] != "SD" || le.Params["version"] != "3.7.0" {
+		t.Fatalf("le=%+v", le)
+	}
+}
+
+func TestResumeInterrupted_BundleUsesBundlePlanFn(t *testing.T) {
+	for _, phase := range []string{"download", "apply"} {
+		t.Run(phase, func(t *testing.T) {
+			a, f := newBundleApp(t)
+			f.plan = core.UpdatePlan{Kind: core.PlanUpdate, Version: "3.7.0", ManifestETag: "t"}
+			dir := a.sidecarVersionDir(f, gid, "3.7.0")
+			_ = os.MkdirAll(dir, 0o755)
+			if phase == "download" {
+				_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"game_id":"x","version":"3.7.0","etag":"t","bundle":"SD","entries":{}}`), 0o644)
+			} else {
+				_ = os.WriteFile(filepath.Join(dir, "apply.wal"), []byte("{\n  \"version\": \"3.7.0\",\n  \"etag\": \"t\",\n  \"bundle\": \"SD\",\n  \"pending\": [],\n  \"done\": []\n}"), 0o644)
+			}
+			a.applyRecoveryState(gid, dir)
+			if err := a.ResumeInterrupted(string(gid)); err != nil {
+				t.Fatal(err)
+			}
+			waitIdle(t, a, gid)
+			if f.planCalls.Load() != 1 {
+				t.Fatalf("bundle planFn calls=%d", f.planCalls.Load())
+			}
+			if f.checkForUpdateCalls() != 0 { // bundle resume must not use the generic plan
+				t.Fatal("generic CheckForUpdate used for bundle resume")
+			}
+		})
+	}
+}
+
+func TestResumeInterrupted_BundleVersionDriftClearsSidecar(t *testing.T) {
+	a, f := newBundleApp(t)
+	f.plan = core.UpdatePlan{Kind: core.PlanUpdate, Version: "3.8.0", ManifestETag: "t"}
+	// Generic plan matches the sidecar (same version + ETag) so only the
+	// bundle drift path can delete it — keeps this test from passing vacuously.
+	f.updatePlan = core.UpdatePlan{Kind: core.PlanUpdate, Version: "3.7.0", ManifestETag: "t"}
+	dir := a.sidecarVersionDir(f, gid, "3.7.0")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"game_id":"x","version":"3.7.0","etag":"t","bundle":"SD","entries":{}}`), 0o644)
+	a.applyRecoveryState(gid, dir)
+	_ = a.ResumeInterrupted(string(gid))
+	waitIdle(t, a, gid)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("drifted bundle sidecar must be removed")
+	}
+}
+
+// I-1: a server-supplied bundle plan version must never steer a removeAll
+// outside the sidecar root.
+func TestResumeInterrupted_BundleBadPlanVersionAborts(t *testing.T) {
+	a, f := newBundleApp(t)
+	base := t.TempDir()
+	a.settings.App.TempDir = filepath.Join(base, "a", "b") // escape lands at base\a\x, still inside the test tree
+	f.plan = core.UpdatePlan{Kind: core.PlanUpdate, Version: "..\\..\\x", ManifestETag: "t"}
+	dir := a.sidecarVersionDir(f, gid, "3.7.0")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"game_id":"x","version":"3.7.0","etag":"t","bundle":"SD","entries":{}}`), 0o644)
+	// Sentinel where the unvalidated version would resolve, with a mismatching
+	// ETag so the manifest_changed branch would removeAll it.
+	sentinel := filepath.Join(base, "a", "x")
+	if got := filepath.Clean(a.sidecarVersionDir(f, gid, "..\\..\\x")); got != sentinel {
+		t.Fatalf("test setup: escaped path %s != sentinel %s", got, sentinel)
+	}
+	_ = os.MkdirAll(sentinel, 0o755)
+	_ = os.WriteFile(filepath.Join(sentinel, "progress.json"), []byte(`{"game_id":"x","version":"x","etag":"other","entries":{}}`), 0o644)
+	a.applyRecoveryState(gid, dir)
+	if err := a.ResumeInterrupted(string(gid)); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, a, gid)
+	le := a.updateRegistry.Get(gid).Snapshot().LastError
+	if le == nil || le.Code != "manifest_invalid" {
+		t.Fatalf("LastError = %+v, want manifest_invalid", le)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatal("sentinel outside the sidecar root was deleted")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatal("interrupted sidecar must not be deleted on manifest_invalid")
+	}
+}
+
+func TestResumeInterrupted_NonBundleDoesNotDelete(t *testing.T) {
+	a, f := newBundleApp(t)
+	// generic CheckForUpdate result; the sidecar below is e.g. a predl version dir
+	f.updatePlan = core.UpdatePlan{Kind: core.PlanUpdate, Version: "3.8.0", ManifestETag: "t"}
+	dir := a.sidecarVersionDir(f, gid, "3.9.0")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "progress.json"), []byte(`{"game_id":"x","version":"3.9.0","etag":"t","entries":{}}`), 0o644)
+	a.applyRecoveryState(gid, dir)
+	_ = a.ResumeInterrupted(string(gid))
+	waitIdle(t, a, gid)
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatal("non-bundle resume must not delete other version dirs")
+	}
+}
+
+// predlProv overrides the fake's predownload capability (spec §10.2: supported games keep predl_ready.json).
+type predlProv struct{ *fakeBundleProv }
+
+func (predlProv) SupportsPredownload(core.GameID) bool { return true }
+
+func TestScanForRecovery_KeepsPredlReadyForSupported(t *testing.T) {
+	a, f := newBundleApp(t)
+	a.providers = []core.Provider{predlProv{f}}
+	dir := a.sidecarVersionDir(f, gid, "3.8.0")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "predl_ready.json"), []byte(`{"game_id":"kurogames/wutheringwaves","version":"3.8.0","etag":"t","entries":{}}`), 0o644)
+	a.scanForRecovery()
+	if _, err := os.Stat(filepath.Join(dir, "predl_ready.json")); err != nil {
+		t.Fatal("predl_ready.json must be kept for a game that supports predownload")
+	}
+	if a.updateRegistry.Get(gid).Snapshot().PredlReady == nil {
+		t.Fatal("PredlReady not restored")
+	}
+}
+
+func TestScanForRecovery_RemovesPredlReadyForUnsupported(t *testing.T) {
+	a, f := newBundleApp(t) // fake SupportsPredownload=false
+	dir := a.sidecarVersionDir(f, gid, "3.8.0")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "predl_ready.json"), []byte(`{"game_id":"x","version":"3.8.0","etag":"t","entries":{}}`), 0o644)
+	a.scanForRecovery()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("v2 predl leftover not removed")
+	}
 }

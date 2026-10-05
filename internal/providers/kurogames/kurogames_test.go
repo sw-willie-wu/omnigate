@@ -65,10 +65,9 @@ func TestRunUpdate_AdoptsPredlStaged(t *testing.T) {
 		downloadCount.Add(1)
 		w.Write([]byte(body2))
 	})
-	// RunUpdate re-verifies the manifest ETag at entry (spec §2.8) by
-	// fetching index.json fresh. Serve the SAME ETag as the plan carries so
-	// that re-check is a no-op (equal → no manifest_changed) rather than
-	// hitting the real prod CDN from a test.
+	// RunUpdate re-verifies the plan token at entry by fetching the v3 game
+	// index fresh. Serving `{}` fails validateIndexV3 (no common pack), so
+	// the re-check is skipped rather than hitting the real prod CDN.
 	mux.HandleFunc("/index.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("ETag", `"e1"`)
 		w.Write([]byte(`{}`))
@@ -76,9 +75,9 @@ func TestRunUpdate_AdoptsPredlStaged(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	origURL := indexJSONURL
-	indexJSONURL = func() string { return srv.URL + "/index.json" }
-	defer func() { indexJSONURL = origURL }()
+	origURL := gameIndexURLs
+	gameIndexURLs = func() []string { return []string{srv.URL + "/index.json"} }
+	defer func() { gameIndexURLs = origURL }()
 
 	// RunUpdate's entry guard calls the real isProcessRunning (spec §2.7) —
 	// must be hermetic to the actual game being open on the dev/CI machine
@@ -168,9 +167,9 @@ func TestRunUpdate_ConsumeBeforeInit_PreservesParts(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	origURL := indexJSONURL
-	indexJSONURL = func() string { return srv.URL + "/index.json" }
-	defer func() { indexJSONURL = origURL }()
+	origURL := gameIndexURLs
+	gameIndexURLs = func() []string { return []string{srv.URL + "/index.json"} }
+	defer func() { gameIndexURLs = origURL }()
 
 	// RunUpdate's entry guard calls the real isProcessRunning (spec §2.7) —
 	// must be hermetic to the actual game being open on the dev/CI machine

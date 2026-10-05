@@ -22,6 +22,10 @@ func TestErrcodeCoverage(t *testing.T) {
 		"corrupt", "apply_partial", "patch_failed", "invalid_path",
 		"unrecoverable",
 		"unsupported_filesystem", "internal",
+		"manifest_invalid", "install_record_missing",
+		"bundle_unknown", "bundle_installed", "bundle_pending",
+		"bundle_not_installed", "bundle_in_use", "bundle_last",
+		"bundle_busy", "bundle_update_first", "bundle_remove_failed",
 	}
 	content := allGoFilesContent(t)
 	for _, code := range codes {
