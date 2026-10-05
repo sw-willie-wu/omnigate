@@ -1,6 +1,7 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useUpdatesStore } from '../stores/updates';
+import { useBundlesStore } from '../stores/bundles';
 
 // Spec §3.5 row 4 — surface "上次更新中斷" notifications whenever a game's
 // LastError is set to interrupted_resume. The Topbar bell-icon dropdown
@@ -9,6 +10,9 @@ import { useUpdatesStore } from '../stores/updates';
 export type NotificationItem = {
   gameID: string;
   message: string;
+  bundle?: string; // set when the interrupted run was a quality-bundle install
+  resumeLabel: string;
+  dismissLabel: string;
 };
 
 export function useResumePrompt() {
@@ -29,7 +33,12 @@ export function useResumePrompt() {
         : phase === 'apply'
         ? 'update.errors.interrupted_resume_apply'
         : 'update.errors.interrupted_resume_download';
-      out.push({ gameID, message: t(key) });
+      const bundle = (err.params?.bundle as string | undefined) || undefined;
+      out.push(
+        bundle
+          ? { gameID, bundle, message: t('bundle.interrupted', { bundle }), resumeLabel: t('bundle.resume'), dismissLabel: t('bundle.later') }
+          : { gameID, message: t(key), resumeLabel: t('buttons.confirm'), dismissLabel: t('buttons.cancel') },
+      );
     }
     return out;
   });
@@ -42,6 +51,9 @@ export function useResumePrompt() {
   async function dismiss(gameID: string) {
     await updates.dismissError(gameID);
   }
+  async function discard(gameID: string) {
+    await useBundlesStore().discardInterrupted(gameID);
+  }
 
-  return { pending, pendingCount, resume, dismiss };
+  return { pending, pendingCount, resume, dismiss, discard };
 }

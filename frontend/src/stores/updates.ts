@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { useGamesStore } from './games';
+import { useBundlesStore } from './bundles';
 import {
   StartUpdate,
   StartPredownload,
@@ -40,6 +41,7 @@ export type InFlightSnapshot = {
   total: number;
   version: string;
   started_at: string;
+  bundle?: string; // set when this update run installs a quality bundle (WuWa v3)
 };
 
 export type BellEntry =
@@ -111,6 +113,11 @@ export const useUpdatesStore = defineStore('updates', {
               if (justCompletedUpdate(prev, s)) {
                 games.refreshVersionFor(id);
                 games.loadAssetsFor(id);
+              }
+              // A bundle install ended (success, error or cancel): the
+              // installed/active rows changed, so refresh the bundle state.
+              if (prev?.in_flight?.bundle && !s.in_flight) {
+                void useBundlesStore().load(id);
               }
             }
             this.pendingPatches = {};

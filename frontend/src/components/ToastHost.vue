@@ -6,6 +6,7 @@ export type Toast = {
   message: string;
   retryable?: boolean;
   onRetry?: () => void;
+  retryLabel?: string;
 };
 
 const toasts = ref<Toast[]>([]);
@@ -36,7 +37,7 @@ function retry(t: Toast) {
     <TransitionGroup name="toast" tag="div" class="toast-host">
       <div v-for="t in toasts.slice(-3)" :key="t.id" class="toast" :class="{retryable: t.retryable}">
         <span class="msg">{{ t.message }}</span>
-        <button v-if="t.retryable" @click="retry(t)" class="btn-retry">Retry</button>
+        <button v-if="t.retryable" @click="retry(t)" class="btn-retry">{{ t.retryLabel ?? 'Retry' }}</button>
         <button @click="dismiss(t.id)" class="btn-close">×</button>
       </div>
       <div v-if="toasts.length > 3" :key="'overflow'" class="toast-overflow">+{{ toasts.length - 3 }} more</div>

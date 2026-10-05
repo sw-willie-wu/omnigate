@@ -6,7 +6,7 @@ export function registerToast(r: any) {
   toastRef.value = r;
 }
 
-export function pushToast(message: string, opts: { retryable?: boolean; onRetry?: () => void } = {}) {
+export function pushToast(message: string, opts: { retryable?: boolean; onRetry?: () => void; retryLabel?: string } = {}) {
   if (!toastRef.value) {
     console.error('ToastHost not mounted');
     return;

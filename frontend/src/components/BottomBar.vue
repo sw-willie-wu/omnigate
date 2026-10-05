@@ -97,6 +97,9 @@ async function onRelaunchElevated() {
   }
 }
 
+// Quality-bundle installs run as kind=update; prefix their progress labels.
+const bundlePrefix = computed(() => (inFlight.value?.bundle ? t('bundle.install_prefix', { bundle: inFlight.value.bundle }) : ''));
+
 // Stage label from in_flight.stage + params (M3.B i18n)
 const stageLabel = computed<string>(() => {
   const ifl = inFlight.value;
@@ -328,12 +331,12 @@ async function onCancel() {
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'download'" class="progress-btn update">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ isVerifying ? verifyLabel : (stageLabel || downloadLabel) }}</span>
+        <span class="label">{{ bundlePrefix }}{{ isVerifying ? verifyLabel : (stageLabel || downloadLabel) }}</span>
         <span v-if="showCancelX" class="cancel-x" @click.stop="onCancel">×</span>
       </button>
       <button v-else-if="inFlight && inFlight.kind === 'update' && inFlight.phase === 'apply'" class="progress-btn update apply">
         <span class="fill" :style="{width: progressPct + '%'}"></span>
-        <span class="label">{{ stageLabel || t('update.applying', { cur: inFlight.current, total: inFlight.total }) }}</span>
+        <span class="label">{{ bundlePrefix }}{{ stageLabel || t('update.applying', { cur: inFlight.current, total: inFlight.total }) }}</span>
         <!-- cancel disabled in apply phase; show tooltip instead of ×: spec §2.6 -->
         <span class="cancel-x disabled" :title="cancelDisabledTooltip">×</span>
       </button>

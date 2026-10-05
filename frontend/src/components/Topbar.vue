@@ -8,7 +8,7 @@ import { refreshAll } from '../composables/useRefreshAll';
 
 const { t } = useI18n();
 const view = useViewStore();
-const { pending, pendingCount, resume, dismiss } = useResumePrompt();
+const { pending, pendingCount, resume, dismiss, discard } = useResumePrompt();
 
 const panelOpen = ref(false);
 function toggleNotifPanel() { panelOpen.value = !panelOpen.value; }
@@ -57,8 +57,9 @@ async function toggleMax() {
           <div v-for="item in pending" :key="item.gameID" class="notif-item">
             <div class="notif-msg">{{ item.message }}</div>
             <div class="notif-actions">
-              <button class="notif-btn-cancel" @click="dismiss(item.gameID)">{{ t('buttons.cancel') }}</button>
-              <button class="notif-btn-ok" @click="resume(item.gameID)">{{ t('buttons.confirm') }}</button>
+              <button class="notif-btn-cancel" @click="discard(item.gameID)">{{ t('bundle.discard') }}</button>
+              <button class="notif-btn-cancel" @click="dismiss(item.gameID)">{{ item.dismissLabel }}</button>
+              <button class="notif-btn-ok" @click="resume(item.gameID)">{{ item.resumeLabel }}</button>
             </div>
           </div>
         </div>

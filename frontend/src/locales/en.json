@@ -202,7 +202,20 @@
       "patch_failed": "Failed to apply patch ({file}) — please retry; a full download will be used if this keeps failing",
       "invalid_path": "Update data contained an invalid path ({file}) — aborted to protect the game directory",
       "unrecoverable": "Update state corrupted; please use KRLauncher to repair",
-      "internal": "Internal error: {detail}"
+      "internal": "Internal error: {detail}",
+      "manifest_invalid": "Update data is malformed. Please try again later.",
+      "install_record_missing": "Install record not found. Please install the game with the official launcher first.",
+      "bundle_unknown": "Unsupported resource quality ({bundle})",
+      "bundle_installed": "{bundle} is already installed",
+      "bundle_pending": "{bundle} is being processed by the official launcher",
+      "bundle_not_installed": "{bundle} is not installed",
+      "bundle_in_use": "{bundle} is in use. Switch to another quality first.",
+      "bundle_last": "At least one resource quality must remain installed",
+      "bundle_busy": "An update or install is in progress. Please wait.",
+      "bundle_busy_residual": "Installation of quality {bundle} was interrupted. Resume or discard it first.",
+      "bundle_busy_residual_update": "An unfinished update exists. Resume or discard it first.",
+      "bundle_update_first": "Update the game before installing another resource quality",
+      "bundle_remove_failed": "Failed to remove {bundle}. Close the game and the official launcher, then retry."
     },
     "error": {
       "insufficient_space": "Needs {required}, {available} available; free up space and retry",
@@ -285,5 +298,25 @@
     "currentlyLoggedIn": "Logged in",
     "addAccount": "+ Add account",
     "delete": "Remove account"
+  },
+  "bundle": {
+    "title": "Resource quality",
+    "options_title": "Launch options",
+    "hint": "Switching only changes which resources load at launch; each quality's files are stored separately and unused ones can be removed.",
+    "installed": "Installed {version}",
+    "not_installed": "Not installed · {size}",
+    "active": "In use",
+    "pending": "Being processed by the official launcher",
+    "unsupported": "Unsupported",
+    "install": "Install",
+    "remove": "Remove",
+    "confirm_install": "Installing \"{name}\" requires downloading {size}. Continue?",
+    "confirm_remove": "Removing \"{name}\" frees {size}. Continue?",
+    "install_prefix": "Installing quality {bundle}: ",
+    "interrupted": "Installing quality {bundle} was interrupted. Continue the download? Discard deletes the partially downloaded files.",
+    "resume": "Continue",
+    "later": "Later",
+    "discard": "Discard",
+    "stale": " (offline data)"
   }
 }

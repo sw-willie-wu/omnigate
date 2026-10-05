@@ -202,7 +202,20 @@
       "patch_failed": "更新檔套用失敗（{file}）——請重試；若持續失敗將改用完整下載",
       "invalid_path": "更新資料含非法路徑（{file}）——已中止以保護遊戲目錄",
       "unrecoverable": "更新狀態已損毀，請使用 KRLauncher 修復後再試",
-      "internal": "內部錯誤：{detail}"
+      "internal": "內部錯誤：{detail}",
+      "manifest_invalid": "更新資料格式異常，請稍後再試",
+      "install_record_missing": "找不到安裝紀錄，請先用官方啟動器安裝遊戲",
+      "bundle_unknown": "不支援的資源等級（{bundle}）",
+      "bundle_installed": "{bundle} 已安裝",
+      "bundle_pending": "{bundle} 正由官方啟動器處理中",
+      "bundle_not_installed": "{bundle} 尚未安裝",
+      "bundle_in_use": "{bundle} 使用中，請先切換到其他等級",
+      "bundle_last": "至少需保留一個資源等級",
+      "bundle_busy": "有進行中的更新或安裝，請稍候",
+      "bundle_busy_residual": "畫質 {bundle} 的安裝已中斷，請先繼續或放棄",
+      "bundle_busy_residual_update": "有未完成的更新，請先繼續或放棄",
+      "bundle_update_first": "請先更新遊戲再安裝其他資源等級",
+      "bundle_remove_failed": "刪除 {bundle} 失敗，請關閉遊戲與官方啟動器後重試"
     },
     "error": {
       "insufficient_space": "需要 {required}，可用 {available}；請清理後重試",
@@ -285,5 +298,25 @@
     "currentlyLoggedIn": "目前登入",
     "addAccount": "＋ 新增帳號",
     "delete": "移除帳號"
+  },
+  "bundle": {
+    "title": "資源等級",
+    "options_title": "啟動選項",
+    "hint": "切換只影響啟動時載入的資源；各等級檔案獨立並存，不用的可刪除。",
+    "installed": "已安裝 {version}",
+    "not_installed": "未安裝 · {size}",
+    "active": "使用中",
+    "pending": "官方啟動器處理中",
+    "unsupported": "不支援",
+    "install": "安裝",
+    "remove": "刪除",
+    "confirm_install": "安裝「{name}」需下載 {size}，確定？",
+    "confirm_remove": "刪除「{name}」可釋放 {size}，確定？",
+    "install_prefix": "安裝畫質 {bundle}：",
+    "interrupted": "畫質 {bundle} 的安裝已中斷，要繼續下載嗎？放棄會刪除已下載的部分。",
+    "resume": "繼續安裝",
+    "later": "稍後",
+    "discard": "放棄",
+    "stale": "（離線資料）"
   }
 }
